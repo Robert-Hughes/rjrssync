@@ -5,3 +5,5 @@ TODO:
 
 * Config file containing src/dest, ignore/allow list etc. Use serde_json?
 * Security! We're opening ports that allow people to control our computers!
+* Network port specified as command line arg or other configuration variable?
+* Send magic number before version, to make sure we're conencted to the right program!
