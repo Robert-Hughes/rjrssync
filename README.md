@@ -4,3 +4,4 @@ to maximise speed syncing between Windows and WSL filesystems (accessing WSL fil
 TODO:
 
 * Config file containing src/dest, ignore/allow list etc. Use serde_json?
+* Security! We're opening ports that allow people to control our computers!
