@@ -136,7 +136,8 @@ fn daemon_connection_handler(mut stream: TcpStream) {
     while stream.read(&mut buf).unwrap_or(0) > 0 {
         info!("Received data from client {:?}: {}", stream, buf[0]);
 
-        //TODO: if get a message telling us to start a transfer, setup_comms with the dest.
+        //TODO: if get a message telling us to start a transfer, setup_comms(false) with the dest.
+        //        (false cos the Dest should already have been set up with new version if necessary, so don't do it again)
         //TODO:     get a list of all the files in the local dir, and ask the dest to do the same
         //TODO:     compare the lists
         //TODO:     send over any files that have changed
@@ -205,7 +206,9 @@ fn setup_comms(remote_host: &str, allow_restart_remote_daemon_if_necessary: bool
     if allow_restart_remote_daemon_if_necessary {   
         spawn_daemon_on_remote(&remote_addr);
 
-        // Try again to connect to the new daemon. Don't allow this recursion to spawn a new daemon again though!
+        // Try again to connect to the new daemon. 
+        // Don't allow this recursion to spawn a new daemon again though in case we still can't connect,
+        // otherwise it would keep trying forever!
         let result = setup_comms(remote_host, false);
         if result.is_none() {
             error!("Failed to setup_comms even after spawning a new daemon");
@@ -221,4 +224,5 @@ fn spawn_daemon_on_remote(remote_addr: &str) {
 
     error!("Not implemented!");
     //TODO: sync sources and run cargo build/run?
+    // could build sources into the executable as a resource as part of the build process (build.rs?), and then deploy this.
 }
