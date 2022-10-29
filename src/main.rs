@@ -4,6 +4,7 @@ use clap::Parser;
 use log::{info, error, warn};
 
 const VERSION: i32 = 1;
+const MAGIC: [u8; 4] = [19, 243, 129, 88];
 
 #[derive(clap::Parser)]
 struct CliArgs {
@@ -62,21 +63,21 @@ fn cli_main() {
     // Dest isn't reachable from Source).
 
     // Get list of hosts to launch and estabilish communication with
-    let (src_host, src_folder) = parse_remote_folder(&args.src);
-    let (dest_host, dest_folder) = parse_remote_folder(&args.dest);
+    let (src_host, _src_folder) = parse_remote_folder(&args.src);
+    let (dest_host, _dest_folder) = parse_remote_folder(&args.dest);
 
     // Launch rjrssync (if not already running) on both remote hosts and estabilish communication (check version etc.)
     let src_comms = setup_comms(&src_host, true);
     if src_comms.is_none() {
         return;
     }
-    let src_comms = src_comms.unwrap();
+    let _src_comms = src_comms.unwrap();
 
     let dest_comms = setup_comms(&dest_host, true);
     if dest_comms.is_none() {
         return;
     }
-    let dest_comms = dest_comms.unwrap();
+    let _dest_comms = dest_comms.unwrap();
 
     //TODO: tell the src to initiate the command, and it will contact the dest to request/send stuff as necessary
     error!("Instruct src to begin transfer - Not implemented!");
@@ -85,13 +86,13 @@ fn cli_main() {
 fn daemon_main() {
     info!("Running as background daemon");
 
-    let args = DaemonCliArgs::parse();
+    let _args = DaemonCliArgs::parse();
 
     // Start command-processing loop, listening on a port for other instances to connect to us and make requests.
     let listener = TcpListener::bind("127.0.0.1:7878").unwrap();
     info!("Waiting for incoming connections...");
     for stream in listener.incoming() {
-        let mut stream = stream.unwrap();
+        let stream = stream.unwrap();
 
         info!("Incoming connection from {:?}", stream);
 
@@ -103,11 +104,13 @@ fn daemon_main() {
 }
 
 fn daemon_connection_handler(mut stream: TcpStream) {
-    // Send our version number, so the client can check if it's compatible.
+    // Send our magic and version number, so the client can check if it's compatible.
     // Note that the 'protocol' used to check version number etc. needs to always be backwards-compatible,
     // so is very basic.
     info!("Sending version number {}", VERSION);
-    if stream.write(&VERSION.to_le_bytes()).is_err() {
+    let mut magic_and_version = MAGIC.to_vec();
+    magic_and_version.append(&mut VERSION.to_le_bytes().to_vec());
+    if stream.write(&magic_and_version).is_err() {
         warn!("Error - giving up on this client");
         return;
     }
@@ -116,7 +119,7 @@ fn daemon_connection_handler(mut stream: TcpStream) {
     // that is compatible with them
     info!("Waiting for reply");
     let mut buf: [u8; 1] = [0];
-    if stream.read(&mut buf).is_err() {
+    if stream.read(&mut buf).unwrap_or(0) != 1 {
         warn!("Error - giving up on this client");
         return;
     }
@@ -156,17 +159,26 @@ fn setup_comms(remote_host: &str, allow_restart_remote_daemon_if_necessary: bool
     if let Ok(mut stream) = TcpStream::connect(&remote_addr) {
         info!("Connected to '{}'", &remote_addr);
  
-        // Wait for the server to send their version, so we can check if it's compatible with ours
+        // Wait for the server to send their magic and version, so we can check if it's compatible with ours
         // Note that the 'protocol' used to check version number etc. needs to always be backwards-compatible,
         // so is very basic.
-        let mut server_version = -1;
+        let server_version;
         info!("Waiting for version number");
-        let mut buf: [u8; 4] = [0; 4];
-        if stream.read(&mut buf).is_ok() {
-            server_version = i32::from_le_bytes(buf);
+        let mut buf: [u8; 8] = [0; 8]; // 4 bytes for magic, 4 bytes for version
+        if stream.read(&mut buf).unwrap_or(0) == 8 {
+            let server_magic = &buf[0..4];
+            if server_magic != MAGIC {
+                error!("Server replied with wrong magic. Not attempting to restart it, as there may be an unknown process (not us) listening on that port and we don't want to interfere with it.");
+                return None;
+            }
+
+            let mut b : [u8; 4] = [0; 4];
+            b.copy_from_slice(&buf[4..8]);
+            server_version = i32::from_le_bytes(b);
             info!("Received server version {}", server_version);
         } else {
-            warn!("Server is not replying");
+            error!("Server is not replying as expected. Not attempting to restart it, as there may be an unknown process (not us) listening on that port and we don't want to interfere with it.");
+            return None;
         }
 
         if server_version == VERSION + 1 { //TODO: +1 for testing - remove me!!
@@ -182,7 +194,7 @@ fn setup_comms(remote_host: &str, allow_restart_remote_daemon_if_necessary: bool
             if allow_restart_remote_daemon_if_necessary {
                 info!("Server has incompatible version - telling it to stop so we can restart it");
                 // Send packet to tell server to restart
-                stream.write(&[1 as u8]); // Don't need to check result here - even if it failed, we will still try to launch new server
+                let _ = stream.write(&[1 as u8]); // Don't need to check result here - even if it failed, we will still try to launch new server
             }
         }
     } else {
