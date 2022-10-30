@@ -116,6 +116,8 @@ fn daemon_main() {
     let _args = DaemonCliArgs::parse();
 
     // Start command-processing loop, listening on a port for other instances to connect to us and make requests.
+    //TODO: will need to listen on other interfaces so can accept remote connections, but might want to fix
+    // security issues first!
     let listener = TcpListener::bind("127.0.0.1:7878").unwrap();
     info!("Waiting for incoming connections...");
     for stream in listener.incoming() {
