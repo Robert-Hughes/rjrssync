@@ -2,6 +2,7 @@ use std::{net::{TcpListener, TcpStream}, io::{Write, Read}};
 
 use clap::Parser;
 use log::{info, error, warn};
+use rust_embed::RustEmbed;
 
 const VERSION: i32 = 1;
 const MAGIC: [u8; 4] = [19, 243, 129, 88];
@@ -204,25 +205,45 @@ fn setup_comms(remote_host: &str, allow_restart_remote_daemon_if_necessary: bool
 
     // No instance running - spawn a new one
     if allow_restart_remote_daemon_if_necessary {   
-        spawn_daemon_on_remote(&remote_addr);
-
-        // Try again to connect to the new daemon. 
-        // Don't allow this recursion to spawn a new daemon again though in case we still can't connect,
-        // otherwise it would keep trying forever!
-        let result = setup_comms(remote_host, false);
-        if result.is_none() {
-            error!("Failed to setup_comms even after spawning a new daemon");
+        if spawn_daemon_on_remote(&remote_addr) {
+            // Try again to connect to the new daemon. 
+            // Don't allow this recursion to spawn a new daemon again though in case we still can't connect,
+            // otherwise it would keep trying forever!
+            let result = setup_comms(remote_host, false);
+            if result.is_none() {
+                error!("Failed to setup_comms even after spawning a new daemon");
+            }
+            return result;
+        } else {
+            error!("Failed to spawn a new daemon. Please launch it manually.");
+            return None;
         }
-        return result;
     } else {
         return None;
     }
 }
 
-fn spawn_daemon_on_remote(remote_addr: &str) {
+// This embeds the source code of the program into the executable, so it can be deployed remotely and built on other platforms
+#[derive(RustEmbed)]
+#[folder = "."]
+#[include = "src/*"]
+#[include = "Cargo.*"]
+struct EmbeddedSource;
+
+fn spawn_daemon_on_remote(remote_addr: &str) -> bool {
     info!("Spawning new daemon on '{}'", &remote_addr);
 
-    error!("Not implemented!");
+    // Copy our embedded source tree to the remote, so we can build it there. 
+    // (we can't simply copy the binary as it might not be compatible with the remote platform) 
+
+    for file in EmbeddedSource::iter() {
+        info!("{:?}", file);
+    }
+
+    error!("Not implemented");
+    return false;
     //TODO: sync sources and run cargo build/run?
     // could build sources into the executable as a resource as part of the build process (build.rs?), and then deploy this.
+
+    // Use user's existing ssh tool so that their config/settings will be used.
 }

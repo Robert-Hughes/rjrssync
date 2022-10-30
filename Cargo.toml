@@ -9,3 +9,4 @@ edition = "2021"
 clap = { version = "4.0", features = ["derive"] }
 simple_logger="*"
 log="*"
+rust-embed = { version = "6.4.2", features = [ "debug-embed", "include-exclude" ] } # debug-embed Otherwise the behaviour is different in debug vs release builds
