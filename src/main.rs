@@ -1,8 +1,9 @@
 use std::{net::{TcpListener, TcpStream}, io::{Write, Read}};
-
 use clap::Parser;
 use log::{info, error, warn};
 use rust_embed::RustEmbed;
+use tempdir::TempDir;
+use std::process::{Command};
 
 const VERSION: i32 = 1;
 const MAGIC: [u8; 4] = [19, 243, 129, 88];
@@ -18,11 +19,36 @@ struct DaemonCliArgs {
     daemon: bool,
 }
 
-fn parse_remote_folder(s: &str) -> (String, String) {
-    match s.split_once(':') {
-        None => ("localhost".to_string(), s.to_string()),
-        Some((a, b)) => (a.to_string(), b.to_string())
-    }
+#[derive(Default)]
+struct RemoteFolderDesc {
+    user: String,
+    hostname: String,
+    folder: String,
+}
+
+fn parse_remote_folder(s: &str) -> RemoteFolderDesc {
+    let mut r = RemoteFolderDesc::default();
+
+    let after_user;
+    match s.split_once('@') {
+        None => after_user = s,
+        Some((a, b)) => {
+            r.user = a.to_string();
+            after_user = b;
+        }
+    };
+    match after_user.split_once(':') {
+        None => {
+            r.hostname = "localhost".to_string();
+            r.folder = after_user.to_string();
+        },
+        Some((a, b)) => {
+            r.hostname = a.to_string();
+            r.folder = b.to_string();
+        }
+    };
+
+    return r;
 }
 
 fn main() {
@@ -64,17 +90,17 @@ fn cli_main() {
     // Dest isn't reachable from Source).
 
     // Get list of hosts to launch and estabilish communication with
-    let (src_host, _src_folder) = parse_remote_folder(&args.src);
-    let (dest_host, _dest_folder) = parse_remote_folder(&args.dest);
+    let src_folder_desc = parse_remote_folder(&args.src);
+    let dest_folder_desc = parse_remote_folder(&args.dest);
 
     // Launch rjrssync (if not already running) on both remote hosts and estabilish communication (check version etc.)
-    let src_comms = setup_comms(&src_host, true);
+    let src_comms = setup_comms(&src_folder_desc.hostname, &src_folder_desc.user, true);
     if src_comms.is_none() {
         return;
     }
     let _src_comms = src_comms.unwrap();
 
-    let dest_comms = setup_comms(&dest_host, true);
+    let dest_comms = setup_comms(&dest_folder_desc.hostname, &dest_folder_desc.user, true);
     if dest_comms.is_none() {
         return;
     }
@@ -152,10 +178,10 @@ fn daemon_connection_handler(mut stream: TcpStream) {
 
 }
 
-fn setup_comms(remote_host: &str, allow_restart_remote_daemon_if_necessary: bool) -> Option::<TcpStream> {
-    let remote_addr = remote_host.to_string() + ":7878";
+fn setup_comms(remote_hostname: &str, remote_user: &str, allow_restart_remote_daemon_if_necessary: bool) -> Option::<TcpStream> {
+    info!("setup_comms with '{}'", remote_hostname);
 
-    info!("setup_comms with '{}'", remote_addr);
+    let remote_addr = remote_hostname.to_string() + ":7878";
 
     // Attempt to connect to an already running instance, to save time
     if let Ok(mut stream) = TcpStream::connect(&remote_addr) {
@@ -205,11 +231,11 @@ fn setup_comms(remote_host: &str, allow_restart_remote_daemon_if_necessary: bool
 
     // No instance running - spawn a new one
     if allow_restart_remote_daemon_if_necessary {   
-        if spawn_daemon_on_remote(&remote_addr) {
+        if spawn_daemon_on_remote(remote_hostname, remote_user) {
             // Try again to connect to the new daemon. 
             // Don't allow this recursion to spawn a new daemon again though in case we still can't connect,
             // otherwise it would keep trying forever!
-            let result = setup_comms(remote_host, false);
+            let result = setup_comms(remote_hostname, remote_user, false);
             if result.is_none() {
                 error!("Failed to setup_comms even after spawning a new daemon");
             }
@@ -230,20 +256,89 @@ fn setup_comms(remote_host: &str, allow_restart_remote_daemon_if_necessary: bool
 #[include = "Cargo.*"]
 struct EmbeddedSource;
 
-fn spawn_daemon_on_remote(remote_addr: &str) -> bool {
-    info!("Spawning new daemon on '{}'", &remote_addr);
+fn spawn_daemon_on_remote(remote_hostname: &str, remote_user: &str) -> bool {
+    info!("Spawning new daemon on '{}'", &remote_hostname);
 
     // Copy our embedded source tree to the remote, so we can build it there. 
     // (we can't simply copy the binary as it might not be compatible with the remote platform) 
+    // We use the user's existing ssh/scp tool so that their config/settings will be used for 
+    // logging in to the remote system (as opposed to using an ssh library called from our code).
 
+    // Save to a temporary local folder
+    let temp_dir = match TempDir::new("EmbeddedSource") {
+        Ok(x) => x,
+        Err(e) => { 
+            error!("Error creating temp dir: {}", e); 
+            return false;
+        }
+    };
+    info!("Writing embedded source to temp dir: {}", temp_dir.path().display());
     for file in EmbeddedSource::iter() {
-        info!("{:?}", file);
+        let temp_path = temp_dir.path().join(&*file);
+      
+        if let Err(e) = std::fs::create_dir_all(temp_path.parent().unwrap()) {
+            error!("Error creating folders for temp file: {}", e); 
+            return false;
+        }
+
+        let mut f = match std::fs::File::create(&temp_path) {
+            Ok(x) => x,
+            Err(e) => { 
+                error!("Error creating temp file {}: {}", temp_path.display(), e); 
+                return false;
+            }    
+        };
+
+        if let Err(e) = f.write_all(&EmbeddedSource::get(&file).unwrap().data) {
+            error!("Error writing temp file: {}", e); 
+            return false;
+        }
     }
 
-    error!("Not implemented");
-    return false;
-    //TODO: sync sources and run cargo build/run?
-    // could build sources into the executable as a resource as part of the build process (build.rs?), and then deploy this.
-
-    // Use user's existing ssh tool so that their config/settings will be used.
+    // Deploy to remote target
+    let remote_temp_folder = "/tmp/rjrssync/";
+    let user_prefix = if remote_user.is_empty() { "".to_string() } else { remote_user.to_string() + "@" };
+    let remote_spec = user_prefix.clone() + remote_hostname + ":" + remote_temp_folder;
+    info!("Copying source to {}", remote_spec);
+    match Command::new("scp")
+            .arg("-r")
+            .arg(temp_dir.path())
+            .arg(remote_spec)
+            .status() {
+        Err(e) => {
+            error!("Error launching scp: {}", e); 
+            return false;
+        },
+        Ok(s) if s.code() == Some(0) => {
+            // good!
+        }
+        Ok(s) => {
+            error!("Error copying source code. Exit status from scp: {}", s); 
+            return false;
+        },
+    };
+    
+    // Build and run the daemon remotely (using the cargo on the remote system)
+    let remote_command = format!("cd {} && cargo run -- --daemon", remote_temp_folder);
+    info!("Running remote command: {}", remote_command);
+    match Command::new("ssh")
+            .arg(user_prefix + remote_hostname)
+            .arg(remote_command)
+            .status() {
+        Err(e) => {
+            error!("Error launching ssh: {}", e); 
+            return false;
+        },
+        Ok(s) if s.code() == Some(0) => {
+            // good!
+        }
+        Ok(s) => {
+            error!("Error building or launching on remote. Exit status from ssh: {}", s); 
+            return false;
+        },
+    };
+     //TODO: detach from the now running process! Maybe use cargo build and run separately? So we can wait for the build but then run it detached?
+     // (don't want to keep our local ssh process running the whole time though! It needs to be detached on the other end!)
+           
+    return true;
 }

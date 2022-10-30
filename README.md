@@ -11,6 +11,7 @@ TODO:
     * Filters could be regexes on the path relative to the root (folder being synced)
     * If a dir is excluded by the filters (after resolving all filters), then we don't walk inside that dir, so stuff inside it will be excluded *even if the filters would have matched them*
 * Security! We're opening ports that allow people to control our computers!
+    * Could we use ssh for this somehow, like using ssh to forward our authenticate and then forward our connections?
 * Network port specified as command line arg or other configuration variable?
 * Investigate if parallelising some stages would speed it up, e.g. walking the dir structure on multiple threads, or sending data across network on multiple threads
 * Investigate if pipelining some stages would speed it up, e.g. sending file list while also sending it
