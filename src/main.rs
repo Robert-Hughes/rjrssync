@@ -223,6 +223,8 @@ fn setup_comms(remote_hostname: &str, remote_user: &str, allow_restart_remote_da
                 info!("Server has incompatible version - telling it to stop so we can restart it");
                 // Send packet to tell server to restart
                 let _ = stream.write(&[1 as u8]); // Don't need to check result here - even if it failed, we will still try to launch new server
+            } else {
+                error!("Server has incompatible version, and we're not going to restart it.");
             }
         }
     } else {
