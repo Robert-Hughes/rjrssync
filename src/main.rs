@@ -225,7 +225,7 @@ fn setup_comms(remote_hostname: &str, remote_user: &str, allow_restart_remote_da
             }
         } else {
             if allow_restart_remote_daemon_if_necessary {
-                info!("Server has incompatible version - telling it to stop so we can restart it");
+                warn!("Server has incompatible version - telling it to stop so we can restart it");
                 // Send packet to tell server to restart
                 let _ = stream.write(&[1 as u8]); // Don't need to check result here - even if it failed, we will still try to launch new server
             } else {
@@ -310,11 +310,14 @@ fn spawn_daemon_on_remote(remote_hostname: &str, remote_user: &str) -> bool {
     let source_spec = temp_dir.path().join("rjrssync");
     let remote_spec = user_prefix.clone() + remote_hostname + ":" + remote_temp_folder.parent().unwrap().to_str().unwrap();
     info!("Copying source to {}", remote_spec);
-    match Command::new("scp")
-            .arg("-r")
-            .arg(source_spec)
-            .arg(remote_spec)
-            .status() {
+    // Note that we run "cmd /C scp ..." rather than just "scp", otherwise the line endings get messed up and subsequent log messages are broken.
+    match Command::new("cmd")
+        .arg("/C")
+        .arg("scp")
+        .arg("-r")
+        .arg(source_spec)
+        .arg(remote_spec)
+        .status() {
         Err(e) => {
             error!("Error launching scp: {}", e); 
             return false;
@@ -333,10 +336,13 @@ fn spawn_daemon_on_remote(remote_hostname: &str, remote_user: &str) -> bool {
     // ssh connection open.
     let remote_command = format!("cd {} && cargo build && (nohup cargo run -- --daemon > out.log 2> err.log </dev/null &)", remote_temp_folder.display());
     info!("Running remote command: {}", remote_command);
-    match Command::new("ssh")
-            .arg(user_prefix + remote_hostname)
-            .arg(remote_command)
-            .status() {
+     // Note that we run "cmd /C ssh ..." rather than just "ssh", otherwise the line endings get messed up and subsequent log messages are broken.
+     match Command::new("cmd")
+        .arg("/C")
+        .arg("ssh")
+        .arg(user_prefix + remote_hostname)
+        .arg(remote_command)
+        .status() {
         Err(e) => {
             error!("Error launching ssh: {}", e); 
             return false;
@@ -349,8 +355,6 @@ fn spawn_daemon_on_remote(remote_hostname: &str, remote_user: &str) -> bool {
             return false;
         },
     };
-     //TODO: detach from the now running process! Maybe use cargo build and run separately? So we can wait for the build but then run it detached?
-     // (don't want to keep our local ssh process running the whole time though! It needs to be detached on the other end!)
-           
+
     return true;
 }
