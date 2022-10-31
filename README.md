@@ -23,6 +23,7 @@ TODO:
     saved to a file on the initiator?
     Probably the initiator needs to handle the transfer (rather than orig plan of Src contacting Dest), as the hostname of Dest may not be the 
     same when addressing from Src (e.g. localhost). This is also more symmetrical/simpler?
+    Should replace "daemon" with something like remote/secondary/responder/dumb
 * Network port specified as command line arg or other configuration variable?
 * Investigate if parallelising some stages would speed it up, e.g. walking the dir structure on multiple threads, or sending data across network on multiple threads
 * Investigate if pipelining some stages would speed it up, e.g. sending file list while also sending it
