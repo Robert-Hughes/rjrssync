@@ -39,7 +39,9 @@ fn parse_remote_folder(s: &str) -> RemoteFolderDesc {
     };
     match after_user.split_once(':') {
         None => {
-            r.hostname = "localhost".to_string();
+            // Default to localhost if no host specified. Note that using the IP address rather than 'localhost' speeds up connection
+            // (presumably because it doesn't have to do a hostname lookup).
+            r.hostname = "127.0.0.1".to_string(); 
             r.folder = after_user.to_string();
         },
         Some((a, b)) => {
@@ -188,7 +190,8 @@ fn setup_comms(remote_hostname: &str, remote_user: &str, allow_restart_remote_da
     let remote_addr = remote_hostname.to_string() + ":7878";
 
     // Attempt to connect to an already running instance, to save time
-    //TODO: this seems to be quite slow, even when the remote is already listening.
+    //TODO: this seems to be quite slow, even when the remote is already listening. Using IP address rather than hostname
+    // does fix it, but surely looking up "localhost" should be fast?
     if let Ok(mut stream) = TcpStream::connect(&remote_addr) {
         info!("Connected to '{}'", &remote_addr);
  
