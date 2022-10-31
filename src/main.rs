@@ -1,4 +1,4 @@
-use std::{net::{TcpListener, TcpStream}, io::{Write, Read}, path::PathBuf};
+use std::{net::{TcpListener, TcpStream}, io::{Write, Read, stdout, stdin, stderr}, path::PathBuf, process::{Stdio, ExitCode}, thread::sleep, time::Duration};
 use clap::Parser;
 use log::{info, error, warn};
 use rust_embed::RustEmbed;
@@ -9,14 +9,14 @@ const VERSION: i32 = 1;
 const MAGIC: [u8; 4] = [19, 243, 129, 88];
 
 #[derive(clap::Parser)]
-struct CliArgs {
+struct PrimaryCliArgs {
     src: String,
     dest: String,
 }
 #[derive(clap::Parser)]
-struct DaemonCliArgs {
+struct SecondaryCliArgs {
     #[arg(short, long)]
-    daemon: bool,
+    secondary: bool,
 }
 
 #[derive(Default)]
@@ -39,9 +39,6 @@ fn parse_remote_folder(s: &str) -> RemoteFolderDesc {
     };
     match after_user.split_once(':') {
         None => {
-            // Default to localhost if no host specified. Note that using the IP address rather than 'localhost' speeds up connection
-            // (presumably because it doesn't have to do a hostname lookup).
-            r.hostname = "127.0.0.1".to_string(); 
             r.folder = after_user.to_string();
         },
         Some((a, b)) => {
@@ -53,43 +50,36 @@ fn parse_remote_folder(s: &str) -> RemoteFolderDesc {
     return r;
 }
 
-fn main() {
+fn main() -> ExitCode {
     // Configure logging
     simple_logger::SimpleLogger::new().env().init().unwrap();
 
     // The process can run as either a CLI which takes input from the command line, performs
-    // a transfer and then exits once complete, or as a background daemon which stays alive
-    // and processes commands until it is told to exit. Daemon(s) are used on each of the src
-    // and dest computers to perform a transfer.
-    // The daemon and CLI modes have different command-line arguments, so handle them separately.
-    if std::env::args().any(|a| a == "--daemon") {
-        daemon_main();
+    // a transfer and then exits once complete ("primary"), or as a remote process on either the source
+    // or destination computer which responds to commands from the primary (this is a "secondary").
+    // The primary (CLI) and secondary modes have different command-line arguments, so handle them separately.
+    if std::env::args().any(|a| a == "--secondary") {
+        return secondary_main();
     } else {
-        cli_main();
+        return primary_main();
     }
 }
 
-fn cli_main() {
-    info!("Running as CLI");
+fn primary_main() -> ExitCode {
+    info!("Running as primary");
 
-    let args = CliArgs::parse();
+    let args = PrimaryCliArgs::parse();
 
     // The src and/or dest may be on another computer. We need to run a copy of rjrssync on the remote 
     // computer(s) and set up network commmunication. For consistency, we assume both are remote, even if they
     // are actually local.
-    // There are therefore three copies of our program involved (although some may actually be the same as each other)
-    //   Initiator - this copy, which received the command line from the user
-    //   Source - runs on the computer specified by the `src` command-line arg, which may simply be the local computer.
-    //            This is still a different instance to the Initiator, as the Initiator will close once the transfer is done,
-    //            but the daemon will keep running in the background to serve other requests.
-    //   Dest - the computer specified by the `dest` command-line arg, which may simply be the local computer, 
-    //          and/or it may be the same as the Source computer. If Source and Dest are the same, then that daemon process
-    //          will 'talk to itself'.
-    //
-    // Note that we don't strictly need to set up the Dest now, as the Source could do that once we instruct it, however
-    // it's easier to check for communication errors in the Initiator process, as we can report these nicely to the user.
-    // Also, in future we may want to use the Initiator as some sort of network bridge between Source and Dest (e.g. if
-    // Dest isn't reachable from Source).
+    // There are therefore up to three copies of our program involved (although some may actually be the same as each other)
+    //   Primary - this copy, which received the command line from the user
+    //   Source - runs on the computer specified by the `src` command-line arg, and so if this is the local computer
+    //            then this may be the same copy as the Primary.
+    //   Dest - the computer specified by the `dest` command-line arg, and so if this is the local computer
+    //          then this may be the same copy as the Primary.
+    //          If Source and Dest are the same computer, they are still separate copies for simplicity.
 
     // Get list of hosts to launch and estabilish communication with
     let src_folder_desc = parse_remote_folder(&args.src);
@@ -98,76 +88,54 @@ fn cli_main() {
     // Launch rjrssync (if not already running) on both remote hosts and estabilish communication (check version etc.)
     let src_comms = setup_comms(&src_folder_desc.hostname, &src_folder_desc.user, true);
     if src_comms.is_none() {
-        return;
+        return ExitCode::from(10);
     }
     let _src_comms = src_comms.unwrap();
 
     let dest_comms = setup_comms(&dest_folder_desc.hostname, &dest_folder_desc.user, true);
     if dest_comms.is_none() {
-        return;
+        return ExitCode::from(11);
     }
     let _dest_comms = dest_comms.unwrap();
 
-    //TODO: tell the src to initiate the command, and it will contact the dest to request/send stuff as necessary
-    error!("Instruct src to begin transfer - Not implemented!");
+    error!("Communicate with Source and Dest to coordinate transfer - Not implemented!");
+    return ExitCode::from(12);
 }
 
-fn daemon_main() {
-    info!("Running as background daemon");
+const SECONDARY_BOOT_MSG : &str = "hello I have booted properly m8";
 
-    let _args = DaemonCliArgs::parse();
+fn secondary_main() -> ExitCode {
+    info!("Running as secondary");
 
-    // Start command-processing loop, listening on a port for other instances to connect to us and make requests.
-    //TODO: will need to listen on other interfaces so can accept remote connections, but might want to fix
-    // security issues first! 
-    //TODO: Even while we're just listening on localhost though, we're giving access to other local users to files
-    // which they might not be allowed!
-    let listener = TcpListener::bind("127.0.0.1:7878").unwrap();
-    info!("Waiting for incoming connections...");
-    for stream in listener.incoming() {
-        let stream = stream.unwrap();
+    let _args = SecondaryCliArgs::parse();
 
-        info!("Incoming connection from {:?}", stream);
+    // We take commands from our stdin and send responses on our stdout. These will be piped over ssh
+    // back to the Primary.
 
-        // Spawn a new thread to look after this connection. We need to be able to keep listening for new connections
-        // on the main thread (we can't block it), because for example when Source and Dest computers are the same, 
-        // we talk to ourselves and would otherwise deadlock!
-        std::thread::spawn(move || { daemon_connection_handler(stream) });        
-    }
-}
+    // The first thing we send is a special message that the Primary will recognise, to know that we've started up correctly.
+    stdout().write(SECONDARY_BOOT_MSG.as_bytes());
 
-fn daemon_connection_handler(mut stream: TcpStream) {
-    // Send our magic and version number, so the client can check if it's compatible.
+    // Before starting the command-processing loop, we perform a basic handshake with the Primary
+    // to make sure we are running compatible versions etc.
+    
+    // Send our magic and version number, so the Primary can check if it's compatible.
     // Note that the 'protocol' used to check version number etc. needs to always be backwards-compatible,
     // so is very basic.
     info!("Sending version number {}", VERSION);
     let mut magic_and_version = MAGIC.to_vec();
     magic_and_version.append(&mut VERSION.to_le_bytes().to_vec());
-    if stream.write(&magic_and_version).is_err() {
-        warn!("Error - giving up on this client");
-        return;
+    if stdout().write(&magic_and_version).is_err() {
+        error!("Error writing magic and version");
+        return ExitCode::from(20);
     }
 
-    // Wait for the client to acknowledge the version, or ask us to shut down so they can spawn a new version
-    // that is compatible with them
-    info!("Waiting for reply");
+    // If the Primary isn't happy, they will stop us and deploy a new version. So at this point we can assume
+    // they are happy and move on to processing commands they (might) send us
+
+    // Message-processing loop, until Primary disconnects.
     let mut buf: [u8; 1] = [0];
-    if stream.read(&mut buf).unwrap_or(0) != 1 {
-        warn!("Error - giving up on this client");
-        return;
-    }
-
-    if buf[0] == 0 {
-        info!("Client is happy");
-    } else {
-        info!("Client is unhappy - terminating so client can start a different version of the daemon");     
-        std::process::exit(2);
-    }
-
-    // Message-processing loop, until client disconnects.
-    let mut buf: [u8; 1] = [0];
-    while stream.read(&mut buf).unwrap_or(0) > 0 {
-        info!("Received data from client {:?}: {}", stream, buf[0]);
+    while stdin().read(&mut buf).unwrap_or(0) > 0 {
+        info!("Received data from Primary: {}", buf[0]);
 
         //TODO: if get a message telling us to start a transfer, setup_comms(false) with the dest.
         //        (false cos the Dest should already have been set up with new version if necessary, so don't do it again)
@@ -180,83 +148,130 @@ fn daemon_connection_handler(mut stream: TcpStream) {
         //TODO: if get a message telling us to receive a file, do so
     }
 
-    info!("Dropped client {:?}", stream);
-
+    info!("Primary disconnected!");
+    return ExitCode::from(22);
 }
 
 fn setup_comms(remote_hostname: &str, remote_user: &str, allow_restart_remote_daemon_if_necessary: bool) -> Option::<TcpStream> {
     info!("setup_comms with '{}'", remote_hostname);
 
-    let remote_addr = remote_hostname.to_string() + ":7878";
+    //TODO: if remote is empty (i.e. local), then start a thread to handle that instead?
+    // separate thread to avoid synchornisation with the Primary (and both Source and Dest may be on same PC!, so all three in one process)
+    // need to find an appropriate level of abstraction to switch between the local and remote 'modes'.
 
-    // Attempt to connect to an already running instance, to save time
-    //TODO: this seems to be quite slow, even when the remote is already listening. Using IP address rather than hostname
-    // does fix it, but surely looking up "localhost" should be fast?
-    if let Ok(mut stream) = TcpStream::connect(&remote_addr) {
-        info!("Connected to '{}'", &remote_addr);
+    // We first attempt to run a previously-deployed copy of the program on the remote, to save time.
+    // If it exists and is a compatible version, we can use that.
+    let user_prefix = if remote_user.is_empty() { "".to_string() } else { remote_user.to_string() + "@" };
+    let remote_temp_folder = PathBuf::from("/tmp/rjrssync/");
+    let remote_command = format!("cd {} && target/release/rjrssync --daemon", remote_temp_folder.display());
+    info!("Running remote command: {}", remote_command);
+    //TODO: should we run "cmd /C ssh ..." rather than just "ssh", otherwise the line endings get messed up and subsequent log messages are broken?
+    let mut ssh = match Command::new("ssh")
+        .arg(user_prefix + remote_hostname)
+        .arg(remote_command)
+        .stdin(Stdio::piped()) //TODO: even though we're piping this, it still seems able to accept password input somehow??
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn() {
+        Ok(c) => c,
+        Err(e) => {
+            error!("Error launching ssh: {}", e); 
+            return None;
+        },
+    };
+
+    let mut ssh_stdin = ssh.stdin.take().unwrap(); // stdin should always be available as we piped it
+    let mut ssh_stdout = ssh.stdout.take().unwrap(); // stdin should always be available as we piped it
+    let mut ssh_stderr = ssh.stderr.take().unwrap(); // stdin should always be available as we piped it
+
+    std::thread::spawn(move || {
+        std::io::copy(&mut ssh_stdout, &mut stdout()).expect("stdout error");
+    });
+    std::thread::spawn(move || {
+       std::io::copy(&mut ssh_stderr, &mut stderr()).expect("stderr error");
+    });
+
+    //TODO: wait until ssh either exits (e.g. due to an error), or we see a special print from our secondary program
+    // that says it's up and running. Perhaps this replaces the "Magic"? as we won't need that anymore? We could include
+    // the version number in the special print too, so we can replace that too?
+    // then we can transition into command mode, where we talk in binary?
+    //TOOD: the ssh process could not exit but also never print anything useful, e.g. if it hangs or is waiting for input that never comes.
+    // In this case the user would need to kill it, so need Ctrl+C to work.
+    //TODO: can/should/how can we forward Ctrl+C to ssh?
+    sleep(Duration::from_secs(5));
+    let x = ssh.wait(); // Closes the ssh stdin and waits for ssh to finish
+    info!("Process exit is: {:?}", x);
+   
+    return None;
+
+    //TODO: wait for SSH password prompt etc. to finish, then do version handshake
+
+
+    // if let Ok(mut stream) = TcpStream::connect(&remote_addr) {
+    //     info!("Connected to '{}'", &remote_addr);
  
-        // Wait for the server to send their magic and version, so we can check if it's compatible with ours
-        // Note that the 'protocol' used to check version number etc. needs to always be backwards-compatible,
-        // so is very basic.
-        let server_version;
-        info!("Waiting for version number");
-        let mut buf: [u8; 8] = [0; 8]; // 4 bytes for magic, 4 bytes for version
-        if stream.read(&mut buf).unwrap_or(0) == 8 {
-            let server_magic = &buf[0..4];
-            if server_magic != MAGIC {
-                error!("Server replied with wrong magic. Not attempting to restart it, as there may be an unknown process (not us) listening on that port and we don't want to interfere with it.");
-                return None;
-            }
+    //     // Wait for the server to send their magic and version, so we can check if it's compatible with ours
+    //     // Note that the 'protocol' used to check version number etc. needs to always be backwards-compatible,
+    //     // so is very basic.
+    //     let server_version;
+    //     info!("Waiting for version number");
+    //     let mut buf: [u8; 8] = [0; 8]; // 4 bytes for magic, 4 bytes for version
+    //     if stream.read(&mut buf).unwrap_or(0) == 8 {
+    //         let server_magic = &buf[0..4];
+    //         if server_magic != MAGIC {
+    //             error!("Server replied with wrong magic. Not attempting to restart it, as there may be an unknown process (not us) listening on that port and we don't want to interfere with it.");
+    //             return None;
+    //         }
 
-            let mut b : [u8; 4] = [0; 4];
-            b.copy_from_slice(&buf[4..8]);
-            server_version = i32::from_le_bytes(b);
-            info!("Received server version {}", server_version);
-        } else {
-            error!("Server is not replying as expected. Not attempting to restart it, as there may be an unknown process (not us) listening on that port and we don't want to interfere with it.");
-            return None;
-        }
+    //         let mut b : [u8; 4] = [0; 4];
+    //         b.copy_from_slice(&buf[4..8]);
+    //         server_version = i32::from_le_bytes(b);
+    //         info!("Received server version {}", server_version);
+    //     } else {
+    //         error!("Server is not replying as expected. Not attempting to restart it, as there may be an unknown process (not us) listening on that port and we don't want to interfere with it.");
+    //         return None;
+    //     }
 
-        if server_version == VERSION {
-            info!("Server has compatible version. Replying as such.");
-            // Send packet to tell server all is OK
-            if stream.write(&[0 as u8]).is_ok() {
-                info!("Connection estabilished!");
-                return Some(stream);
-            } else {
-                warn!("Failed to reply to server");
-            }
-        } else {
-            if allow_restart_remote_daemon_if_necessary {
-                warn!("Server has incompatible version - telling it to stop so we can restart it");
-                // Send packet to tell server to restart
-                let _ = stream.write(&[1 as u8]); // Don't need to check result here - even if it failed, we will still try to launch new server
-            } else {
-                error!("Server has incompatible version, and we're not going to restart it.");
-            }
-        }
-    } else {
-        info!("No remote daemon running");
-    }
+    //     if server_version == VERSION {
+    //         info!("Server has compatible version. Replying as such.");
+    //         // Send packet to tell server all is OK
+    //         if stream.write(&[0 as u8]).is_ok() {
+    //             info!("Connection estabilished!");
+    //             return Some(stream);
+    //         } else {
+    //             warn!("Failed to reply to server");
+    //         }
+    //     } else {
+    //         if allow_restart_remote_daemon_if_necessary {
+    //             warn!("Server has incompatible version - telling it to stop so we can restart it");
+    //             // Send packet to tell server to restart
+    //             let _ = stream.write(&[1 as u8]); // Don't need to check result here - even if it failed, we will still try to launch new server
+    //         } else {
+    //             error!("Server has incompatible version, and we're not going to restart it.");
+    //         }
+    //     }
+    // } else {
+    //     info!("No remote daemon running");
+    // }
 
-    // No instance running - spawn a new one
-    if allow_restart_remote_daemon_if_necessary {   
-        if spawn_daemon_on_remote(remote_hostname, remote_user) {
-            // Try again to connect to the new daemon. 
-            // Don't allow this recursion to spawn a new daemon again though in case we still can't connect,
-            // otherwise it would keep trying forever!
-            let result = setup_comms(remote_hostname, remote_user, false);
-            if result.is_none() {
-                error!("Failed to setup_comms even after spawning a new daemon");
-            }
-            return result;
-        } else {
-            error!("Failed to spawn a new daemon. Please launch it manually.");
-            return None;
-        }
-    } else {
-        return None;
-    }
+    // // No instance running - spawn a new one
+    // if allow_restart_remote_daemon_if_necessary {   
+    //     if spawn_daemon_on_remote(remote_hostname, remote_user) {
+    //         // Try again to connect to the new daemon. 
+    //         // Don't allow this recursion to spawn a new daemon again though in case we still can't connect,
+    //         // otherwise it would keep trying forever!
+    //         let result = setup_comms(remote_hostname, remote_user, false);
+    //         if result.is_none() {
+    //             error!("Failed to setup_comms even after spawning a new daemon");
+    //         }
+    //         return result;
+    //     } else {
+    //         error!("Failed to spawn a new daemon. Please launch it manually.");
+    //         return None;
+    //     }
+    // } else {
+    //     return None;
+    // }
 }
 
 // This embeds the source code of the program into the executable, so it can be deployed remotely and built on other platforms
@@ -337,7 +352,8 @@ fn spawn_daemon_on_remote(remote_hostname: &str, remote_user: &str) -> bool {
     // Build and run the daemon remotely (using the cargo on the remote system)
     // This rather complicated command is the best I've found to run it in the background without needing to keep the 
     // ssh connection open.
-    let remote_command = format!("cd {} && cargo build && (nohup cargo run -- --daemon > out.log 2> err.log </dev/null &)", remote_temp_folder.display());
+    //TODO: re-use the code from setup_comms, but using cargo run instead of launching the exe directly?
+    let remote_command = format!("cd {} && cargo build --release && (nohup cargo run --release -- --daemon > out.log 2> err.log </dev/null &)", remote_temp_folder.display());
     info!("Running remote command: {}", remote_command);
      // Note that we run "cmd /C ssh ..." rather than just "ssh", otherwise the line endings get messed up and subsequent log messages are broken.
      match Command::new("cmd")
