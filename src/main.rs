@@ -361,3 +361,51 @@ fn spawn_daemon_on_remote(remote_hostname: &str, remote_user: &str) -> bool {
 
     return true;
 }
+
+
+// use clap::Parser;
+// use walkdir::WalkDir;
+// use std::time::Instant;
+
+// #[derive(Parser)]
+// struct Cli {
+//     path: std::path::PathBuf,
+// }
+
+// fn main() {
+//     let args = Cli::parse();
+//     {
+//         let start = Instant::now();
+//         let walker = WalkDir::new(&args.path).into_iter();
+//         let mut count = 0;
+//         for _entry in walker.filter_entry(|e| e.file_name() != ".git" && e.file_name() != "dependencies") {
+//             count += 1;
+//         }
+//         let elapsed = start.elapsed().as_millis();
+//         println!("Walked {} in {} ({}/s)", count, elapsed, 1000.0 * count as f32 / elapsed as f32);
+//     }
+
+//     {
+//         let start = Instant::now();
+//         let walker = WalkDir::new(&args.path).into_iter();
+//         let mut hash_sum: u8 = 0;        
+//         let mut count = 0;
+//         for entry in walker.filter_entry(|e| e.file_name() != ".git" && e.file_name() != "dependencies") {
+//             let e = entry.unwrap();
+//             if e.file_type().is_file() {
+//                 let bytes = std::fs::read(e.path()).unwrap();
+//                 let hash = md5::compute(&bytes);
+//                 hash_sum += hash.into_iter().sum::<u8>();
+//                 count += 1;
+//             }
+//         }
+//         let elapsed = start.elapsed().as_millis();
+//         println!("Hashed {} ({}) in {} ({}/s)", count, hash_sum, elapsed, 1000.0 * count as f32 / elapsed as f32);
+//     }
+
+// }
+
+//  Host:           Windows     Linux
+//  Filesystem:
+//    Windows        100k        9k
+//     Linux          1k         500k
