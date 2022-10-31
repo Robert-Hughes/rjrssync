@@ -1,4 +1,4 @@
-use std::{net::{TcpListener, TcpStream}, io::{Write, Read}};
+use std::{net::{TcpListener, TcpStream}, io::{Write, Read}, path::PathBuf};
 use clap::Parser;
 use log::{info, error, warn};
 use rust_embed::RustEmbed;
@@ -117,7 +117,9 @@ fn daemon_main() {
 
     // Start command-processing loop, listening on a port for other instances to connect to us and make requests.
     //TODO: will need to listen on other interfaces so can accept remote connections, but might want to fix
-    // security issues first!
+    // security issues first! 
+    //TODO: Even while we're just listening on localhost though, we're giving access to other local users to files
+    // which they might not be allowed!
     let listener = TcpListener::bind("127.0.0.1:7878").unwrap();
     info!("Waiting for incoming connections...");
     for stream in listener.incoming() {
@@ -186,6 +188,7 @@ fn setup_comms(remote_hostname: &str, remote_user: &str, allow_restart_remote_da
     let remote_addr = remote_hostname.to_string() + ":7878";
 
     // Attempt to connect to an already running instance, to save time
+    //TODO: this seems to be quite slow, even when the remote is already listening.
     if let Ok(mut stream) = TcpStream::connect(&remote_addr) {
         info!("Connected to '{}'", &remote_addr);
  
@@ -211,7 +214,7 @@ fn setup_comms(remote_hostname: &str, remote_user: &str, allow_restart_remote_da
             return None;
         }
 
-        if server_version == VERSION + 1 { //TODO: +1 for testing - remove me!!
+        if server_version == VERSION {
             info!("Server has compatible version. Replying as such.");
             // Send packet to tell server all is OK
             if stream.write(&[0 as u8]).is_ok() {
@@ -269,7 +272,7 @@ fn spawn_daemon_on_remote(remote_hostname: &str, remote_user: &str) -> bool {
     // logging in to the remote system (as opposed to using an ssh library called from our code).
 
     // Save to a temporary local folder
-    let temp_dir = match TempDir::new("EmbeddedSource") {
+    let temp_dir = match TempDir::new("rjrssync") {
         Ok(x) => x,
         Err(e) => { 
             error!("Error creating temp dir: {}", e); 
@@ -278,8 +281,8 @@ fn spawn_daemon_on_remote(remote_hostname: &str, remote_user: &str) -> bool {
     };
     info!("Writing embedded source to temp dir: {}", temp_dir.path().display());
     for file in EmbeddedSource::iter() {
-        let temp_path = temp_dir.path().join(&*file);
-      
+        let temp_path = temp_dir.path().join("rjrssync").join(&*file); // Add an extra "rjrssync" folder with a fixed name (as opposed to the temp dir, whose name varies), to work around SCP weirdness below.
+
         if let Err(e) = std::fs::create_dir_all(temp_path.parent().unwrap()) {
             error!("Error creating folders for temp file: {}", e); 
             return false;
@@ -300,13 +303,16 @@ fn spawn_daemon_on_remote(remote_hostname: &str, remote_user: &str) -> bool {
     }
 
     // Deploy to remote target
-    let remote_temp_folder = "/tmp/rjrssync/";
+    // Note we need to deal with the case where the the remote folder doesn't exist, and the case where it does, so 
+    // we copy into /tmp (which should always exist).
+    let remote_temp_folder = PathBuf::from("/tmp/rjrssync/");
     let user_prefix = if remote_user.is_empty() { "".to_string() } else { remote_user.to_string() + "@" };
-    let remote_spec = user_prefix.clone() + remote_hostname + ":" + remote_temp_folder;
+    let source_spec = temp_dir.path().join("rjrssync");
+    let remote_spec = user_prefix.clone() + remote_hostname + ":" + remote_temp_folder.parent().unwrap().to_str().unwrap();
     info!("Copying source to {}", remote_spec);
     match Command::new("scp")
             .arg("-r")
-            .arg(temp_dir.path())
+            .arg(source_spec)
             .arg(remote_spec)
             .status() {
         Err(e) => {
@@ -323,7 +329,9 @@ fn spawn_daemon_on_remote(remote_hostname: &str, remote_user: &str) -> bool {
     };
     
     // Build and run the daemon remotely (using the cargo on the remote system)
-    let remote_command = format!("cd {} && cargo run -- --daemon", remote_temp_folder);
+    // This rather complicated command is the best I've found to run it in the background without needing to keep the 
+    // ssh connection open.
+    let remote_command = format!("cd {} && cargo build && (nohup cargo run -- --daemon > out.log 2> err.log </dev/null &)", remote_temp_folder.display());
     info!("Running remote command: {}", remote_command);
     match Command::new("ssh")
             .arg(user_prefix + remote_hostname)
