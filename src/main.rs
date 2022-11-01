@@ -1,4 +1,4 @@
-use std::{net::{TcpListener, TcpStream}, io::{Write, Read, stdout, stdin, stderr}, path::PathBuf, process::{Stdio, ExitCode}, thread::sleep, time::Duration};
+use std::{net::{TcpListener, TcpStream}, io::{Write, Read, stdout, stdin, stderr}, path::PathBuf, process::{Stdio, ExitCode, ExitStatus, ChildStdout, ChildStdin, ChildStderr}, thread::sleep, time::Duration};
 use clap::Parser;
 use log::{info, error, warn};
 use rust_embed::RustEmbed;
@@ -117,6 +117,7 @@ fn secondary_main() -> ExitCode {
 
     // Before starting the command-processing loop, we perform a basic handshake with the Primary
     // to make sure we are running compatible versions etc.
+    //TODO: we probably don't need this anymore, as the boot message above fulfils this purpose (if we include some kind of magic and a version number in there)
     
     // Send our magic and version number, so the Primary can check if it's compatible.
     // Note that the 'protocol' used to check version number etc. needs to always be backwards-compatible,
@@ -161,51 +162,26 @@ fn setup_comms(remote_hostname: &str, remote_user: &str, allow_restart_remote_da
 
     // We first attempt to run a previously-deployed copy of the program on the remote, to save time.
     // If it exists and is a compatible version, we can use that.
-    let user_prefix = if remote_user.is_empty() { "".to_string() } else { remote_user.to_string() + "@" };
-    let remote_temp_folder = PathBuf::from("/tmp/rjrssync/");
-    let remote_command = format!("cd {} && target/release/rjrssync --daemon", remote_temp_folder.display());
-    info!("Running remote command: {}", remote_command);
-    //TODO: should we run "cmd /C ssh ..." rather than just "ssh", otherwise the line endings get messed up and subsequent log messages are broken?
-    let mut ssh = match Command::new("ssh")
-        .arg(user_prefix + remote_hostname)
-        .arg(remote_command)
-        .stdin(Stdio::piped()) //TODO: even though we're piping this, it still seems able to accept password input somehow??
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn() {
-        Ok(c) => c,
-        Err(e) => {
-            error!("Error launching ssh: {}", e); 
-            return None;
-        },
-    };
+    loop {
+        match launch_secondary_via_ssh(remote_hostname, remote_user) {
+            SshSecondaryLaunchResult::FailedToRunSsh => {
 
-    let mut ssh_stdin = ssh.stdin.take().unwrap(); // stdin should always be available as we piped it
-    let mut ssh_stdout = ssh.stdout.take().unwrap(); // stdin should always be available as we piped it
-    let mut ssh_stderr = ssh.stderr.take().unwrap(); // stdin should always be available as we piped it
-
-    std::thread::spawn(move || {
-        std::io::copy(&mut ssh_stdout, &mut stdout()).expect("stdout error");
-    });
-    std::thread::spawn(move || {
-       std::io::copy(&mut ssh_stderr, &mut stderr()).expect("stderr error");
-    });
-
-    //TODO: wait until ssh either exits (e.g. due to an error), or we see a special print from our secondary program
-    // that says it's up and running. Perhaps this replaces the "Magic"? as we won't need that anymore? We could include
-    // the version number in the special print too, so we can replace that too?
-    // then we can transition into command mode, where we talk in binary?
-    //TOOD: the ssh process could not exit but also never print anything useful, e.g. if it hangs or is waiting for input that never comes.
-    // In this case the user would need to kill it, so need Ctrl+C to work.
-    //TODO: can/should/how can we forward Ctrl+C to ssh?
-    sleep(Duration::from_secs(5));
-    let x = ssh.wait(); // Closes the ssh stdin and waits for ssh to finish
-    info!("Process exit is: {:?}", x);
-   
-    return None;
-
-    //TODO: wait for SSH password prompt etc. to finish, then do version handshake
-
+            },
+            SshSecondaryLaunchResult::NotPresentOnRemote | SshSecondaryLaunchResult::ExitedBeforeHandshake | SshSecondaryLaunchResult::HandshakeIncompatibleVersion => {
+                if deploy_to_remote(remote_hostname, remote_user) {
+                    info!("Successfully deployed, attempting to run again");
+                    continue;                    
+                } else {
+                    error!("Failed to deploy to remote");
+                    return None;
+                }
+            },
+            SshSecondaryLaunchResult::Success { stdin, stdout, stderr } => {
+                info!("Connection estabilished");
+                return Some();
+            },
+        };
+    }
 
     // if let Ok(mut stream) = TcpStream::connect(&remote_addr) {
     //     info!("Connected to '{}'", &remote_addr);
@@ -274,6 +250,73 @@ fn setup_comms(remote_hostname: &str, remote_user: &str, allow_restart_remote_da
     // }
 }
 
+enum SshSecondaryLaunchResult {
+    FailedToRunSsh,
+    NotPresentOnRemote,
+    ExitedBeforeHandshake,
+    HandshakeIncompatibleVersion,
+    Success {
+        stdin: ChildStdin,
+        stdout: ChildStdout,
+        stderr: ChildStderr,
+    }
+}
+
+fn launch_secondary_via_ssh(remote_hostname: &str, remote_user: &str) -> SshSecondaryLaunchResult {
+    info!("launch_secondary_via_ssh on '{}'", remote_hostname);
+
+    let user_prefix = if remote_user.is_empty() { "".to_string() } else { remote_user.to_string() + "@" };
+    let remote_temp_folder = PathBuf::from("/tmp/rjrssync/");
+    let remote_command = format!("cd {} && target/release/rjrssync --daemon", remote_temp_folder.display());
+    info!("Running remote command: {}", remote_command);
+    //TODO: should we run "cmd /C ssh ..." rather than just "ssh", otherwise the line endings get messed up and subsequent log messages are broken?
+    let mut ssh = match Command::new("ssh")
+        .arg(user_prefix + remote_hostname)
+        .arg(remote_command)
+        .stdin(Stdio::piped()) //TODO: even though we're piping this, it still seems able to accept password input somehow?? Using /dev/tty?
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn() {
+        Ok(c) => c,
+        Err(e) => {
+            error!("Error launching ssh: {}", e); 
+            return SshSecondaryLaunchResult::FailedToRunSsh;
+        },
+    };
+
+    let mut ssh_stdin = ssh.stdin.take().unwrap(); // stdin should always be available as we piped it
+    let mut ssh_stdout = ssh.stdout.take().unwrap(); // stdin should always be available as we piped it
+    let mut ssh_stderr = ssh.stderr.take().unwrap(); // stdin should always be available as we piped it
+
+    // std::thread::spawn(move || {
+    //     std::io::copy(&mut stdin(), &mut ssh_stdin).expect("stdin error");
+    //  });
+    std::thread::spawn(move || {
+        std::io::copy(&mut ssh_stdout, &mut stdout()).expect("stdout error");
+    });
+    std::thread::spawn(move || {
+       std::io::copy(&mut ssh_stderr, &mut stderr()).expect("stderr error");
+    });
+
+    info!("Waiting for remote copy to send version handshake");
+    //TODO: wait until ssh either exits (e.g. due to an error), or we see a special print from our secondary program
+    // that says it's up and running. Perhaps this replaces the "Magic"? as we won't need that anymore? We could include
+    // the version number in the special print too, so we can replace that too?
+    // then we can transition into command mode, where we talk in binary?
+    //TOOD: the ssh process could not exit but also never print anything useful, e.g. if it hangs or is waiting for input that never comes.
+    // In this case the user would need to kill it, so need Ctrl+C to work.
+    //TODO: can/should/how can we forward Ctrl+C to ssh?
+    loop { //TODO: busy loop here not great.
+
+        if let Ok(Some(s)) = ssh.try_wait() {
+            warn!("SSH exited unexpectedly with status {:?}", s);
+            return SshSecondaryLaunchResult::ExitedBeforeHandshake;
+        }
+    }
+   
+    //TODO: wait for SSH password prompt etc. to finish, then do version handshake
+}
+
 // This embeds the source code of the program into the executable, so it can be deployed remotely and built on other platforms
 #[derive(RustEmbed)]
 #[folder = "."]
@@ -281,8 +324,8 @@ fn setup_comms(remote_hostname: &str, remote_user: &str, allow_restart_remote_da
 #[include = "Cargo.*"]
 struct EmbeddedSource;
 
-fn spawn_daemon_on_remote(remote_hostname: &str, remote_user: &str) -> bool {
-    info!("Spawning new daemon on '{}'", &remote_hostname);
+fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> bool {
+    info!("Deploying onto '{}'", &remote_hostname);
 
     // Copy our embedded source tree to the remote, so we can build it there. 
     // (we can't simply copy the binary as it might not be compatible with the remote platform) 
@@ -349,11 +392,11 @@ fn spawn_daemon_on_remote(remote_hostname: &str, remote_user: &str) -> bool {
         },
     };
     
-    // Build and run the daemon remotely (using the cargo on the remote system)
-    // This rather complicated command is the best I've found to run it in the background without needing to keep the 
-    // ssh connection open.
-    //TODO: re-use the code from setup_comms, but using cargo run instead of launching the exe directly?
-    let remote_command = format!("cd {} && cargo build --release && (nohup cargo run --release -- --daemon > out.log 2> err.log </dev/null &)", remote_temp_folder.display());
+    // Build the program remotely (using the cargo on the remote system)
+    // Note that we could merge this ssh command with the one to run the program once it's built (in launch_secondary_via_ssh),
+    // but this would make error reporting slightly more difficult as the command in launch_secondary_via_ssh is more tricky as 
+    // we are parsing the stdout, but the command here we can wait for it to finish easily.
+    let remote_command = format!("cd {} && cargo build --release", remote_temp_folder.display());
     info!("Running remote command: {}", remote_command);
      // Note that we run "cmd /C ssh ..." rather than just "ssh", otherwise the line endings get messed up and subsequent log messages are broken.
      match Command::new("cmd")
@@ -370,7 +413,7 @@ fn spawn_daemon_on_remote(remote_hostname: &str, remote_user: &str) -> bool {
             // good!
         }
         Ok(s) => {
-            error!("Error building or launching on remote. Exit status from ssh: {}", s); 
+            error!("Error building on remote. Exit status from ssh: {}", s); 
             return false;
         },
     };
