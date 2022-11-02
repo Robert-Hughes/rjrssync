@@ -1,4 +1,4 @@
-use std::{net::{TcpListener, TcpStream}, io::{Write, Read, stdout, stdin, stderr, BufReader, BufRead}, path::PathBuf, process::{Stdio, ExitCode, ExitStatus, ChildStdout, ChildStdin, ChildStderr}, thread::sleep, time::Duration};
+use std::{net::{TcpListener, TcpStream}, io::{Write, Read, stdout, stdin, stderr, BufReader, BufRead}, path::PathBuf, process::{Stdio, ExitCode, ExitStatus, ChildStdout, ChildStdin, ChildStderr}, thread::sleep, time::Duration, sync::mpsc::RecvError};
 use std::sync::mpsc;
 use std::sync::mpsc::{Sender, Receiver};
 use clap::Parser;
@@ -99,7 +99,7 @@ fn primary_main() -> ExitCode {
         return ExitCode::from(11);
     }
     let _dest_comms = dest_comms.unwrap();
-
+    
     error!("Communicate with Source and Dest to coordinate transfer - Not implemented!");
     return ExitCode::from(12);
 }
@@ -115,7 +115,9 @@ fn secondary_main() -> ExitCode {
     // back to the Primary.
 
     // The first thing we send is a special message that the Primary will recognise, to know that we've started up correctly.
+    // We need to do this on both stdout and stderr, because both those streams need to be synchronised on the receiving end.
     println!("{}", SECONDARY_BOOT_MSG);
+    eprintln!("{}", SECONDARY_BOOT_MSG);
 
     // Before starting the command-processing loop, we perform a basic handshake with the Primary
     // to make sure we are running compatible versions etc.
@@ -124,13 +126,13 @@ fn secondary_main() -> ExitCode {
     // Send our magic and version number, so the Primary can check if it's compatible.
     // Note that the 'protocol' used to check version number etc. needs to always be backwards-compatible,
     // so is very basic.
-    info!("Sending version number {}", VERSION);
-    let mut magic_and_version = MAGIC.to_vec();
-    magic_and_version.append(&mut VERSION.to_le_bytes().to_vec());
-    if stdout().write(&magic_and_version).is_err() {
-        error!("Error writing magic and version");
-        return ExitCode::from(20);
-    }
+    // info!("Sending version number {}", VERSION);
+    // let mut magic_and_version = MAGIC.to_vec();
+    // magic_and_version.append(&mut VERSION.to_le_bytes().to_vec());
+    // if stdout().write(&magic_and_version).is_err() {
+    //     error!("Error writing magic and version");
+    //     return ExitCode::from(20);
+    // }
 
     // If the Primary isn't happy, they will stop us and deploy a new version. So at this point we can assume
     // they are happy and move on to processing commands they (might) send us
@@ -138,7 +140,10 @@ fn secondary_main() -> ExitCode {
     // Message-processing loop, until Primary disconnects.
     let mut buf: [u8; 1] = [0];
     while stdin().read(&mut buf).unwrap_or(0) > 0 {
-        info!("Received data from Primary: {}", buf[0]);
+      //  info!("Received data from Primary: {}", buf[0]);
+
+        // echo back
+        stdout().write(&buf);
 
         //TODO: if get a message telling us to start a transfer, setup_comms(false) with the dest.
         //        (false cos the Dest should already have been set up with new version if necessary, so don't do it again)
@@ -151,7 +156,7 @@ fn secondary_main() -> ExitCode {
         //TODO: if get a message telling us to receive a file, do so
     }
 
-    info!("Primary disconnected!");
+   // info!("Primary disconnected!");
     return ExitCode::from(22);
 }
 
@@ -169,7 +174,7 @@ fn setup_comms(remote_hostname: &str, remote_user: &str, allow_restart_remote_da
             SshSecondaryLaunchResult::FailedToRunSsh => {
 
             },
-            SshSecondaryLaunchResult::NotPresentOnRemote | SshSecondaryLaunchResult::ExitedBeforeHandshake | SshSecondaryLaunchResult::HandshakeIncompatibleVersion => {
+            SshSecondaryLaunchResult::NotPresentOnRemote | SshSecondaryLaunchResult::HandshakeIncompatibleVersion => {
                 if deploy_to_remote(remote_hostname, remote_user) {
                     info!("Successfully deployed, attempting to run again");
                     continue;                    
@@ -178,8 +183,21 @@ fn setup_comms(remote_hostname: &str, remote_user: &str, allow_restart_remote_da
                     return None;
                 }
             },
-            SshSecondaryLaunchResult::Success { stdin, stdout, stderr } => {
+            SshSecondaryLaunchResult::ExitedBeforeHandshake => {
+                error!("Not gonna try doing anything, as we don't know what happened");
+                return None;
+            }
+            SshSecondaryLaunchResult::Success { mut stdin, mut stdout, stderr } => {
                 info!("Connection estabilished");
+
+                // Test echoing
+                stdin.write(&[1, 2, 5, 10]);
+
+                let mut buf: [u8; 1] = [0];
+                while stdout.read(&mut buf).unwrap_or(0) > 0 {
+                    info!("Received data from Secondary echoed: {}", buf[0]);
+                }
+
                 return Some(());
             },
         };
@@ -259,8 +277,48 @@ enum SshSecondaryLaunchResult {
     HandshakeIncompatibleVersion,
     Success {
         stdin: ChildStdin,
-        stdout: ChildStdout,
-        stderr: ChildStderr,
+        stdout: BufReader<Box<dyn Read + Send>>,
+        stderr: BufReader<Box<dyn Read + Send>>,
+    }
+}
+
+// Generic thread function for reading from stdout or stderr of the ssh process.
+// We need to handle both in the same way - waiting until we receive the magic line indicating that the secondary
+// copy has started up correctly. And so that each background thread knows when it's time to return control 
+// of the stream.
+enum OutputReaderThreadMsg {
+    Line(String),
+    Error(std::io::Error),
+    StreamClosed,
+    HandshakePassed(BufReader<Box<dyn Read + Send>>),
+}
+
+fn output_reader_thread_main<T>(stream: T, stream_name: &'static str, sender: Sender<(&str, OutputReaderThreadMsg)>) where T : Read + Send + 'static {
+    let mut reader: BufReader<Box<dyn Read + Send>> = BufReader::new(Box::new(stream));
+    loop  {
+        let mut l : String = "".to_string();
+        match reader.read_line(&mut l) {
+            Err(e) => {
+                sender.send((stream_name, OutputReaderThreadMsg::Error(e)));
+                return;
+            },
+            Ok(0) => {
+                // end of stream
+                sender.send((stream_name, OutputReaderThreadMsg::StreamClosed));
+                return;
+            }
+            Ok(_) if l.starts_with(SECONDARY_BOOT_MSG) => {
+                //TODO: check version. Here or on the main thread?
+
+                // remote end has booted up properly and is ready for comms.
+                // finish this thread and return control of the stdout to the main thread.
+                sender.send((stream_name, OutputReaderThreadMsg::HandshakePassed(reader)));
+                return;
+            } 
+            Ok(_) => {            
+                sender.send((stream_name, OutputReaderThreadMsg::Line(l)));
+            }
+        }
     }
 }
 
@@ -277,7 +335,7 @@ fn launch_secondary_via_ssh(remote_hostname: &str, remote_user: &str) -> SshSeco
         .arg(remote_command)
         .stdin(Stdio::piped()) //TODO: even though we're piping this, it still seems able to accept password input somehow?? Using /dev/tty?
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped()) 
         .spawn() {
         Ok(c) => c,
         Err(e) => {
@@ -290,29 +348,14 @@ fn launch_secondary_via_ssh(remote_hostname: &str, remote_user: &str) -> SshSeco
     let mut ssh_stdout = ssh.stdout.take().unwrap(); // stdin should always be available as we piped it
     let mut ssh_stderr = ssh.stderr.take().unwrap(); // stdin should always be available as we piped it
 
-    let (sender, receiver): (Sender<String>, Receiver<String>) = mpsc::channel();
+    let (sender, receiver): (Sender<(&str, OutputReaderThreadMsg)>, Receiver<(&str, OutputReaderThreadMsg)>) = mpsc::channel();
     let sender2 = sender.clone();
     // std::thread::spawn(move || {
     //     std::io::copy(&mut stdin(), &mut ssh_stdin).expect("stdin error");
     //  });
-    std::thread::spawn(move || {
-        let b = BufReader::new(ssh_stdout);
-        for l in b.lines() {
-            if let Ok(l) = l {
-                sender.send(l);
-            }
-        }
-      //  std::io::copy(&mut ssh_stdout, &mut stdout()).expect("stdout error");
-    });
-    std::thread::spawn(move || {
-        let b = BufReader::new(ssh_stderr);
-        for l in b.lines() {
-            if let Ok(l) = l {
-                sender2.send(l);
-            }
-        }
-       //std::io::copy(&mut ssh_stderr, &mut stderr()).expect("stderr error");
-    });
+
+    std::thread::spawn(move || output_reader_thread_main(ssh_stdout, "stdout", sender));
+    std::thread::spawn(move || output_reader_thread_main(ssh_stderr, "stderr", sender2));
 
     info!("Waiting for remote copy to send version handshake");
     //TODO: wait until ssh either exits (e.g. due to an error), or we see a special print from our secondary program
@@ -323,26 +366,59 @@ fn launch_secondary_via_ssh(remote_hostname: &str, remote_user: &str) -> SshSeco
     // In this case the user would need to kill it, so need Ctrl+C to work.
     //TODO: can/should/how can we forward Ctrl+C to ssh?
     //TODO: can we make it so that the remote copy is killed once teh ssh session is dropped, e.g. if the primary copy is killed.
+    // do we need to close all the streams that we have open too??
     let mut not_present_on_remote = false;
-    loop { //TODO: busy loop here not great.
-
-        if let Ok(l) = receiver.try_recv() {
-            info!("Line received: {}", l);
-            if l.contains("No such file or directory") {
-                not_present_on_remote = true;
-            } else if l == SECONDARY_BOOT_MSG {
-                //TODO: check version etc.
-                return SshSecondaryLaunchResult::Success { stdin: ssh_stdin, stdout: ssh_stdout, stderr: ssh_stderr };
+    let mut handshook_stdout : Option<BufReader<Box<dyn Read + Send>>> = None;
+    let mut handshook_stderr : Option<BufReader<Box<dyn Read + Send>>> = None;
+    loop {
+        match receiver.recv() {
+            Err(RecvError) => {
+                info!("Receiver error - all threads done, process exited?");
+                // Wait for the process to exit, for tidyness?
+                let result = ssh.wait();
+                info!("Process exited with {:?}", result);
+                if not_present_on_remote {
+                    return SshSecondaryLaunchResult::NotPresentOnRemote;
+                } else {
+                    return SshSecondaryLaunchResult::ExitedBeforeHandshake;
+                }
             }
-        } else if let Ok(Some(s)) = ssh.try_wait() {
-            warn!("SSH exited with status {:?}", s);
-            if not_present_on_remote {
-                return SshSecondaryLaunchResult::NotPresentOnRemote;
-             } else {
-                return SshSecondaryLaunchResult::ExitedBeforeHandshake;
-             }
+            Ok((stream_name, OutputReaderThreadMsg::Line(l))) => {
+                info!("Line received from {}: {}", stream_name, l);               
+                if l.contains("No such file or directory") {
+                    not_present_on_remote = true;
+                }
+            },
+            Ok((stream_name, OutputReaderThreadMsg::HandshakePassed(s))) => {
+                info!("HandshakePassed from {}", stream_name);
+                // Need to wait for both stdout and stderr to pass the handshake
+                if (stream_name == "stdout") {
+                    handshook_stdout = Some(s);
+                } else if (stream_name == "stderr") {
+                    handshook_stderr = Some(s);
+                } else {
+                    panic!("Unknown stream"); //TODO: use an enum instead??
+                }
+                //TODO: check version. Here or on the background thread? Check both stdout and stderr?
+                if (handshook_stdout.is_some() && handshook_stderr.is_some()) {
+                    return SshSecondaryLaunchResult::Success { stdin: ssh_stdin, stdout: handshook_stdout.unwrap(), stderr: handshook_stderr.unwrap() };
+                }
+
+            },
+            Ok((stream_name, OutputReaderThreadMsg::Error(e))) => {
+                info!("Error from {}", stream_name);
+                // Wait for the process to exit, for tidyness?
+                ssh.wait();
+            },
+            Ok((stream_name, OutputReaderThreadMsg::StreamClosed)) => {
+                info!("StreamClosed {}", stream_name);
+                // Wait for the process to exit, for tidyness?
+                ssh.wait();       
+            }
         }
     }
+
+    //TODO: wait for threads to exit, for completeness?
    
     //TODO: wait for SSH password prompt etc. to finish, then do version handshake
 }
@@ -426,6 +502,7 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> bool {
     // Note that we could merge this ssh command with the one to run the program once it's built (in launch_secondary_via_ssh),
     // but this would make error reporting slightly more difficult as the command in launch_secondary_via_ssh is more tricky as 
     // we are parsing the stdout, but the command here we can wait for it to finish easily.
+    //TODO: add flag to hide warnings when building remotely?
     let remote_command = format!("cd {} && cargo build --release", remote_temp_folder.display());
     info!("Running remote command: {}", remote_command);
      // Note that we run "cmd /C ssh ..." rather than just "ssh", otherwise the line endings get messed up and subsequent log messages are broken.
