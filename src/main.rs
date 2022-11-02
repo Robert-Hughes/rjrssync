@@ -82,6 +82,9 @@ fn primary_main() -> ExitCode {
     //   Dest - the computer specified by the `dest` command-line arg, and so if this is the local computer
     //          then this may be the same copy as the Primary.
     //          If Source and Dest are the same computer, they are still separate copies for simplicity.
+    //          (It might be more efficient to just have one remote copy, but remember that there could be different users specified
+    //           on the Source and Dest, with separate permissions to the folders being synced, so they can't access each others' folders,
+    //           in which case we couldn't share a copy.)
 
     // Get list of hosts to launch and estabilish communication with
     let src_folder_desc = parse_remote_folder(&args.src);
