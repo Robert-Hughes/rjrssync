@@ -1,4 +1,6 @@
-use std::{net::{TcpListener, TcpStream}, io::{Write, Read, stdout, stdin, stderr}, path::PathBuf, process::{Stdio, ExitCode, ExitStatus, ChildStdout, ChildStdin, ChildStderr}, thread::sleep, time::Duration};
+use std::{net::{TcpListener, TcpStream}, io::{Write, Read, stdout, stdin, stderr, BufReader, BufRead}, path::PathBuf, process::{Stdio, ExitCode, ExitStatus, ChildStdout, ChildStdin, ChildStderr}, thread::sleep, time::Duration};
+use std::sync::mpsc;
+use std::sync::mpsc::{Sender, Receiver};
 use clap::Parser;
 use log::{info, error, warn};
 use rust_embed::RustEmbed;
@@ -113,7 +115,7 @@ fn secondary_main() -> ExitCode {
     // back to the Primary.
 
     // The first thing we send is a special message that the Primary will recognise, to know that we've started up correctly.
-    stdout().write(SECONDARY_BOOT_MSG.as_bytes());
+    println!("{}", SECONDARY_BOOT_MSG);
 
     // Before starting the command-processing loop, we perform a basic handshake with the Primary
     // to make sure we are running compatible versions etc.
@@ -153,7 +155,7 @@ fn secondary_main() -> ExitCode {
     return ExitCode::from(22);
 }
 
-fn setup_comms(remote_hostname: &str, remote_user: &str, allow_restart_remote_daemon_if_necessary: bool) -> Option::<TcpStream> {
+fn setup_comms(remote_hostname: &str, remote_user: &str, allow_restart_remote_daemon_if_necessary: bool) -> Option::<()> {
     info!("setup_comms with '{}'", remote_hostname);
 
     //TODO: if remote is empty (i.e. local), then start a thread to handle that instead?
@@ -178,7 +180,7 @@ fn setup_comms(remote_hostname: &str, remote_user: &str, allow_restart_remote_da
             },
             SshSecondaryLaunchResult::Success { stdin, stdout, stderr } => {
                 info!("Connection estabilished");
-                return Some();
+                return Some(());
             },
         };
     }
@@ -267,7 +269,7 @@ fn launch_secondary_via_ssh(remote_hostname: &str, remote_user: &str) -> SshSeco
 
     let user_prefix = if remote_user.is_empty() { "".to_string() } else { remote_user.to_string() + "@" };
     let remote_temp_folder = PathBuf::from("/tmp/rjrssync/");
-    let remote_command = format!("cd {} && target/release/rjrssync --daemon", remote_temp_folder.display());
+    let remote_command = format!("cd {} && target/release/rjrssync --secondary", remote_temp_folder.display());
     info!("Running remote command: {}", remote_command);
     //TODO: should we run "cmd /C ssh ..." rather than just "ssh", otherwise the line endings get messed up and subsequent log messages are broken?
     let mut ssh = match Command::new("ssh")
@@ -288,14 +290,28 @@ fn launch_secondary_via_ssh(remote_hostname: &str, remote_user: &str) -> SshSeco
     let mut ssh_stdout = ssh.stdout.take().unwrap(); // stdin should always be available as we piped it
     let mut ssh_stderr = ssh.stderr.take().unwrap(); // stdin should always be available as we piped it
 
+    let (sender, receiver): (Sender<String>, Receiver<String>) = mpsc::channel();
+    let sender2 = sender.clone();
     // std::thread::spawn(move || {
     //     std::io::copy(&mut stdin(), &mut ssh_stdin).expect("stdin error");
     //  });
     std::thread::spawn(move || {
-        std::io::copy(&mut ssh_stdout, &mut stdout()).expect("stdout error");
+        let b = BufReader::new(ssh_stdout);
+        for l in b.lines() {
+            if let Ok(l) = l {
+                sender.send(l);
+            }
+        }
+      //  std::io::copy(&mut ssh_stdout, &mut stdout()).expect("stdout error");
     });
     std::thread::spawn(move || {
-       std::io::copy(&mut ssh_stderr, &mut stderr()).expect("stderr error");
+        let b = BufReader::new(ssh_stderr);
+        for l in b.lines() {
+            if let Ok(l) = l {
+                sender2.send(l);
+            }
+        }
+       //std::io::copy(&mut ssh_stderr, &mut stderr()).expect("stderr error");
     });
 
     info!("Waiting for remote copy to send version handshake");
@@ -306,11 +322,25 @@ fn launch_secondary_via_ssh(remote_hostname: &str, remote_user: &str) -> SshSeco
     //TOOD: the ssh process could not exit but also never print anything useful, e.g. if it hangs or is waiting for input that never comes.
     // In this case the user would need to kill it, so need Ctrl+C to work.
     //TODO: can/should/how can we forward Ctrl+C to ssh?
+    //TODO: can we make it so that the remote copy is killed once teh ssh session is dropped, e.g. if the primary copy is killed.
+    let mut not_present_on_remote = false;
     loop { //TODO: busy loop here not great.
 
-        if let Ok(Some(s)) = ssh.try_wait() {
-            warn!("SSH exited unexpectedly with status {:?}", s);
-            return SshSecondaryLaunchResult::ExitedBeforeHandshake;
+        if let Ok(l) = receiver.try_recv() {
+            info!("Line received: {}", l);
+            if l.contains("No such file or directory") {
+                not_present_on_remote = true;
+            } else if l == SECONDARY_BOOT_MSG {
+                //TODO: check version etc.
+                return SshSecondaryLaunchResult::Success { stdin: ssh_stdin, stdout: ssh_stdout, stderr: ssh_stderr };
+            }
+        } else if let Ok(Some(s)) = ssh.try_wait() {
+            warn!("SSH exited with status {:?}", s);
+            if not_present_on_remote {
+                return SshSecondaryLaunchResult::NotPresentOnRemote;
+             } else {
+                return SshSecondaryLaunchResult::ExitedBeforeHandshake;
+             }
         }
     }
    
