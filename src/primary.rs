@@ -1,11 +1,10 @@
-use std::{io::{Write, Read, BufReader, BufRead}, path::PathBuf, process::{Stdio, ExitCode, ChildStdout, ChildStdin, ChildStderr}, sync::mpsc::RecvError, fmt::{Display, self}, thread::JoinHandle};
+use std::{io::{Write, BufReader, BufRead}, path::PathBuf, process::{Stdio, ExitCode, ChildStdout, ChildStdin, ChildStderr}, sync::mpsc::RecvError, fmt::{Display, self}, thread::JoinHandle};
 use std::sync::mpsc;
 use std::sync::mpsc::{Sender, Receiver};
-use clap::Parser;
+use clap::{Parser};
 use log::{info, error, warn};
 use rust_embed::RustEmbed;
 use tempdir::TempDir;
-use std::process::{Command};
 
 use crate::*;
 
@@ -62,7 +61,8 @@ pub fn primary_main() -> ExitCode {
     //          If Source and Dest are the same computer, they are still separate copies for simplicity.
     //          (It might be more efficient to just have one remote copy, but remember that there could be different users specified
     //           on the Source and Dest, with separate permissions to the folders being synced, so they can't access each others' folders,
-    //           in which case we couldn't share a copy.)
+    //           in which case we couldn't share a copy. Also might need to make it multithreaded on the other end to handle
+    //           doing one command at the same time for each Source and Dest, which might be more complicated.)
 
     // Get list of hosts to launch and estabilish communication with
     let src_folder_desc = parse_remote_folder(&args.src);
@@ -82,33 +82,39 @@ pub fn primary_main() -> ExitCode {
     let dest_comms = dest_comms.unwrap();
 
 
-    match dest_comms {
-        Comms::Local { thread: _, sender, receiver } => {
-            // Test echoing
-            sender.send("hi".to_string()).unwrap();
-            sender.send("there".to_string()).unwrap();
-            sender.send("meow".to_string()).unwrap();
+    src_comms.send_command(Command::GetFiles { root: src_folder_desc.folder });
+    dest_comms.send_command(Command::GetFiles { root: dest_folder_desc.folder });
 
-            loop {
-                let x = receiver.recv().unwrap_or("".to_string());
-                if x.is_empty() { break; }
-                info!("Received data from Secondary echoed: {}", x);
-            }
-        }
-        _ => panic!("aasdasdas")
-    }
-    match src_comms {
-        Comms::Remote { mut stdin, mut stdout, stderr: _ } => {
-            // Test echoing
-            stdin.write(&[1, 2, 5, 10]).unwrap();
+    info!("{:?}", src_comms.receive_response());
+    info!("{:?}", dest_comms.receive_response());
 
-            let mut buf: [u8; 1] = [0];
-            while stdout.read(&mut buf).unwrap_or(0) > 0 {
-                info!("Received data from Secondary echoed: {}", buf[0]);
-            }
-        }
-        _ => panic!("aasdasdas")
-    }
+    // match dest_comms {
+    //     Comms::Local { thread: _, sender, receiver } => {
+    //         // Test echoing
+    //         sender.send("hi".to_string()).unwrap();
+    //         sender.send("there".to_string()).unwrap();
+    //         sender.send("meow".to_string()).unwrap();
+
+    //         loop {
+    //             let x = receiver.recv().unwrap_or("".to_string());
+    //             if x.is_empty() { break; }
+    //             info!("Received data from Secondary echoed: {}", x);
+    //         }
+    //     }
+    //     _ => panic!("aasdasdas")
+    // }
+    // match src_comms {
+    //     Comms::Remote { mut stdin, mut stdout, stderr: _ } => {
+    //         // Test echoing
+    //         stdin.write(&[1, 2, 5, 10]).unwrap();
+
+    //         let mut buf: [u8; 1] = [0];
+    //         while stdout.read(&mut buf).unwrap_or(0) > 0 {
+    //             info!("Received data from Secondary echoed: {}", buf[0]);
+    //         }
+    //     }
+    //     _ => panic!("aasdasdas")
+    // }
     
     error!("Communicate with Source and Dest to coordinate transfer - Not implemented!");
     return ExitCode::from(12);
@@ -118,8 +124,8 @@ enum Comms {
      //TODO: Change string to message enums
     Local {
         thread: JoinHandle<()>,
-        sender: Sender<String>,
-        receiver: Receiver<String>,
+        sender: Sender<Command>,
+        receiver: Receiver<Response>,
     },
     Remote {
         stdin: ChildStdin,
@@ -127,6 +133,32 @@ enum Comms {
         stderr: BufReader<ChildStderr>,
     }
 }
+impl Comms {
+    fn send_command(&self, c: Command) {
+        match self {
+            Comms::Local { thread, sender, receiver } => {
+                error!("Not implemented!");
+            },
+            Comms::Remote { stdin, stdout, stderr } => {
+                error!("Not implemented!");
+            }
+        }
+    }
+
+    fn receive_response(&self) -> Response {
+        match self {
+            Comms::Local { thread, sender, receiver } => {
+                error!("Not implemented!");
+                return Response::Error("Not imneeplemento".to_string());
+            },
+            Comms::Remote { stdin, stdout, stderr } => {
+                error!("Not implemented!");
+                return Response::Error("Not imneeplemento".to_string());
+            },
+        }
+    }
+}
+
 
 fn setup_comms(remote_hostname: &str, remote_user: &str, allow_restart_remote_daemon_if_necessary: bool) -> Option<Comms> {
     info!("setup_comms with '{}'", remote_hostname);
@@ -137,11 +169,11 @@ fn setup_comms(remote_hostname: &str, remote_user: &str, allow_restart_remote_da
     //TODO: Use channels to send/receive messages to that thread?
     if remote_hostname.is_empty() {
         info!("Spawning local thread");
-        let (sender1, receiver1) = mpsc::channel();
-        let (sender2, receiver2) = mpsc::channel();
+        let (command_sender, command_receiver) = mpsc::channel();
+        let (response_sender, response_receiver) = mpsc::channel();
         let thread = std::thread::spawn(
-            move || { secondary_thread_running_on_primary(receiver2, sender1); });
-        return Some(Comms::Local { thread, sender: sender2, receiver: receiver1 });
+            move || { secondary_thread_running_on_primary(command_receiver, response_sender); });
+        return Some(Comms::Local { thread, sender: command_sender, receiver: response_receiver });
     }
 
     // We first attempt to run a previously-deployed copy of the program on the remote, to save time.
@@ -332,7 +364,7 @@ fn launch_secondary_via_ssh(remote_hostname: &str, remote_user: &str) -> SshSeco
     let remote_command = format!("cd {} && target/release/rjrssync --secondary", remote_temp_folder.display());
     info!("Running remote command: {}", remote_command);
     //TODO: should we run "cmd /C ssh ..." rather than just "ssh", otherwise the line endings get messed up and subsequent log messages are broken?
-    let mut ssh = match Command::new("ssh")
+    let mut ssh = match std::process::Command::new("ssh")
         .arg(user_prefix + remote_hostname)
         .arg(remote_command)
         .stdin(Stdio::piped()) //TODO: even though we're piping this, it still seems able to accept password input somehow?? Using /dev/tty?
@@ -488,7 +520,7 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> bool {
     let remote_spec = user_prefix.clone() + remote_hostname + ":" + remote_temp_folder.parent().unwrap().to_str().unwrap();
     info!("Copying source to {}", remote_spec);
     // Note that we run "cmd /C scp ..." rather than just "scp", otherwise the line endings get messed up and subsequent log messages are broken.
-    match Command::new("cmd")
+    match std::process::Command::new("cmd")
         .arg("/C")
         .arg("scp")
         .arg("-r")
@@ -515,7 +547,7 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> bool {
     let remote_command = format!("cd {} && cargo build --release", remote_temp_folder.display());
     info!("Running remote command: {}", remote_command);
      // Note that we run "cmd /C ssh ..." rather than just "ssh", otherwise the line endings get messed up and subsequent log messages are broken.
-     match Command::new("cmd")
+     match std::process::Command::new("cmd")
         .arg("/C")
         .arg("ssh")
         .arg(user_prefix + remote_hostname)
