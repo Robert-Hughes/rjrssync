@@ -1,6 +1,6 @@
-use std::{io::{Write, Read, stdout, stdin}};
+use std::{io::{Write, Read, stdout, stdin}, sync::mpsc::{Sender, Receiver}};
 use clap::Parser;
-use log::{info}; 
+use log::{info};
 
 use crate::*;
 
@@ -51,6 +51,15 @@ pub fn secondary_main() -> ExitCode {
     return ExitCode::from(22);
 }
 
-fn secondary_thread_running_on_primary() {
+pub fn secondary_thread_running_on_primary(sender: Sender<String>, receiver: Receiver<String>) {
+    // Message-processing loop, until Primary disconnects.
+    loop {
+        let x = receiver.recv().unwrap_or("".to_string());
+        if x.is_empty() { break; }
+        sender.send(x.clone()).unwrap();
 
+        if &x == "meow" {
+            break;
+        }
+    }
 }

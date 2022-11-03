@@ -1,4 +1,4 @@
-use std::{io::{Write, Read, BufReader, BufRead}, path::PathBuf, process::{Stdio, ExitCode, ChildStdout, ChildStdin, ChildStderr}, sync::mpsc::RecvError, fmt::{Display, self}};
+use std::{io::{Write, Read, BufReader, BufRead}, path::PathBuf, process::{Stdio, ExitCode, ChildStdout, ChildStdin, ChildStderr}, sync::mpsc::RecvError, fmt::{Display, self}, thread::JoinHandle};
 use std::sync::mpsc;
 use std::sync::mpsc::{Sender, Receiver};
 use clap::Parser;
@@ -82,8 +82,23 @@ pub fn primary_main() -> ExitCode {
     let dest_comms = dest_comms.unwrap();
 
 
+    match dest_comms {
+        Comms::Local { thread: _, sender, receiver } => {
+            // Test echoing
+            sender.send("hi".to_string()).unwrap();
+            sender.send("there".to_string()).unwrap();
+            sender.send("meow".to_string()).unwrap();
+
+            loop {
+                let x = receiver.recv().unwrap_or("".to_string());
+                if x.is_empty() { break; }
+                info!("Received data from Secondary echoed: {}", x);
+            }
+        }
+        _ => panic!("aasdasdas")
+    }
     match src_comms {
-        Comms::Remote { mut stdin, mut stdout, stderr } => {
+        Comms::Remote { mut stdin, mut stdout, stderr: _ } => {
             // Test echoing
             stdin.write(&[1, 2, 5, 10]).unwrap();
 
@@ -100,7 +115,12 @@ pub fn primary_main() -> ExitCode {
 }
 
 enum Comms {
-    Local, //TODO: add thread handle, and channel(s) here? What level of abstracwtion for the data in the channels - messages/command objects, or bytes?
+     //TODO: Change string to message enums
+    Local {
+        thread: JoinHandle<()>,
+        sender: Sender<String>,
+        receiver: Receiver<String>,
+    },
     Remote {
         stdin: ChildStdin,
         stdout: BufReader<ChildStdout>,
@@ -116,7 +136,12 @@ fn setup_comms(remote_hostname: &str, remote_user: &str, allow_restart_remote_da
     // and for consistency with remote secondaries.
     //TODO: Use channels to send/receive messages to that thread?
     if remote_hostname.is_empty() {
-        return Some(Comms::Local);
+        info!("Spawning local thread");
+        let (sender1, receiver1) = mpsc::channel();
+        let (sender2, receiver2) = mpsc::channel();
+        let thread = std::thread::spawn(
+            move || { secondary_thread_running_on_primary(sender1, receiver2); });
+        return Some(Comms::Local { thread, sender: sender2, receiver: receiver1 });
     }
 
     // We first attempt to run a previously-deployed copy of the program on the remote, to save time.
