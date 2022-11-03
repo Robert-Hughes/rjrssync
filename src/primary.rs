@@ -140,7 +140,7 @@ fn setup_comms(remote_hostname: &str, remote_user: &str, allow_restart_remote_da
         let (sender1, receiver1) = mpsc::channel();
         let (sender2, receiver2) = mpsc::channel();
         let thread = std::thread::spawn(
-            move || { secondary_thread_running_on_primary(sender1, receiver2); });
+            move || { secondary_thread_running_on_primary(receiver2, sender1); });
         return Some(Comms::Local { thread, sender: sender2, receiver: receiver1 });
     }
 

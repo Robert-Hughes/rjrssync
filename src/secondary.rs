@@ -10,6 +10,17 @@ struct SecondaryCliArgs {
     secondary: bool,
 }
 
+pub enum Command {
+    GetFiles {
+        root: String,
+    }
+}
+
+pub enum Response {
+    Ok,
+    Error(String)
+}
+
 pub fn secondary_main() -> ExitCode {
     info!("Running as secondary");
 
@@ -36,6 +47,8 @@ pub fn secondary_main() -> ExitCode {
         // echo back
         stdout().write(&buf).unwrap();
 
+        //exec_command();
+
         //TODO: if get a message telling us to start a transfer, setup_comms(false) with the dest.
         //        (false cos the Dest should already have been set up with new version if necessary, so don't do it again)
         //TODO:     get a list of all the files in the local dir, and ask the dest to do the same
@@ -51,15 +64,21 @@ pub fn secondary_main() -> ExitCode {
     return ExitCode::from(22);
 }
 
-pub fn secondary_thread_running_on_primary(sender: Sender<String>, receiver: Receiver<String>) {
+pub fn secondary_thread_running_on_primary(receiver: Receiver<Command>, sender: Sender<Response>) {
     // Message-processing loop, until Primary disconnects.
     loop {
         let x = receiver.recv().unwrap_or("".to_string());
         if x.is_empty() { break; }
         sender.send(x.clone()).unwrap();
 
+        //exec_command();
+
         if &x == "meow" {
             break;
         }
     }
+}
+
+fn exec_command(command : Command) {
+
 }
