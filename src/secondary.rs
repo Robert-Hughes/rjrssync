@@ -1,10 +1,16 @@
+use std::{io::{Write, Read, stdout, stdin}};
+use clap::Parser;
+use log::{info}; 
+
+use crate::*;
+
 #[derive(clap::Parser)]
 struct SecondaryCliArgs {
     #[arg(short, long)]
     secondary: bool,
 }
 
-fn secondary_main() -> ExitCode {
+pub fn secondary_main() -> ExitCode {
     info!("Running as secondary");
 
     let _args = SecondaryCliArgs::parse();
@@ -45,3 +51,6 @@ fn secondary_main() -> ExitCode {
     return ExitCode::from(22);
 }
 
+fn secondary_thread_running_on_primary() {
+
+}

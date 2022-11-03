@@ -1,13 +1,12 @@
-use std::{io::{Write, Read, stdout, stdin, BufReader, BufRead}, path::PathBuf, process::{Stdio, ExitCode, ChildStdout, ChildStdin, ChildStderr}, sync::mpsc::RecvError, fmt::{Display, self}};
-use std::sync::mpsc;
-use std::sync::mpsc::{Sender, Receiver};
-use clap::Parser;
-use log::{info, error, warn};
-use rust_embed::RustEmbed;
-use tempdir::TempDir;
-use std::process::{Command};
+use std::{process::{ExitCode}};
 
-const VERSION: i32 = 1;
+mod primary;
+mod secondary;
+
+use primary::*;
+use secondary::*;
+
+pub const VERSION: i32 = 1;
 
 fn main() -> ExitCode {
     // Configure logging
@@ -28,7 +27,7 @@ fn main() -> ExitCode {
 // to receive commands over its stdin. Also identifies its version, so the primary side can decide
 // if it can continue to communicate or needs to copy over an updated copy of the secondary program.
 // Note that this format needs to always be backwards-compatible, so is very basic.
-const SECONDARY_HANDSHAKE_MSG : &str = "rjrssync secondary v"; // Version number will be appended
+pub const SECONDARY_HANDSHAKE_MSG : &str = "rjrssync secondary v"; // Version number will be appended
 
 
 

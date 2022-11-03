@@ -1,3 +1,14 @@
+use std::{io::{Write, Read, BufReader, BufRead}, path::PathBuf, process::{Stdio, ExitCode, ChildStdout, ChildStdin, ChildStderr}, sync::mpsc::RecvError, fmt::{Display, self}};
+use std::sync::mpsc;
+use std::sync::mpsc::{Sender, Receiver};
+use clap::Parser;
+use log::{info, error, warn};
+use rust_embed::RustEmbed;
+use tempdir::TempDir;
+use std::process::{Command};
+
+use crate::*;
+
 #[derive(clap::Parser)]
 struct PrimaryCliArgs {
     src: String,
@@ -35,7 +46,7 @@ fn parse_remote_folder(s: &str) -> RemoteFolderDesc {
     return r;
 }
 
-fn primary_main() -> ExitCode {
+pub fn primary_main() -> ExitCode {
     info!("Running as primary");
 
     let args = PrimaryCliArgs::parse();
