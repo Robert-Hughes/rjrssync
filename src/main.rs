@@ -1,4 +1,4 @@
-use std::{net::{TcpListener, TcpStream}, io::{Write, Read, stdout, stdin, stderr, BufReader, BufRead}, path::PathBuf, process::{Stdio, ExitCode, ExitStatus, ChildStdout, ChildStdin, ChildStderr}, thread::sleep, time::Duration, sync::mpsc::RecvError};
+use std::{io::{Write, Read, stdout, stdin, BufReader, BufRead}, path::PathBuf, process::{Stdio, ExitCode, ChildStdout, ChildStdin, ChildStderr}, sync::mpsc::RecvError, fmt::{Display, self}};
 use std::sync::mpsc;
 use std::sync::mpsc::{Sender, Receiver};
 use clap::Parser;
@@ -8,7 +8,6 @@ use tempdir::TempDir;
 use std::process::{Command};
 
 const VERSION: i32 = 1;
-const MAGIC: [u8; 4] = [19, 243, 129, 88];
 
 #[derive(clap::Parser)]
 struct PrimaryCliArgs {
@@ -95,19 +94,37 @@ fn primary_main() -> ExitCode {
     if src_comms.is_none() {
         return ExitCode::from(10);
     }
-    let _src_comms = src_comms.unwrap();
+    let src_comms = src_comms.unwrap();
 
     let dest_comms = setup_comms(&dest_folder_desc.hostname, &dest_folder_desc.user, true);
     if dest_comms.is_none() {
         return ExitCode::from(11);
     }
-    let _dest_comms = dest_comms.unwrap();
+    let dest_comms = dest_comms.unwrap();
+
+
+    match src_comms {
+        Comms::Remote { mut stdin, mut stdout, stderr } => {
+            // Test echoing
+            stdin.write(&[1, 2, 5, 10]).unwrap();
+
+            let mut buf: [u8; 1] = [0];
+            while stdout.read(&mut buf).unwrap_or(0) > 0 {
+                info!("Received data from Secondary echoed: {}", buf[0]);
+            }
+        }
+        _ => panic!("aasdasdas")
+    }
     
     error!("Communicate with Source and Dest to coordinate transfer - Not implemented!");
     return ExitCode::from(12);
 }
 
-const SECONDARY_BOOT_MSG : &str = "hello I have booted properly m8";
+// Message printed by a secondary copy of the program to indicate that it has loaded and is ready
+// to receive commands over its stdin. Also identifies its version, so the primary side can decide
+// if it can continue to communicate or needs to copy over an updated copy of the secondary program.
+// Note that this format needs to always be backwards-compatible, so is very basic.
+const SECONDARY_HANDSHAKE_MSG : &str = "rjrssync secondary v"; // Version number will be appended
 
 fn secondary_main() -> ExitCode {
     info!("Running as secondary");
@@ -117,25 +134,12 @@ fn secondary_main() -> ExitCode {
     // We take commands from our stdin and send responses on our stdout. These will be piped over ssh
     // back to the Primary.
 
-    // The first thing we send is a special message that the Primary will recognise, to know that we've started up correctly.
+    // The first thing we send is a special message that the Primary will recognise, to know that we've started up correctly
+    // and to make sure we are running compatible versions etc.
     // We need to do this on both stdout and stderr, because both those streams need to be synchronised on the receiving end.
-    println!("{}", SECONDARY_BOOT_MSG);
-    eprintln!("{}", SECONDARY_BOOT_MSG);
-
-    // Before starting the command-processing loop, we perform a basic handshake with the Primary
-    // to make sure we are running compatible versions etc.
-    //TODO: we probably don't need this anymore, as the boot message above fulfils this purpose (if we include some kind of magic and a version number in there)
-    
-    // Send our magic and version number, so the Primary can check if it's compatible.
-    // Note that the 'protocol' used to check version number etc. needs to always be backwards-compatible,
-    // so is very basic.
-    // info!("Sending version number {}", VERSION);
-    // let mut magic_and_version = MAGIC.to_vec();
-    // magic_and_version.append(&mut VERSION.to_le_bytes().to_vec());
-    // if stdout().write(&magic_and_version).is_err() {
-    //     error!("Error writing magic and version");
-    //     return ExitCode::from(20);
-    // }
+    let msg = format!("{}{}", SECONDARY_HANDSHAKE_MSG, VERSION);
+    println!("{}", msg);
+    eprintln!("{}", msg);
 
     // If the Primary isn't happy, they will stop us and deploy a new version. So at this point we can assume
     // they are happy and move on to processing commands they (might) send us
@@ -146,7 +150,7 @@ fn secondary_main() -> ExitCode {
       //  info!("Received data from Primary: {}", buf[0]);
 
         // echo back
-        stdout().write(&buf);
+        stdout().write(&buf).unwrap();
 
         //TODO: if get a message telling us to start a transfer, setup_comms(false) with the dest.
         //        (false cos the Dest should already have been set up with new version if necessary, so don't do it again)
@@ -163,12 +167,25 @@ fn secondary_main() -> ExitCode {
     return ExitCode::from(22);
 }
 
-fn setup_comms(remote_hostname: &str, remote_user: &str, allow_restart_remote_daemon_if_necessary: bool) -> Option::<()> {
+enum Comms {
+    Local, //TODO: add thread handle, and channel(s) here? What level of abstracwtion for the data in the channels - messages/command objects, or bytes?
+    Remote {
+        stdin: ChildStdin,
+        stdout: BufReader<ChildStdout>,
+        stderr: BufReader<ChildStderr>,
+    }
+}
+
+fn setup_comms(remote_hostname: &str, remote_user: &str, allow_restart_remote_daemon_if_necessary: bool) -> Option<Comms> {
     info!("setup_comms with '{}'", remote_hostname);
 
-    //TODO: if remote is empty (i.e. local), then start a thread to handle that instead?
-    // separate thread to avoid synchornisation with the Primary (and both Source and Dest may be on same PC!, so all three in one process)
-    // need to find an appropriate level of abstraction to switch between the local and remote 'modes'.
+    // If remote is empty (i.e. local), then start a thread to handle commands.
+    // Use a separate thread to avoid synchornisation with the Primary (and both Source and Dest may be on same PC!, so all three in one process),
+    // and for consistency with remote secondaries.
+    //TODO: Use channels to send/receive messages to that thread?
+    if remote_hostname.is_empty() {
+        return Some(Comms::Local);
+    }
 
     // We first attempt to run a previously-deployed copy of the program on the remote, to save time.
     // If it exists and is a compatible version, we can use that.
@@ -190,18 +207,9 @@ fn setup_comms(remote_hostname: &str, remote_user: &str, allow_restart_remote_da
                 error!("Not gonna try doing anything, as we don't know what happened");
                 return None;
             }
-            SshSecondaryLaunchResult::Success { mut stdin, mut stdout, stderr } => {
+            SshSecondaryLaunchResult::Success { stdin, stdout, stderr } => {
                 info!("Connection estabilished");
-
-                // Test echoing
-                stdin.write(&[1, 2, 5, 10]);
-
-                let mut buf: [u8; 1] = [0];
-                while stdout.read(&mut buf).unwrap_or(0) > 0 {
-                    info!("Received data from Secondary echoed: {}", buf[0]);
-                }
-
-                return Some(());
+                return Some(Comms::Remote { stdin, stdout, stderr });
             },
         };
     }
@@ -280,8 +288,8 @@ enum SshSecondaryLaunchResult {
     HandshakeIncompatibleVersion,
     Success {
         stdin: ChildStdin,
-        stdout: BufReader<Box<dyn Read + Send>>,
-        stderr: BufReader<Box<dyn Read + Send>>,
+        stdout: BufReader<ChildStdout>,
+        stderr: BufReader<ChildStderr>,
     }
 }
 
@@ -293,33 +301,67 @@ enum OutputReaderThreadMsg {
     Line(String),
     Error(std::io::Error),
     StreamClosed,
-    HandshakePassed(BufReader<Box<dyn Read + Send>>),
+    HandshakeReceived(String, OutputReaderStream), // Also sends back the stream, so the main thread takes control.
 }
 
-fn output_reader_thread_main<T>(stream: T, stream_name: &'static str, sender: Sender<(&str, OutputReaderThreadMsg)>) where T : Read + Send + 'static {
-    let mut reader: BufReader<Box<dyn Read + Send>> = BufReader::new(Box::new(stream));
+#[derive(Clone, Copy)]
+enum OutputReaderStreamType {
+    Stdout,
+    Stderr
+}
+impl Display for OutputReaderStreamType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { 
+        match self {
+            OutputReaderStreamType::Stdout => write!(f, "stdout"),
+            OutputReaderStreamType::Stderr => write!(f, "stderr"),
+        }
+    }
+}
+
+enum OutputReaderStream {
+    Stdout(BufReader<ChildStdout>),
+    Stderr(BufReader<ChildStderr>)
+}
+impl OutputReaderStream {
+    fn get_type(&self) -> OutputReaderStreamType {
+        match self {
+            OutputReaderStream::Stdout(_) => OutputReaderStreamType::Stdout,
+            OutputReaderStream::Stderr(_) => OutputReaderStreamType::Stderr,
+        }
+    }
+    fn read_line(&mut self, buf: &mut String) -> std::io::Result<usize> {
+        match self {
+            OutputReaderStream::Stdout(b) => b.read_line(buf),
+            OutputReaderStream::Stderr(b) => b.read_line(buf),
+        }
+    }
+}
+
+fn output_reader_thread_main(mut stream: OutputReaderStream, sender: Sender<(OutputReaderStreamType, OutputReaderThreadMsg)>) {
+    let stream_type = stream.get_type();
     loop  {
         let mut l : String = "".to_string();
-        match reader.read_line(&mut l) {
+        // Note we unwrap() the errors on the sender here, as the other end should never have been dropped before this thread exits.
+        match stream.read_line(&mut l) {
             Err(e) => {
-                sender.send((stream_name, OutputReaderThreadMsg::Error(e)));
+                sender.send((stream_type, OutputReaderThreadMsg::Error(e))).unwrap();
                 return;
             },
             Ok(0) => {
                 // end of stream
-                sender.send((stream_name, OutputReaderThreadMsg::StreamClosed));
+                sender.send((stream_type, OutputReaderThreadMsg::StreamClosed)).unwrap();
                 return;
             }
-            Ok(_) if l.starts_with(SECONDARY_BOOT_MSG) => {
-                //TODO: check version. Here or on the main thread?
-
-                // remote end has booted up properly and is ready for comms.
-                // finish this thread and return control of the stdout to the main thread.
-                sender.send((stream_name, OutputReaderThreadMsg::HandshakePassed(reader)));
-                return;
-            } 
-            Ok(_) => {            
-                sender.send((stream_name, OutputReaderThreadMsg::Line(l)));
+            Ok(_) => {
+                l.pop(); // Remove the trailing newline
+                if l.starts_with(SECONDARY_HANDSHAKE_MSG) {
+                    // remote end has booted up properly and is ready for comms.
+                    // finish this thread and return control of the stdout to the main thread, so it can communicate directly
+                    sender.send((stream_type, OutputReaderThreadMsg::HandshakeReceived(l, stream))).unwrap();
+                    return;
+                } else {            
+                    sender.send((stream_type, OutputReaderThreadMsg::Line(l))).unwrap();
+                }
             }
         }
     }
@@ -347,18 +389,18 @@ fn launch_secondary_via_ssh(remote_hostname: &str, remote_user: &str) -> SshSeco
         },
     };
 
-    let mut ssh_stdin = ssh.stdin.take().unwrap(); // stdin should always be available as we piped it
-    let mut ssh_stdout = ssh.stdout.take().unwrap(); // stdin should always be available as we piped it
-    let mut ssh_stderr = ssh.stderr.take().unwrap(); // stdin should always be available as we piped it
+    let ssh_stdin = ssh.stdin.take().unwrap(); // stdin should always be available as we piped it
+    let ssh_stdout = ssh.stdout.take().unwrap(); // stdin should always be available as we piped it
+    let ssh_stderr = ssh.stderr.take().unwrap(); // stdin should always be available as we piped it
 
-    let (sender, receiver): (Sender<(&str, OutputReaderThreadMsg)>, Receiver<(&str, OutputReaderThreadMsg)>) = mpsc::channel();
-    let sender2 = sender.clone();
+    let (sender1, receiver): (Sender<(OutputReaderStreamType, OutputReaderThreadMsg)>, Receiver<(OutputReaderStreamType, OutputReaderThreadMsg)>) = mpsc::channel();
+    let sender2 = sender1.clone();
     // std::thread::spawn(move || {
     //     std::io::copy(&mut stdin(), &mut ssh_stdin).expect("stdin error");
     //  });
 
-    std::thread::spawn(move || output_reader_thread_main(ssh_stdout, "stdout", sender));
-    std::thread::spawn(move || output_reader_thread_main(ssh_stderr, "stderr", sender2));
+    std::thread::spawn(move || output_reader_thread_main(OutputReaderStream::Stdout(BufReader::new(ssh_stdout)), sender1));
+    std::thread::spawn(move || output_reader_thread_main(OutputReaderStream::Stderr(BufReader::new(ssh_stderr)), sender2));
 
     info!("Waiting for remote copy to send version handshake");
     //TODO: wait until ssh either exits (e.g. due to an error), or we see a special print from our secondary program
@@ -371,8 +413,8 @@ fn launch_secondary_via_ssh(remote_hostname: &str, remote_user: &str) -> SshSeco
     //TODO: can we make it so that the remote copy is killed once teh ssh session is dropped, e.g. if the primary copy is killed.
     // do we need to close all the streams that we have open too??
     let mut not_present_on_remote = false;
-    let mut handshook_stdout : Option<BufReader<Box<dyn Read + Send>>> = None;
-    let mut handshook_stderr : Option<BufReader<Box<dyn Read + Send>>> = None;
+    let mut handshook_stdout : Option<BufReader<ChildStdout>> = None;
+    let mut handshook_stderr : Option<BufReader<ChildStderr>> = None;
     loop {
         match receiver.recv() {
             Err(RecvError) => {
@@ -386,37 +428,45 @@ fn launch_secondary_via_ssh(remote_hostname: &str, remote_user: &str) -> SshSeco
                     return SshSecondaryLaunchResult::ExitedBeforeHandshake;
                 }
             }
-            Ok((stream_name, OutputReaderThreadMsg::Line(l))) => {
-                info!("Line received from {}: {}", stream_name, l);               
+            Ok((stream_type, OutputReaderThreadMsg::Line(l))) => {
+                info!("Line received from {}: {}", stream_type, l);               
                 if l.contains("No such file or directory") {
                     not_present_on_remote = true;
                 }
             },
-            Ok((stream_name, OutputReaderThreadMsg::HandshakePassed(s))) => {
-                info!("HandshakePassed from {}", stream_name);
+            Ok((stream_type, OutputReaderThreadMsg::HandshakeReceived(line, s))) => {
+                info!("HandshakeReceived from {}: {}", stream_type, line);
                 // Need to wait for both stdout and stderr to pass the handshake
-                if (stream_name == "stdout") {
-                    handshook_stdout = Some(s);
-                } else if (stream_name == "stderr") {
-                    handshook_stderr = Some(s);
-                } else {
-                    panic!("Unknown stream"); //TODO: use an enum instead??
+                match s {
+                    OutputReaderStream::Stdout(b) => {
+                        handshook_stdout = Some(b);
+                    },
+                    OutputReaderStream::Stderr(b) => {
+                        handshook_stderr = Some(b);
+                    },
                 }
-                //TODO: check version. Here or on the background thread? Check both stdout and stderr?
-                if (handshook_stdout.is_some() && handshook_stderr.is_some()) {
+
+                let remote_version = line.split_at(SECONDARY_HANDSHAKE_MSG.len()).1;
+                if remote_version != VERSION.to_string() {
+                    warn!("Remote server has incompatible version ({} vs local version {})", remote_version, VERSION);
+                    return SshSecondaryLaunchResult::HandshakeIncompatibleVersion;
+                }
+
+                //TODO: check version. Check both stdout and stderr?
+                if handshook_stdout.is_some() && handshook_stderr.is_some() {
                     return SshSecondaryLaunchResult::Success { stdin: ssh_stdin, stdout: handshook_stdout.unwrap(), stderr: handshook_stderr.unwrap() };
                 }
 
             },
-            Ok((stream_name, OutputReaderThreadMsg::Error(e))) => {
-                info!("Error from {}", stream_name);
+            Ok((stream_type, OutputReaderThreadMsg::Error(e))) => {
+                info!("Error from {}: {}", stream_type, e);
                 // Wait for the process to exit, for tidyness?
-                ssh.wait();
+               // ssh.wait();
             },
-            Ok((stream_name, OutputReaderThreadMsg::StreamClosed)) => {
-                info!("StreamClosed {}", stream_name);
+            Ok((stream_type, OutputReaderThreadMsg::StreamClosed)) => {
+                info!("StreamClosed {}", stream_type);
                 // Wait for the process to exit, for tidyness?
-                ssh.wait();       
+               // ssh.wait();       
             }
         }
     }
@@ -505,7 +555,6 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> bool {
     // Note that we could merge this ssh command with the one to run the program once it's built (in launch_secondary_via_ssh),
     // but this would make error reporting slightly more difficult as the command in launch_secondary_via_ssh is more tricky as 
     // we are parsing the stdout, but the command here we can wait for it to finish easily.
-    //TODO: add flag to hide warnings when building remotely?
     let remote_command = format!("cd {} && cargo build --release", remote_temp_folder.display());
     info!("Running remote command: {}", remote_command);
      // Note that we run "cmd /C ssh ..." rather than just "ssh", otherwise the line endings get messed up and subsequent log messages are broken.
