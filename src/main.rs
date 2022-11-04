@@ -6,7 +6,7 @@ mod doer;
 use boss::*;
 use doer::*;
 
-pub const VERSION: i32 = 6;
+pub const VERSION: i32 = 7;
 
 fn main() -> ExitCode {
     // The process can run as either a CLI which takes input from the command line, performs

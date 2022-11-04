@@ -13,6 +13,8 @@ use crate::*;
 struct BossCliArgs {
     src: String,
     dest: String,
+    #[arg(short, long)]
+    doer: bool,
 }
 
 #[derive(Default)]
@@ -33,6 +35,7 @@ fn parse_remote_folder(s: &str) -> RemoteFolderDesc {
             after_user = b;
         }
     };
+    //TODO: colon clashes with windows drive letters!
     match after_user.split_once(':') {
         None => {
             r.folder = after_user.to_string();
@@ -107,38 +110,23 @@ pub fn boss_main() -> ExitCode {
     src_comms.send_command(Command::GetFiles { root: src_folder_desc.folder });
     dest_comms.send_command(Command::GetFiles { root: dest_folder_desc.folder });
 
-    src_comms.receive_response();
-    dest_comms.receive_response();
+    loop {
+        let r = src_comms.receive_response();
+        if let Ok(Response::File(s)) = r {
+            info!("{}", s);
+        } else {
+            break;
+        }
+    }
+    loop {
+        let r = dest_comms.receive_response();
+        if let Ok(Response::File(s)) = r {
+            info!("{}", s);
+        } else {
+            break;
+        }
+    }
 
-    // match dest_comms {
-    //     Comms::Local { thread: _, sender, receiver } => {
-    //         // Test echoing
-    //         sender.send("hi".to_string()).unwrap();
-    //         sender.send("there".to_string()).unwrap();
-    //         sender.send("meow".to_string()).unwrap();
-
-    //         loop {
-    //             let x = receiver.recv().unwrap_or("".to_string());
-    //             if x.is_empty() { break; }
-    //             info!("Received data from Doer echoed: {}", x);
-    //         }
-    //     }
-    //     _ => panic!("aasdasdas")
-    // }
-    // match src_comms {
-    //     Comms::Remote { mut stdin, mut stdout, stderr: _ } => {
-    //         // Test echoing
-    //         stdin.write(&[1, 2, 5, 10]).unwrap();
-
-    //         let mut buf: [u8; 1] = [0];
-    //         while stdout.read(&mut buf).unwrap_or(0) > 0 {
-    //             info!("Received data from Doer echoed: {}", buf[0]);
-    //         }
-    //     }
-    //     _ => panic!("aasdasdas")
-    // }
-
-    error!("Communicate with Source and Dest to coordinate transfer - Not implemented!");
     return ExitCode::from(12);
 }
 

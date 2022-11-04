@@ -23,6 +23,7 @@ pub enum Command {
 pub enum Response {
     // Split into lots of individual messages (rather than one big file list) so that the boss can start doing stuff before receiving the full list
     File(String),
+    EndOfFileList,
     Error(String)
 }
 
@@ -150,6 +151,7 @@ fn exec_command(command : Command, comms: &Comms) {
                 count += 1;
             }
             let elapsed = start.elapsed().as_millis();
+            comms.send_response(Response::EndOfFileList);
             //println!("Walked {} in {} ({}/s)", count, elapsed, 1000.0 * count as f32 / elapsed as f32);
 
         }
