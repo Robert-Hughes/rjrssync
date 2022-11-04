@@ -6,12 +6,9 @@ mod secondary;
 use primary::*;
 use secondary::*;
 
-pub const VERSION: i32 = 1;
+pub const VERSION: i32 = 5;
 
 fn main() -> ExitCode {
-    // Configure logging
-    simple_logger::SimpleLogger::new().env().init().unwrap();
-
     // The process can run as either a CLI which takes input from the command line, performs
     // a transfer and then exits once complete ("primary"), or as a remote process on either the source
     // or destination computer which responds to commands from the primary (this is a "secondary").

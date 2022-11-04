@@ -1,6 +1,6 @@
-use std::{io::{stdin}, sync::mpsc::{Sender, Receiver, RecvError}, time::Instant};
+use std::{sync::mpsc::{Sender, Receiver}, time::Instant, fmt::{Display, self}, io::Write};
 use clap::Parser;
-use log::{info};
+use log::{info, error};
 use serde::{Serialize, Deserialize};
 use walkdir::WalkDir;
 
@@ -34,40 +34,58 @@ enum Comms {
     Remote // Remote doesn't need to store anything, as it uses the process' stdin and stdout
 }
 impl Comms {
-    fn send_response(&self, r: Response) {
+    fn send_response(&self, r: Response) -> Result<(), String> {
+        info!("Sending response {:?} to {}", r, &self);
+        let res;
         match self {
-            Comms::Local => {
-                error!("Not implemented!");
+            Comms::Local { sender, receiver: _ } => {
+                res = sender.send(r).map_err(|e| e.to_string());
             },
-            Comms::Remote { stdin, stdout, stderr } => {
-                error!("Not implemented!");
+            Comms::Remote => {
+                res = bincode::serialize_into(std::io::stdout(), &r).map_err(|e| e.to_string());
+                std::io::stdout().flush(); // Otherwise could be buffered and we hang!
             }
         }
-    }
+        if res.is_err() {
+            error!("Error sending response: {:?}", res);
+        }
+        return res;
+   }
 
-    fn receive_command(&self) -> Command {
+    fn receive_command(&self) -> Result<Command, String> {
+        info!("Waiting for command from {}", &self);
+        let c;
         match self {
-            Comms::Local => {
-                match receiver.recv() {
-                    Ok(c) => exec_command(c, &sender),
-                    Err(RecvError) => break,
-                }
+            Comms::Local { sender: _, receiver } => {
+                c = receiver.recv().map_err(|e| e.to_string());
             },
-            Comms::Remote { stdin, stdout, stderr } => {
-                match bincode::deserialize_from::<std::io::Stdin, Command>(stdin()) {
-                    Ok(c) => {
-                        exec_command(c, sender);
-                    }
-                    Err(e) => {
-                        return ExitCode::from(22);
-                    }
-                }
+            Comms::Remote => {
+                c = bincode::deserialize_from(std::io::stdin()).map_err(|e| e.to_string());
             },
+        }
+        info!("Received command {:?} from {}", c, &self);
+        return c;
+    }
+}
+impl Display for Comms {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { 
+        match self {
+            Comms::Local { .. } => {
+                write!(f, "Local")
+            },
+            Comms::Remote { .. } => {
+                write!(f, "Remote")
+            }
         }
     }
 }
 
 pub fn secondary_main() -> ExitCode {
+    // Configure logging. Note that we can't use stdout as that is our communication channel with the primary!
+    // We use stderr instead.
+    //TODO: who is reading stderr? :O Log to file instead?
+   // stderrlog::StdErrLog::new().init().unwrap();
+
     info!("Running as secondary");
 
     let _args = SecondaryCliArgs::parse();
@@ -98,14 +116,15 @@ pub fn secondary_thread_running_on_primary(receiver: Receiver<Command>, sender: 
     message_loop(Comms::Local { sender, receiver });
 }
 
-fn message_loop (comms: Comms) {
+fn message_loop (comms: Comms) -> Result<(), ()> {
     loop {
         match comms.receive_command() {
             Ok(c) => {
                 exec_command(c, &comms);
             }
             Err(e) => {
-                return ExitCode::from(22);
+                error!("Error receiving command: {}", e);
+                return Err(());
             }
         }
     }
@@ -119,7 +138,15 @@ fn exec_command(command : Command, comms: &Comms) {
             let mut count = 0;
       //      for entry in walker.filter_entry(|e| e.file_name() != ".git" && e.file_name() != "dependencies") {
             for entry in walker {
-                comms.send_response(Response::File(entry.unwrap().file_name().to_str().unwrap().to_string()));
+                match entry {
+                    Ok(e) => {
+                        comms.send_response(Response::File(e.file_name().to_str().unwrap().to_string()));
+                    }
+                    Err(e) => {
+                        comms.send_response(Response::Error(e.to_string()));
+                        return;
+                    }
+                }
                 count += 1;
             }
             let elapsed = start.elapsed().as_millis();

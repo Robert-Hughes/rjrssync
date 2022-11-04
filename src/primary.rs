@@ -1,4 +1,4 @@
-use std::{io::{Write, BufReader, BufRead}, path::PathBuf, process::{Stdio, ExitCode, ChildStdout, ChildStdin, ChildStderr}, sync::mpsc::RecvError, fmt::{Display, self}, thread::JoinHandle};
+use std::{io::{Write, BufReader, BufRead, Read}, path::PathBuf, process::{Stdio, ExitCode, ChildStdout, ChildStdin, ChildStderr}, sync::mpsc::RecvError, fmt::{Display, self}, thread::JoinHandle};
 use std::sync::mpsc;
 use std::sync::mpsc::{Sender, Receiver};
 use clap::{Parser};
@@ -46,6 +46,9 @@ fn parse_remote_folder(s: &str) -> RemoteFolderDesc {
 }
 
 pub fn primary_main() -> ExitCode {
+    // Configure logging
+    simple_logger::SimpleLogger::new().env().init().unwrap();
+
     info!("Running as primary");
 
     let args = PrimaryCliArgs::parse();
@@ -73,20 +76,20 @@ pub fn primary_main() -> ExitCode {
     if src_comms.is_none() {
         return ExitCode::from(10);
     }
-    let src_comms = src_comms.unwrap();
+    let mut src_comms = src_comms.unwrap();
 
     let dest_comms = setup_comms(&dest_folder_desc.hostname, &dest_folder_desc.user, true);
     if dest_comms.is_none() {
         return ExitCode::from(11);
     }
-    let dest_comms = dest_comms.unwrap();
+    let mut dest_comms = dest_comms.unwrap();
 
 
     src_comms.send_command(Command::GetFiles { root: src_folder_desc.folder });
     dest_comms.send_command(Command::GetFiles { root: dest_folder_desc.folder });
 
-    info!("{:?}", src_comms.receive_response());
-    info!("{:?}", dest_comms.receive_response());
+    src_comms.receive_response();
+    dest_comms.receive_response();
 
     // match dest_comms {
     //     Comms::Local { thread: _, sender, receiver } => {
@@ -120,8 +123,8 @@ pub fn primary_main() -> ExitCode {
     return ExitCode::from(12);
 }
 
+//TODO: can we share implementation between the two Comms classes (primary and secondary?)
 enum Comms {
-     //TODO: Change string to message enums
     Local {
         thread: JoinHandle<()>,
         sender: Sender<Command>,
@@ -130,31 +133,52 @@ enum Comms {
     Remote {
         stdin: ChildStdin,
         stdout: BufReader<ChildStdout>,
-        stderr: BufReader<ChildStderr>,
+        stderr: BufReader<ChildStderr>, //TODO: should we be reading from this??
     }
 }
 impl Comms {
-    fn send_command(&self, c: Command) {
+    fn send_command(&self, c: Command) -> Result<(), String> {
+        info!("Sending command {:?} to {}", c, &self);
+        let res;
         match self {
-            Comms::Local { thread, sender, receiver } => {
-                error!("Not implemented!");
+            Comms::Local { thread: _, sender, receiver: _ } => {
+                res = sender.send(c).map_err(|e| e.to_string());
             },
-            Comms::Remote { stdin, stdout, stderr } => {
-                error!("Not implemented!");
+            Comms::Remote { stdin, stdout: _, stderr: _ } => {
+                res = bincode::serialize_into(stdin, &c).map_err(|e| e.to_string());
+                std::io::stdout().flush(); // Otherwise could be buffered and we hang!
             }
         }
+        if res.is_err() {
+            error!("Error sending command: {:?}", res);
+        }
+        return res;
     }
 
-    fn receive_response(&self) -> Response {
+    fn receive_response(&mut self) -> Result<Response, String> {
+        info!("Waiting for response from {}", &self);
+        let r;
         match self {
-            Comms::Local { thread, sender, receiver } => {
-                error!("Not implemented!");
-                return Response::Error("Not imneeplemento".to_string());
+            Comms::Local { thread: _, sender: _, receiver } => {
+                r = receiver.recv().map_err(|e| e.to_string());
             },
-            Comms::Remote { stdin, stdout, stderr } => {
-                error!("Not implemented!");
-                return Response::Error("Not imneeplemento".to_string());
+            Comms::Remote { stdin: _, stdout, stderr: _ } => {
+                r = bincode::deserialize_from(stdout.by_ref()).map_err(|e| e.to_string());
             },
+        }
+        info!("Received response {:?} from {}", r, &self);
+        return r;
+    }
+}
+impl Display for Comms {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { 
+        match self {
+            Comms::Local { .. } => {
+                write!(f, "Local")
+            },
+            Comms::Remote { .. } => {
+                write!(f, "Remote")
+            }
         }
     }
 }
@@ -184,7 +208,7 @@ fn setup_comms(remote_hostname: &str, remote_user: &str, allow_restart_remote_da
 
             },
             SshSecondaryLaunchResult::NotPresentOnRemote | SshSecondaryLaunchResult::HandshakeIncompatibleVersion => {
-                if deploy_to_remote(remote_hostname, remote_user) {
+                if deploy_to_remote(remote_hostname, remote_user).is_ok() {
                     info!("Successfully deployed, attempting to run again");
                     continue;                    
                 } else {
@@ -378,6 +402,9 @@ fn launch_secondary_via_ssh(remote_hostname: &str, remote_user: &str) -> SshSeco
         },
     };
 
+    // Note that some of the output from ssh (errors etc.) comes on stderr, so we need to display both stdout and stderr
+    // to the user, before handshake is estabilished.
+
     let ssh_stdin = ssh.stdin.take().unwrap(); // stdin should always be available as we piped it
     let ssh_stdout = ssh.stdout.take().unwrap(); // stdin should always be available as we piped it
     let ssh_stderr = ssh.stderr.take().unwrap(); // stdin should always be available as we piped it
@@ -472,7 +499,7 @@ fn launch_secondary_via_ssh(remote_hostname: &str, remote_user: &str) -> SshSeco
 #[include = "Cargo.*"]
 struct EmbeddedSource;
 
-fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> bool {
+fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> {
     info!("Deploying onto '{}'", &remote_hostname);
 
     // Copy our embedded source tree to the remote, so we can build it there. 
@@ -485,7 +512,7 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> bool {
         Ok(x) => x,
         Err(e) => { 
             error!("Error creating temp dir: {}", e); 
-            return false;
+            return Err(());
         }
     };
     info!("Writing embedded source to temp dir: {}", temp_dir.path().display());
@@ -494,20 +521,20 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> bool {
 
         if let Err(e) = std::fs::create_dir_all(temp_path.parent().unwrap()) {
             error!("Error creating folders for temp file: {}", e); 
-            return false;
+            return Err(());
         }
 
         let mut f = match std::fs::File::create(&temp_path) {
             Ok(x) => x,
             Err(e) => { 
                 error!("Error creating temp file {}: {}", temp_path.display(), e); 
-                return false;
+                return Err(());
             }    
         };
 
         if let Err(e) = f.write_all(&EmbeddedSource::get(&file).unwrap().data) {
             error!("Error writing temp file: {}", e); 
-            return false;
+            return Err(());
         }
     }
 
@@ -529,14 +556,14 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> bool {
         .status() {
         Err(e) => {
             error!("Error launching scp: {}", e); 
-            return false;
+            return Err(());
         },
         Ok(s) if s.code() == Some(0) => {
             // good!
         }
         Ok(s) => {
             error!("Error copying source code. Exit status from scp: {}", s); 
-            return false;
+            return Err(());
         },
     };
     
@@ -555,16 +582,16 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> bool {
         .status() {
         Err(e) => {
             error!("Error launching ssh: {}", e); 
-            return false;
+            return Err(());
         },
         Ok(s) if s.code() == Some(0) => {
             // good!
         }
         Ok(s) => {
             error!("Error building on remote. Exit status from ssh: {}", s); 
-            return false;
+            return Err(());
         },
     };
 
-    return true;
+    return Ok(());
 }
