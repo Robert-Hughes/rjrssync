@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 clap = { version = "4.0", features = ["derive"] }
 simple_logger="*"
+env_logger = "*"
 stderrlog="*"
 log="*"
 rust-embed = { version = "6.4.2", features = [ "debug-embed", "include-exclude" ] } # debug-embed Otherwise the behaviour is different in debug vs release builds

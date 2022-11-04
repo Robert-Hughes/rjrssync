@@ -1,27 +1,27 @@
 use std::{process::{ExitCode}};
 
-mod primary;
-mod secondary;
+mod boss;
+mod doer;
 
-use primary::*;
-use secondary::*;
+use boss::*;
+use doer::*;
 
-pub const VERSION: i32 = 5;
+pub const VERSION: i32 = 6;
 
 fn main() -> ExitCode {
     // The process can run as either a CLI which takes input from the command line, performs
-    // a transfer and then exits once complete ("primary"), or as a remote process on either the source
-    // or destination computer which responds to commands from the primary (this is a "secondary").
-    // The primary (CLI) and secondary modes have different command-line arguments, so handle them separately.
-    if std::env::args().any(|a| a == "--secondary") {
-        return secondary_main();
+    // a transfer and then exits once complete ("boss"), or as a remote process on either the source
+    // or destination computer which responds to commands from the boss (this is a "doer").
+    // The boss (CLI) and doer modes have different command-line arguments, so handle them separately.
+    if std::env::args().any(|a| a == "--doer") {
+        return doer_main();
     } else {
-        return primary_main();
+        return boss_main();
     }
 }
 
-// Message printed by a secondary copy of the program to indicate that it has loaded and is ready
-// to receive commands over its stdin. Also identifies its version, so the primary side can decide
-// if it can continue to communicate or needs to copy over an updated copy of the secondary program.
+// Message printed by a doer copy of the program to indicate that it has loaded and is ready
+// to receive commands over its stdin. Also identifies its version, so the boss side can decide
+// if it can continue to communicate or needs to copy over an updated copy of the doer program.
 // Note that this format needs to always be backwards-compatible, so is very basic.
-pub const SECONDARY_HANDSHAKE_MSG : &str = "rjrssync secondary v"; // Version number will be appended
+pub const SECONDARY_HANDSHAKE_MSG : &str = "rjrssync doer v"; // Version number will be appended
