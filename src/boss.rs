@@ -107,8 +107,8 @@ pub fn boss_main() -> ExitCode {
     let mut dest_comms = dest_comms.unwrap();
 
 
-    src_comms.send_command(Command::GetFiles { root: src_folder_desc.folder });
-    dest_comms.send_command(Command::GetFiles { root: dest_folder_desc.folder });
+    src_comms.send_command(Command::GetFiles { root: src_folder_desc.folder }).unwrap();
+    dest_comms.send_command(Command::GetFiles { root: dest_folder_desc.folder }).unwrap();
 
     loop {
         let r = src_comms.receive_response();
@@ -133,14 +133,14 @@ pub fn boss_main() -> ExitCode {
 //TODO: can we share implementation between the two Comms classes (boss and doer?)
 enum Comms {
     Local {
-        thread: JoinHandle<()>,
+        _thread: JoinHandle<()>,
         sender: Sender<Command>,
         receiver: Receiver<Response>,
     },
     Remote {
         stdin: ChildStdin,
         stdout: BufReader<ChildStdout>,
-        stderr: BufReader<ChildStderr>, //TODO: should we be reading from this??
+        _stderr: BufReader<ChildStderr>, //TODO: should we be reading from this??
     }
 }
 impl Comms {
@@ -148,12 +148,12 @@ impl Comms {
         info!("Sending command {:?} to {}", c, &self);
         let res;
         match self {
-            Comms::Local { thread: _, sender, receiver: _ } => {
+            Comms::Local { _thread: _, sender, receiver: _ } => {
                 res = sender.send(c).map_err(|e| e.to_string());
             },
-            Comms::Remote { stdin, stdout: _, stderr: _ } => {
+            Comms::Remote { stdin, stdout: _, _stderr: _ } => {
                 res = bincode::serialize_into(stdin, &c).map_err(|e| e.to_string());
-                std::io::stdout().flush(); // Otherwise could be buffered and we hang!
+                std::io::stdout().flush().unwrap(); // Otherwise could be buffered and we hang!
             }
         }
         if res.is_err() {
@@ -166,10 +166,10 @@ impl Comms {
         info!("Waiting for response from {}", &self);
         let r;
         match self {
-            Comms::Local { thread: _, sender: _, receiver } => {
+            Comms::Local { _thread: _, sender: _, receiver } => {
                 r = receiver.recv().map_err(|e| e.to_string());
             },
-            Comms::Remote { stdin: _, stdout, stderr: _ } => {
+            Comms::Remote { stdin: _, stdout, _stderr: _ } => {
                 r = bincode::deserialize_from(stdout.by_ref()).map_err(|e| e.to_string());
             },
         }
@@ -191,7 +191,7 @@ impl Display for Comms {
 }
 
 
-fn setup_comms(remote_hostname: &str, remote_user: &str, allow_restart_remote_daemon_if_necessary: bool) -> Option<Comms> {
+fn setup_comms(remote_hostname: &str, remote_user: &str, _allow_restart_remote_daemon_if_necessary: bool) -> Option<Comms> {
     info!("setup_comms with '{}'", remote_hostname);
 
     // If remote is empty (i.e. local), then start a thread to handle commands.
@@ -204,7 +204,7 @@ fn setup_comms(remote_hostname: &str, remote_user: &str, allow_restart_remote_da
         let (response_sender, response_receiver) = mpsc::channel();
         let thread = std::thread::spawn(
             move || { doer_thread_running_on_boss(command_receiver, response_sender); });
-        return Some(Comms::Local { thread, sender: command_sender, receiver: response_receiver });
+        return Some(Comms::Local { _thread: thread, sender: command_sender, receiver: response_receiver });
     }
 
     // We first attempt to run a previously-deployed copy of the program on the remote, to save time.
@@ -229,7 +229,7 @@ fn setup_comms(remote_hostname: &str, remote_user: &str, allow_restart_remote_da
             }
             SshDoerLaunchResult::Success { stdin, stdout, stderr } => {
                 info!("Connection estabilished");
-                return Some(Comms::Remote { stdin, stdout, stderr });
+                return Some(Comms::Remote { stdin, stdout, _stderr: stderr });
             },
         };
     }

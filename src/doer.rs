@@ -44,7 +44,7 @@ impl Comms {
             },
             Comms::Remote => {
                 res = bincode::serialize_into(std::io::stdout(), &r).map_err(|e| e.to_string());
-                std::io::stdout().flush(); // Otherwise could be buffered and we hang!
+                std::io::stdout().flush().unwrap(); // Otherwise could be buffered and we hang!
             }
         }
         if res.is_err() {
@@ -105,7 +105,7 @@ pub fn doer_main() -> ExitCode {
     // they are happy and move on to processing commands they (might) send us
 
     // Message-processing loop, until Boss disconnects.
-    message_loop(Comms::Remote);
+    message_loop(Comms::Remote).unwrap();
 
    // info!("Boss disconnected!");
 
@@ -114,7 +114,7 @@ pub fn doer_main() -> ExitCode {
 
 pub fn doer_thread_running_on_boss(receiver: Receiver<Command>, sender: Sender<Response>) {
     // Message-processing loop, until Boss disconnects.
-    message_loop(Comms::Local { sender, receiver });
+    message_loop(Comms::Local { sender, receiver }).unwrap();
 }
 
 fn message_loop (comms: Comms) -> Result<(), ()> {
@@ -136,22 +136,22 @@ fn exec_command(command : Command, comms: &Comms) {
         Command::GetFiles { root } => {
             let start = Instant::now();
             let walker = WalkDir::new(&root).into_iter();
-            let mut count = 0;
+            let mut _count = 0;
       //      for entry in walker.filter_entry(|e| e.file_name() != ".git" && e.file_name() != "dependencies") {
             for entry in walker {
                 match entry {
                     Ok(e) => {
-                        comms.send_response(Response::File(e.file_name().to_str().unwrap().to_string()));
+                        comms.send_response(Response::File(e.file_name().to_str().unwrap().to_string())).unwrap();
                     }
                     Err(e) => {
-                        comms.send_response(Response::Error(e.to_string()));
+                        comms.send_response(Response::Error(e.to_string())).unwrap();
                         return;
                     }
                 }
-                count += 1;
+                _count += 1;
             }
-            let elapsed = start.elapsed().as_millis();
-            comms.send_response(Response::EndOfFileList);
+            let _elapsed = start.elapsed().as_millis();
+            comms.send_response(Response::EndOfFileList).unwrap();
             //println!("Walked {} in {} ({}/s)", count, elapsed, 1000.0 * count as f32 / elapsed as f32);
 
         }
