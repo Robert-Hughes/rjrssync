@@ -97,7 +97,7 @@ pub fn doer_main() -> ExitCode {
     // The first thing we send is a special message that the Boss will recognise, to know that we've started up correctly
     // and to make sure we are running compatible versions etc.
     // We need to do this on both stdout and stderr, because both those streams need to be synchronised on the receiving end.
-    let msg = format!("{}{}", SECONDARY_HANDSHAKE_MSG, VERSION);
+    let msg = format!("{}{}", HANDSHAKE_MSG, VERSION);
     println!("{}", msg);
     eprintln!("{}", msg);
 

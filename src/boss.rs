@@ -374,7 +374,7 @@ fn output_reader_thread_main(mut stream: OutputReaderStream, sender: Sender<(Out
             }
             Ok(_) => {
                 l.pop(); // Remove the trailing newline
-                if l.starts_with(SECONDARY_HANDSHAKE_MSG) {
+                if l.starts_with(HANDSHAKE_MSG) {
                     // remote end has booted up properly and is ready for comms.
                     // finish this thread and return control of the stdout to the main thread, so it can communicate directly
                     sender.send((stream_type, OutputReaderThreadMsg::HandshakeReceived(l, stream))).unwrap();
@@ -469,7 +469,7 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str) -> SshDoerLaunc
                     },
                 }
 
-                let remote_version = line.split_at(SECONDARY_HANDSHAKE_MSG.len()).1;
+                let remote_version = line.split_at(HANDSHAKE_MSG.len()).1;
                 if remote_version != VERSION.to_string() {
                     warn!("Remote server has incompatible version ({} vs local version {})", remote_version, VERSION);
                     return SshDoerLaunchResult::HandshakeIncompatibleVersion;
