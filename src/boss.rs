@@ -8,6 +8,7 @@ use rust_embed::RustEmbed;
 use tempdir::TempDir;
 
 use crate::*;
+use crate::boss_sync::*;
 
 #[derive(clap::Parser)]
 struct BossCliArgs {
@@ -15,10 +16,11 @@ struct BossCliArgs {
     dest: String,
     #[arg(short, long)]
     doer: bool,
+    //TODO: arg to force re-deploy the remote copy, e.g. useful if the handshake changes
 }
 
 #[derive(Default)]
-struct RemoteFolderDesc {
+pub struct RemoteFolderDesc {
     user: String,
     hostname: String,
     folder: String,
@@ -98,40 +100,24 @@ pub fn boss_main() -> ExitCode {
     if src_comms.is_none() {
         return ExitCode::from(10);
     }
-    let mut src_comms = src_comms.unwrap();
+    let src_comms = src_comms.unwrap();
 
     let dest_comms = setup_comms(&dest_folder_desc.hostname, &dest_folder_desc.user, true);
     if dest_comms.is_none() {
         return ExitCode::from(11);
     }
-    let mut dest_comms = dest_comms.unwrap();
+    let dest_comms = dest_comms.unwrap();
 
+    let sync_result = sync(src_folder_desc.folder, dest_folder_desc.folder, src_comms, dest_comms);
 
-    src_comms.send_command(Command::GetFiles { root: src_folder_desc.folder }).unwrap();
-    dest_comms.send_command(Command::GetFiles { root: dest_folder_desc.folder }).unwrap();
-
-    loop {
-        let r = src_comms.receive_response();
-        if let Ok(Response::File(s)) = r {
-            info!("{}", s);
-        } else {
-            break;
-        }
-    }
-    loop {
-        let r = dest_comms.receive_response();
-        if let Ok(Response::File(s)) = r {
-            info!("{}", s);
-        } else {
-            break;
-        }
-    }
-
-    return ExitCode::from(12);
+    return match sync_result{
+        Ok(()) => ExitCode::SUCCESS,
+        Err(()) => ExitCode::from(12),
+    };
 }
 
 //TODO: can we share implementation between the two Comms classes (boss and doer?)
-enum Comms {
+pub enum Comms {
     Local {
         _thread: JoinHandle<()>,
         sender: Sender<Command>,
@@ -144,7 +130,7 @@ enum Comms {
     }
 }
 impl Comms {
-    fn send_command(&self, c: Command) -> Result<(), String> {
+    pub fn send_command(&self, c: Command) -> Result<(), String> {
         info!("Sending command {:?} to {}", c, &self);
         let res;
         match self {
@@ -162,7 +148,7 @@ impl Comms {
         return res;
     }
 
-    fn receive_response(&mut self) -> Result<Response, String> {
+    pub fn receive_response(&mut self) -> Result<Response, String> {
         info!("Waiting for response from {}", &self);
         let r;
         match self {
