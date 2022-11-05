@@ -20,11 +20,14 @@ struct BossCliArgs {
     /// Optionally contains a username and hostname for specifying remote folders.
     /// Format: [[username@]hostname:]folder
     dest: RemoteFolderDesc,
+    /// If set, forces redeployment of rjrssync to any remote targets, even if they already have an
+    /// up-to-date copy.
+    #[arg(long)]
+    force_redeploy: bool,
     /// [Internal] Launches as a doer process, rather than a boss process. 
     /// This shouldn't be needed for regular operation.
-    #[arg(short, long)]
+    #[arg(long)]
     doer: bool,
-    //TODO: arg to force re-deploy the remote copy, e.g. useful if the handshake changes
 }
 
 /// Describes a local or remote folder, parsed from the `src` or `dest` command-line arguments.
@@ -124,11 +127,11 @@ pub fn boss_main() -> ExitCode {
     //           doing one command at the same time for each Source and Dest, which might be more complicated.)
 
     // Launch doers on remote hosts or threads on local targets and estabilish communication (check version etc.)
-    let src_comms = match setup_comms(&args.src.hostname, &args.src.username, "src".to_string()) {
+    let src_comms = match setup_comms(&args.src.hostname, &args.src.username, "src".to_string(), args.force_redeploy) {
         Some(c) => c,
         None => return ExitCode::from(10),
     };
-    let dest_comms = match setup_comms(&args.dest.hostname, &args.dest.username, "dest".to_string()) {
+    let dest_comms = match setup_comms(&args.dest.hostname, &args.dest.username, "dest".to_string(), args.force_redeploy) {
         Some(c) => c,
         None => return ExitCode::from(11),
     };
@@ -214,7 +217,7 @@ impl Drop for Comms {
 }
 
 // Sets up communications with the given computer, which may be either remote or local (if remote_hostname is empty).
-fn setup_comms(remote_hostname: &str, remote_user: &str, debug_name: String) -> Option<Comms> {
+fn setup_comms(remote_hostname: &str, remote_user: &str, debug_name: String, force_redeploy: bool) -> Option<Comms> {
     debug!("setup_comms with hostname '{}' and username '{}'. debug_name = {}", remote_hostname, remote_user, debug_name);
 
     // If the target is local, then start a thread to handle commands.
@@ -236,19 +239,23 @@ fn setup_comms(remote_hostname: &str, remote_user: &str, debug_name: String) -> 
     // We first attempt to run a previously-deployed copy of the program on the remote, to save time.
     // If it exists and is a compatible version, we can use that. Otherwise we deploy a new version
     // and try again
+    let mut deploy = force_redeploy;
     for attempt in 0..2 {
+        if deploy {
+            if deploy_to_remote(remote_hostname, remote_user).is_ok() {
+                debug!("Successfully deployed, attempting to run again");
+            } else {
+                error!("Failed to deploy to remote");
+                return None;
+            }
+        }
+
         match launch_doer_via_ssh(remote_hostname, remote_user) {
             SshDoerLaunchResult::FailedToRunSsh => {
                 return None; // No point trying again. launch_doer_via_ssh will have logged the error already.
             },
             SshDoerLaunchResult::NotPresentOnRemote | SshDoerLaunchResult::HandshakeIncompatibleVersion if attempt == 0 => {
-                if deploy_to_remote(remote_hostname, remote_user).is_ok() {
-                    debug!("Successfully deployed, attempting to run again");
-                    continue;
-                } else {
-                    error!("Failed to deploy to remote");
-                    return None;
-                }
+                deploy = true; // Will attempt to deploy on next loop iteration
             },
             SshDoerLaunchResult::NotPresentOnRemote | SshDoerLaunchResult::HandshakeIncompatibleVersion => {
                 // If this happens on the second attempt then something is wrong
