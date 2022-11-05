@@ -398,6 +398,8 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str) -> SshDoerLaunc
     let user_prefix = if remote_user.is_empty() { "".to_string() } else { remote_user.to_string() + "@" };
     let remote_command = format!("cd {} && target/release/rjrssync --doer", REMOTE_TEMP_FOLDER);
     debug!("Running remote command: {}", remote_command);
+    // Note we use the user's existing ssh tool so that their config/settings will be used for
+    // logging in to the remote system (as opposed to using an ssh library called from our code).
     let mut ssh_process = match std::process::Command::new("ssh")
         .arg(user_prefix + remote_hostname)
         .arg(remote_command)
@@ -496,57 +498,57 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str) -> SshDoerLaunc
 #[include = "Cargo.*"]
 struct EmbeddedSource;
 
+/// Deploys the source code of rjrssync to the given remote computer and builds it, ready to be executed.
 fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> {
-    info!("Deploying onto '{}'", &remote_hostname);
+    debug!("Deploying onto '{}'", &remote_hostname);
 
     // Copy our embedded source tree to the remote, so we can build it there.
     // (we can't simply copy the binary as it might not be compatible with the remote platform)
     // We use the user's existing ssh/scp tool so that their config/settings will be used for
     // logging in to the remote system (as opposed to using an ssh library called from our code).
 
-    // Save to a temporary local folder
-    let temp_dir = match TempDir::new("rjrssync") {
+    // Extract embedded source code to a temporary local folder
+    let local_temp_dir = match TempDir::new("rjrssync") {
         Ok(x) => x,
         Err(e) => {
             error!("Error creating temp dir: {}", e);
             return Err(());
         }
     };
-    info!("Writing embedded source to temp dir: {}", temp_dir.path().display());
+    debug!("Extracting embedded source to local temp dir: {}", local_temp_dir.path().display());
     for file in EmbeddedSource::iter() {
-        let temp_path = temp_dir.path().join("rjrssync").join(&*file); // Add an extra "rjrssync" folder with a fixed name (as opposed to the temp dir, whose name varies), to work around SCP weirdness below.
+        // Add an extra "rjrssync" folder with a fixed name (as opposed to the temp dir, whose name varies), to work around SCP weirdness below.
+        let local_temp_path = local_temp_dir.path().join("rjrssync").join(&*file);
 
-        if let Err(e) = std::fs::create_dir_all(temp_path.parent().unwrap()) {
-            error!("Error creating folders for temp file: {}", e);
+        if let Err(e) = std::fs::create_dir_all(local_temp_path.parent().unwrap()) {
+            error!("Error creating folders for local temp file: {}", e);
             return Err(());
         }
 
-        let mut f = match std::fs::File::create(&temp_path) {
+        let mut f = match std::fs::File::create(&local_temp_path) {
             Ok(x) => x,
             Err(e) => {
-                error!("Error creating temp file {}: {}", temp_path.display(), e);
+                error!("Error creating local temp file {}: {}", local_temp_path.display(), e);
                 return Err(());
             }
         };
 
         if let Err(e) = f.write_all(&EmbeddedSource::get(&file).unwrap().data) {
-            error!("Error writing temp file: {}", e);
+            error!("Error writing local temp file: {}", e);
             return Err(());
         }
     }
 
-    // Deploy to remote target
+    // Deploy to remote target using scp
     // Note we need to deal with the case where the the remote folder doesn't exist, and the case where it does, so
-    // we copy into /tmp (which should always exist).
+    // we copy into /tmp (which should always exist), rather than directly to /tmp/rjrssync which may or may not
     let remote_temp_folder = PathBuf::from(REMOTE_TEMP_FOLDER);
     let user_prefix = if remote_user.is_empty() { "".to_string() } else { remote_user.to_string() + "@" };
-    let source_spec = temp_dir.path().join("rjrssync");
+    let source_spec = local_temp_dir.path().join("rjrssync");
     let remote_spec = user_prefix.clone() + remote_hostname + ":" + remote_temp_folder.parent().unwrap().to_str().unwrap();
-    info!("Copying source to {}", remote_spec);
+    debug!("Copying {} to {}", source_spec.display(), remote_spec);
     // Note that we run "cmd /C scp ..." rather than just "scp", otherwise the line endings get messed up and subsequent log messages are broken.
-    match std::process::Command::new("cmd")
-        .arg("/C")
-        .arg("scp")
+    match std::process::Command::new("cmd").arg("/C").arg("scp")
         .arg("-r")
         .arg(source_spec)
         .arg(remote_spec)
@@ -556,7 +558,7 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> 
             return Err(());
         },
         Ok(s) if s.code() == Some(0) => {
-            // good!
+            // Good!
         }
         Ok(s) => {
             error!("Error copying source code. Exit status from scp: {}", s);
@@ -567,13 +569,11 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> 
     // Build the program remotely (using the cargo on the remote system)
     // Note that we could merge this ssh command with the one to run the program once it's built (in launch_doer_via_ssh),
     // but this would make error reporting slightly more difficult as the command in launch_doer_via_ssh is more tricky as
-    // we are parsing the stdout, but the command here we can wait for it to finish easily.
+    // we are parsing the stdout, but for the command here we can wait for it to finish easily.
     let remote_command = format!("cd {} && cargo build --release", remote_temp_folder.display());
-    info!("Running remote command: {}", remote_command);
+    debug!("Running remote command: {}", remote_command);
      // Note that we run "cmd /C ssh ..." rather than just "ssh", otherwise the line endings get messed up and subsequent log messages are broken.
-     match std::process::Command::new("cmd")
-        .arg("/C")
-        .arg("ssh")
+     match std::process::Command::new("cmd").arg("/C").arg("ssh")
         .arg(user_prefix + remote_hostname)
         .arg(remote_command)
         .status() {
@@ -582,7 +582,7 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> 
             return Err(());
         },
         Ok(s) if s.code() == Some(0) => {
-            // good!
+            // Good!
         }
         Ok(s) => {
             error!("Error building on remote. Exit status from ssh: {}", s);
