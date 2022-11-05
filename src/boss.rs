@@ -158,14 +158,16 @@ pub enum Comms {
 impl Comms {
     pub fn send_command(&self, c: Command) -> Result<(), String> {
         debug!("Sending command {:?} to {}", c, &self);
-        let res;
+        let mut res;
         match self {
             Comms::Local { sender, .. } => {
                 res = sender.send(c).map_err(|e| e.to_string());
             },
             Comms::Remote { stdin, .. } => {
                 res = bincode::serialize_into(stdin, &c).map_err(|e| e.to_string());
-                std::io::stdout().flush().unwrap(); // Otherwise could be buffered and we hang!
+                if res.is_ok() {
+                    res = std::io::stdout().flush().map_err(|e| e.to_string()); // Otherwise could be buffered and we hang!
+                }
             }
         }
         if res.is_err() {
@@ -192,12 +194,8 @@ impl Comms {
 impl Display for Comms {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Comms::Local { debug_name, .. } => {
-                write!(f, "{}", debug_name)
-            },
-            Comms::Remote { debug_name, .. } => {
-                write!(f, "{}", debug_name)
-            }
+            Comms::Local { debug_name, .. } => write!(f, "{}", debug_name),
+            Comms::Remote { debug_name, .. } => write!(f, "{}", debug_name),
         }
     }
 }
@@ -206,49 +204,59 @@ impl Drop for Comms {
     // They should exit anyway due to a disconnection (of their channel or stdin), but this
     // gives a cleaner exit without errors.
     fn drop(&mut self) {
-        self.send_command(Command::Shutdown).unwrap();
+        // There's not much we can do about an error here, other than log it, which send_command already does, so we ignore any error.
+        let _ = self.send_command(Command::Shutdown);
     }   
 }
 
-
+// Sets up communications with the given computer, which may be either remote or local (if remote_hostname is empty).
 fn setup_comms(remote_hostname: &str, remote_user: &str, debug_name: String) -> Option<Comms> {
-    info!("setup_comms with '{}'", remote_hostname);
+    debug!("setup_comms with hostname '{}' and username '{}'. debug_name = {}", remote_hostname, remote_user, debug_name);
 
-    // If remote is empty (i.e. local), then start a thread to handle commands.
-    // Use a separate thread to avoid synchornisation with the Boss (and both Source and Dest may be on same PC!, so all three in one process),
+    // If the target is local, then start a thread to handle commands.
+    // Use a separate thread to avoid synchornisation with the Boss (and both Source and Dest may be on same PC, so all three in one process),
     // and for consistency with remote secondaries.
-    //TODO: Use channels to send/receive messages to that thread?
     if remote_hostname.is_empty() {
-        info!("Spawning local thread");
+        debug!("Spawning local thread for {} doer", debug_name);
         let (command_sender, command_receiver) = mpsc::channel();
         let (response_sender, response_receiver) = mpsc::channel();
-        let thread = std::thread::spawn(
-            move || { doer_thread_running_on_boss(command_receiver, response_sender); });
-        return Some(Comms::Local { debug_name: "Local ".to_string() + &debug_name + " doer", thread, sender: command_sender, receiver: response_receiver });
+        let thread = std::thread::spawn(move || doer_thread_running_on_boss(command_receiver, response_sender));
+        return Some(Comms::Local { 
+            debug_name: "Local ".to_string() + &debug_name + " doer", 
+            thread, 
+            sender: command_sender, 
+            receiver: response_receiver 
+        });
     }
 
     // We first attempt to run a previously-deployed copy of the program on the remote, to save time.
-    // If it exists and is a compatible version, we can use that.
-    loop { //TODO: inifinite loop? Stop after one retry maybe?
+    // If it exists and is a compatible version, we can use that. Otherwise we deploy a new version
+    // and try again
+    for attempt in 0..2 {
         match launch_doer_via_ssh(remote_hostname, remote_user) {
             SshDoerLaunchResult::FailedToRunSsh => {
-
+                return None; // No point trying again. launch_doer_via_ssh will have logged the error already.
             },
-            SshDoerLaunchResult::NotPresentOnRemote | SshDoerLaunchResult::HandshakeIncompatibleVersion => {
+            SshDoerLaunchResult::NotPresentOnRemote | SshDoerLaunchResult::HandshakeIncompatibleVersion if attempt == 0 => {
                 if deploy_to_remote(remote_hostname, remote_user).is_ok() {
-                    info!("Successfully deployed, attempting to run again");
+                    debug!("Successfully deployed, attempting to run again");
                     continue;
                 } else {
                     error!("Failed to deploy to remote");
                     return None;
                 }
             },
+            SshDoerLaunchResult::NotPresentOnRemote | SshDoerLaunchResult::HandshakeIncompatibleVersion => {
+                // If this happens on the second attempt then something is wrong
+                error!("Failed to launch remote doer even after new deployment.");
+                return None;
+            },
             SshDoerLaunchResult::ExitedBeforeHandshake => {
-                error!("Not gonna try doing anything, as we don't know what happened");
+                error!("Remote process exited unexpectedly.");
                 return None;
             }
             SshDoerLaunchResult::Success { ssh_process, stdin, stdout, mut stderr } => {
-                info!("Connection estabilished");
+                debug!("Connection estabilished");
 
                 // Start a background thread to print out log messages from the remote doer,
                 // which it can send over its stderr (we use stdout for our regular communications).
@@ -259,7 +267,7 @@ fn setup_comms(remote_hostname: &str, remote_user: &str, debug_name: String) -> 
                             Ok(0) => break, // end of stream
                             Ok(_) => { 
                                 l.pop(); // Remove the trailing newline
-                                // Use a custom target to indicate this is from a remote doer
+                                // Use a custom target to indicate this is from a remote doer in the log output
                                 debug!(target: "remote doer", "{}", l);
                             },
                             Err(_) => break,
@@ -267,76 +275,16 @@ fn setup_comms(remote_hostname: &str, remote_user: &str, debug_name: String) -> 
                     }                
                 });
 
-                return Some(Comms::Remote { debug_name: "Remote ".to_string() + &debug_name + " at " + remote_hostname, ssh_process, stdin, stdout, stderr_reading_thread });
+                return Some(Comms::Remote { 
+                    debug_name: "Remote ".to_string() + &debug_name + " at " + remote_hostname, 
+                    ssh_process, 
+                    stdin, 
+                    stdout, 
+                    stderr_reading_thread });
             },
         };
     }
-
-    // if let Ok(mut stream) = TcpStream::connect(&remote_addr) {
-    //     info!("Connected to '{}'", &remote_addr);
-
-    //     // Wait for the server to send their magic and version, so we can check if it's compatible with ours
-    //     // Note that the 'protocol' used to check version number etc. needs to always be backwards-compatible,
-    //     // so is very basic.
-    //     let server_version;
-    //     info!("Waiting for version number");
-    //     let mut buf: [u8; 8] = [0; 8]; // 4 bytes for magic, 4 bytes for version
-    //     if stream.read(&mut buf).unwrap_or(0) == 8 {
-    //         let server_magic = &buf[0..4];
-    //         if server_magic != MAGIC {
-    //             error!("Server replied with wrong magic. Not attempting to restart it, as there may be an unknown process (not us) listening on that port and we don't want to interfere with it.");
-    //             return None;
-    //         }
-
-    //         let mut b : [u8; 4] = [0; 4];
-    //         b.copy_from_slice(&buf[4..8]);
-    //         server_version = i32::from_le_bytes(b);
-    //         info!("Received server version {}", server_version);
-    //     } else {
-    //         error!("Server is not replying as expected. Not attempting to restart it, as there may be an unknown process (not us) listening on that port and we don't want to interfere with it.");
-    //         return None;
-    //     }
-
-    //     if server_version == VERSION {
-    //         info!("Server has compatible version. Replying as such.");
-    //         // Send packet to tell server all is OK
-    //         if stream.write(&[0 as u8]).is_ok() {
-    //             info!("Connection estabilished!");
-    //             return Some(stream);
-    //         } else {
-    //             warn!("Failed to reply to server");
-    //         }
-    //     } else {
-    //         if allow_restart_remote_daemon_if_necessary {
-    //             warn!("Server has incompatible version - telling it to stop so we can restart it");
-    //             // Send packet to tell server to restart
-    //             let _ = stream.write(&[1 as u8]); // Don't need to check result here - even if it failed, we will still try to launch new server
-    //         } else {
-    //             error!("Server has incompatible version, and we're not going to restart it.");
-    //         }
-    //     }
-    // } else {
-    //     info!("No remote daemon running");
-    // }
-
-    // // No instance running - spawn a new one
-    // if allow_restart_remote_daemon_if_necessary {
-    //     if spawn_daemon_on_remote(remote_hostname, remote_user) {
-    //         // Try again to connect to the new daemon.
-    //         // Don't allow this recursion to spawn a new daemon again though in case we still can't connect,
-    //         // otherwise it would keep trying forever!
-    //         let result = setup_comms(remote_hostname, remote_user, false);
-    //         if result.is_none() {
-    //             error!("Failed to setup_comms even after spawning a new daemon");
-    //         }
-    //         return result;
-    //     } else {
-    //         error!("Failed to spawn a new daemon. Please launch it manually.");
-    //         return None;
-    //     }
-    // } else {
-    //     return None;
-    // }
+    panic!("Shouldn't get here")
 }
 
 enum SshDoerLaunchResult {
@@ -427,8 +375,6 @@ fn output_reader_thread_main(mut stream: OutputReaderStream, sender: Sender<(Out
 }
 
 fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str) -> SshDoerLaunchResult {
-    info!("launch_doer_via_ssh on '{}'", remote_hostname);
-
     let user_prefix = if remote_user.is_empty() { "".to_string() } else { remote_user.to_string() + "@" };
     let remote_temp_folder = PathBuf::from("/tmp/rjrssync/");
     let remote_command = format!("cd {} && target/release/rjrssync --doer", remote_temp_folder.display());

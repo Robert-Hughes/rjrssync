@@ -1,6 +1,6 @@
 use std::{sync::mpsc::{Sender, Receiver}, time::Instant, fmt::{Display, self}, io::{Write}};
 use clap::Parser;
-use log::{info, error, debug};
+use log::{error, debug};
 use serde::{Serialize, Deserialize};
 use walkdir::WalkDir;
 
@@ -38,14 +38,16 @@ enum Comms {
 impl Comms {
     fn send_response(&self, r: Response) -> Result<(), String> {
         debug!("Sending response {:?} to {}", r, &self);
-        let res;
+        let mut res;
         match self {
             Comms::Local { sender, receiver: _ } => {
                 res = sender.send(r).map_err(|e| e.to_string());
             },
             Comms::Remote => {
                 res = bincode::serialize_into(std::io::stdout(), &r).map_err(|e| e.to_string());
-                std::io::stdout().flush().unwrap(); // Otherwise could be buffered and we hang!
+                if res.is_ok() {
+                    res = std::io::stdout().flush().map_err(|e| e.to_string()); // Otherwise could be buffered and we hang!
+                }
             }
         }
         if res.is_err() {
