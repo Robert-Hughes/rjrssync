@@ -85,9 +85,10 @@ pub fn boss_main() -> ExitCode {
     builder.format(|buf, record| {
         let mut level_style = buf.style();
 
-        let color = match record.module_path(){
-            Some("rjrssync::boss") => Color::Rgb(255, 64, 255),
-            Some("rjrssync::doer") => Color::Cyan,
+        let color = match record.target(){
+            "rjrssync::boss" => Color::Rgb(255, 64, 255),
+            "rjrssync::doer" => Color::Cyan,
+            "remote doer" => Color::Yellow,
             _ => Color::Green
         };
 
@@ -95,7 +96,7 @@ pub fn boss_main() -> ExitCode {
 
         writeln!(buf, "{:5} | {}: {}",
             record.level(),
-            level_style.value(record.module_path().unwrap()),
+            level_style.value(record.target()),
             record.args())
     });
     builder.init();
@@ -149,7 +150,7 @@ pub enum Comms {
         ssh_process: std::process::Child,
         stdin: ChildStdin,
         stdout: BufReader<ChildStdout>,
-        _stderr: BufReader<ChildStderr>, //TODO: should we be reading from this??
+        stderr_reading_thread: JoinHandle<()>,
     }
 }
 impl Comms {
@@ -203,7 +204,7 @@ impl Drop for Comms {
     // They should exit anyway due to a disconnection (of their channel or stdin), but this
     // gives a cleaner exit without errors.
     fn drop(&mut self) {
-        self.send_command(Command::Shutdown);
+        self.send_command(Command::Shutdown).unwrap();
     }   
 }
 
@@ -244,9 +245,27 @@ fn setup_comms(remote_hostname: &str, remote_user: &str) -> Option<Comms> {
                 error!("Not gonna try doing anything, as we don't know what happened");
                 return None;
             }
-            SshDoerLaunchResult::Success { ssh_process, stdin, stdout, stderr } => {
+            SshDoerLaunchResult::Success { ssh_process, stdin, stdout, mut stderr } => {
                 info!("Connection estabilished");
-                return Some(Comms::Remote { ssh_process, stdin, stdout, _stderr: stderr });
+
+                // Start a background thread to print out log messages from the remote doer,
+                // which it can send over its stderr (we use stdout for our regular communications).
+                let stderr_reading_thread = std::thread::spawn(move || { 
+                    loop {
+                        let mut l : String = "".to_string();
+                        match stderr.read_line(&mut l) {
+                            Ok(0) => break, // end of stream
+                            Ok(_) => { 
+                                l.pop(); // Remove the trailing newline
+                                // Use a custom target to indicate this is from a remote doer
+                                debug!(target: "remote doer", "{}", l);
+                            },
+                            Err(_) => break,
+                        }
+                    }                
+                });
+
+                return Some(Comms::Remote { ssh_process, stdin, stdout, stderr_reading_thread });
             },
         };
     }

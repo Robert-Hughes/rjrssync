@@ -1,4 +1,4 @@
-use std::{sync::mpsc::{Sender, Receiver}, time::Instant, fmt::{Display, self}, io::Write};
+use std::{sync::mpsc::{Sender, Receiver}, time::Instant, fmt::{Display, self}, io::{Write}};
 use clap::Parser;
 use log::{info, error, debug};
 use serde::{Serialize, Deserialize};
@@ -85,11 +85,10 @@ impl Display for Comms {
 
 pub fn doer_main() -> ExitCode {
     // Configure logging. Note that we can't use stdout as that is our communication channel with the boss!
-    // We use stderr instead.
-    //TODO: who is reading stderr? :O Log to file instead?
-   // stderrlog::StdErrLog::new().init().unwrap();
-
-    info!("Running as doer");
+    // We use stderr instead, which the boss will read from and echo
+    //TODO: We could additionally log to a file, which might be useful for cases where the logs don't
+    // make it back to the boss (e.g. communication errors)
+    stderrlog::StdErrLog::new().verbosity(log::Level::Debug).init().unwrap();
 
     let _args = DoerCliArgs::parse();
 
