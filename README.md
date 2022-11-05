@@ -10,6 +10,7 @@ Filesystem:
 
 TODO:
 
+* Dry run flag
 * Config file containing src/dest, ignore/allow list etc. Use serde_json?
     * List of folders to sync, with src and dest spec (computer and absolute path)
     * Each folder to be synced has list of include/exclude filters, applied in order (can mix and match include/exclude however you want)
@@ -25,3 +26,22 @@ TODO:
 * Probably better to batch together File() Responses, to avoid overhead from sending loads of messages
 * Perf comparison with regular rsync (for cases where there are zero or few changes, and for cases with more changes)
 * Compare and sync file permissions?
+
+Idea for filters, with re-usable "functions":
+===============
+
+"filters": [
+   "src/.*" : include,
+   "tests/.*" : include,
+   ".*\.exe" : exclude,
+   ".*/rob.exe" : include,
+   "folderA/(.*)" : artifactsOnly($1),
+   "folderB/(.*)" : artifactsOnly($1),
+]
+
+"artifactsOnly": [
+   ".*" : exclude,
+   "artifacts/.*\.bin": include,
+   "other/artifacts/.*\.bin" : include,
+]
+
