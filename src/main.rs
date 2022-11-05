@@ -7,7 +7,7 @@ mod doer;
 use boss::*;
 use doer::*;
 
-pub const VERSION: i32 = 12;
+pub const VERSION: i32 = 16;
 
 // Message printed by a doer copy of the program to indicate that it has loaded and is ready
 // to receive commands over its stdin. Also identifies its version, so the boss side can decide

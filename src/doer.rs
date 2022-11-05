@@ -37,7 +37,7 @@ enum Comms {
 }
 impl Comms {
     fn send_response(&self, r: Response) -> Result<(), String> {
-        info!("Sending response {:?} to {}", r, &self);
+        debug!("Sending response {:?} to {}", r, &self);
         let res;
         match self {
             Comms::Local { sender, receiver: _ } => {
@@ -55,7 +55,7 @@ impl Comms {
    }
 
     fn receive_command(&self) -> Result<Command, String> {
-        info!("Waiting for command from {}", &self);
+        debug!("Waiting for command from {}", &self);
         let c;
         match self {
             Comms::Local { sender: _, receiver } => {
@@ -65,7 +65,7 @@ impl Comms {
                 c = bincode::deserialize_from(std::io::stdin()).map_err(|e| e.to_string());
             },
         }
-        info!("Received command {:?} from {}", c, &self);
+        debug!("Received command {:?} from {}", c, &self);
         return c;
     }
 }
@@ -73,10 +73,10 @@ impl Display for Comms {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Comms::Local { .. } => {
-                write!(f, "Local")
+                write!(f, "Local boss")
             },
             Comms::Remote { .. } => {
-                write!(f, "Remote")
+                write!(f, "Remote boss")
             }
         }
     }

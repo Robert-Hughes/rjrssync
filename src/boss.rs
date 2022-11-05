@@ -120,11 +120,11 @@ pub fn boss_main() -> ExitCode {
     //           doing one command at the same time for each Source and Dest, which might be more complicated.)
 
     // Launch doers on remote hosts or threads on local targets and estabilish communication (check version etc.)
-    let src_comms = match setup_comms(&args.src.hostname, &args.src.username) {
+    let src_comms = match setup_comms(&args.src.hostname, &args.src.username, "src".to_string()) {
         Some(c) => c,
         None => return ExitCode::from(10),
     };
-    let dest_comms = match setup_comms(&args.dest.hostname, &args.dest.username) {
+    let dest_comms = match setup_comms(&args.dest.hostname, &args.dest.username, "dest".to_string()) {
         Some(c) => c,
         None => return ExitCode::from(11),
     };
@@ -142,11 +142,13 @@ pub fn boss_main() -> ExitCode {
 /// remote (communicating over ssh) or local (communicating via a channel to a background thread).
 pub enum Comms {
     Local {
+        debug_name: String, // To identify this Comms against others for debugging, when there are several
         thread: JoinHandle<()>,
         sender: Sender<Command>,
         receiver: Receiver<Response>,
     },
     Remote {
+        debug_name: String, // To identify this Comms against others for debugging, when there are several
         ssh_process: std::process::Child,
         stdin: ChildStdin,
         stdout: BufReader<ChildStdout>,
@@ -155,7 +157,7 @@ pub enum Comms {
 }
 impl Comms {
     pub fn send_command(&self, c: Command) -> Result<(), String> {
-        info!("Sending command {:?} to {}", c, &self);
+        debug!("Sending command {:?} to {}", c, &self);
         let res;
         match self {
             Comms::Local { sender, .. } => {
@@ -173,7 +175,7 @@ impl Comms {
     }
 
     pub fn receive_response(&mut self) -> Result<Response, String> {
-        info!("Waiting for response from {}", &self);
+        debug!("Waiting for response from {}", &self);
         let r;
         match self {
             Comms::Local {receiver, .. } => {
@@ -183,18 +185,18 @@ impl Comms {
                 r = bincode::deserialize_from(stdout.by_ref()).map_err(|e| e.to_string());
             },
         }
-        info!("Received response {:?} from {}", r, &self);
+        debug!("Received response {:?} from {}", r, &self);
         return r;
     }
 }
 impl Display for Comms {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Comms::Local { .. } => {
-                write!(f, "Local")
+            Comms::Local { debug_name, .. } => {
+                write!(f, "{}", debug_name)
             },
-            Comms::Remote { .. } => {
-                write!(f, "Remote")
+            Comms::Remote { debug_name, .. } => {
+                write!(f, "{}", debug_name)
             }
         }
     }
@@ -209,7 +211,7 @@ impl Drop for Comms {
 }
 
 
-fn setup_comms(remote_hostname: &str, remote_user: &str) -> Option<Comms> {
+fn setup_comms(remote_hostname: &str, remote_user: &str, debug_name: String) -> Option<Comms> {
     info!("setup_comms with '{}'", remote_hostname);
 
     // If remote is empty (i.e. local), then start a thread to handle commands.
@@ -222,7 +224,7 @@ fn setup_comms(remote_hostname: &str, remote_user: &str) -> Option<Comms> {
         let (response_sender, response_receiver) = mpsc::channel();
         let thread = std::thread::spawn(
             move || { doer_thread_running_on_boss(command_receiver, response_sender); });
-        return Some(Comms::Local { thread, sender: command_sender, receiver: response_receiver });
+        return Some(Comms::Local { debug_name: "Local ".to_string() + &debug_name + " doer", thread, sender: command_sender, receiver: response_receiver });
     }
 
     // We first attempt to run a previously-deployed copy of the program on the remote, to save time.
@@ -265,7 +267,7 @@ fn setup_comms(remote_hostname: &str, remote_user: &str) -> Option<Comms> {
                     }                
                 });
 
-                return Some(Comms::Remote { ssh_process, stdin, stdout, stderr_reading_thread });
+                return Some(Comms::Remote { debug_name: "Remote ".to_string() + &debug_name + " at " + remote_hostname, ssh_process, stdin, stdout, stderr_reading_thread });
             },
         };
     }
