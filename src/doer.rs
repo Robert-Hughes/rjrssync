@@ -1,6 +1,6 @@
 use std::{sync::mpsc::{Sender, Receiver}, time::Instant, fmt::{Display, self}, io::Write};
 use clap::Parser;
-use log::{info, error};
+use log::{info, error, debug};
 use serde::{Serialize, Deserialize};
 use walkdir::WalkDir;
 
@@ -16,7 +16,8 @@ struct DoerCliArgs {
 pub enum Command {
     GetFiles {
         root: String,
-    }
+    },
+    Shutdown,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -114,15 +115,19 @@ pub fn doer_main() -> ExitCode {
 }
 
 pub fn doer_thread_running_on_boss(receiver: Receiver<Command>, sender: Sender<Response>) {
+    debug!("doer thread running");
     // Message-processing loop, until Boss disconnects.
     message_loop(Comms::Local { sender, receiver }).unwrap();
+    debug!("doer thread finished");
 }
 
 fn message_loop (comms: Comms) -> Result<(), ()> {
     loop {
         match comms.receive_command() {
             Ok(c) => {
-                exec_command(c, &comms);
+                if !exec_command(c, &comms) {
+                    return Ok(());
+                }
             }
             Err(e) => {
                 error!("Error receiving command: {}", e);
@@ -132,7 +137,7 @@ fn message_loop (comms: Comms) -> Result<(), ()> {
     }
 }
 
-fn exec_command(command : Command, comms: &Comms) {
+fn exec_command(command : Command, comms: &Comms) -> bool {
     match command {
         Command::GetFiles { root } => {
             let start = Instant::now();
@@ -146,7 +151,7 @@ fn exec_command(command : Command, comms: &Comms) {
                     }
                     Err(e) => {
                         comms.send_response(Response::Error(e.to_string())).unwrap();
-                        return;
+                        break;
                     }
                 }
                 _count += 1;
@@ -155,6 +160,9 @@ fn exec_command(command : Command, comms: &Comms) {
             comms.send_response(Response::EndOfFileList).unwrap();
             //println!("Walked {} in {} ({}/s)", count, elapsed, 1000.0 * count as f32 / elapsed as f32);
 
+        }
+        Command::Shutdown => {
+            return false;
         }
  //     {
 //         let start = Instant::now();
@@ -201,4 +209,5 @@ fn exec_command(command : Command, comms: &Comms) {
 
 
     }
+    return true;
 }

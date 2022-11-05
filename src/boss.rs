@@ -131,7 +131,6 @@ pub fn boss_main() -> ExitCode {
     // Perform the actual file sync
     let sync_result = sync(args.src.folder, args.dest.folder, src_comms, dest_comms);
 
-    //TODO: do we need to clean up any of the Comms, maybe this should happen automatically on Drop?
     return match sync_result{
         Ok(()) => ExitCode::SUCCESS,
         Err(()) => ExitCode::from(12),
@@ -199,23 +198,14 @@ impl Display for Comms {
         }
     }
 }
-// impl Drop for Comms {
-//     // Both thread JoinHandles and child processes don't clean up the thread/process
-//     // when dropped (they will keep running), so we do this manually to clean up.
-//     fn drop(&mut self) {
-//         match self {
-//             Comms::Local { thread, sender, .. } => {
-//                 drop(*sender);
-//                 debug!("Waiting for doer thread {:?}", thread);
-//                 thread.take().unwrap().join();
-//             },
-//             Comms::Remote { ssh_process, .. } => {
-//                 debug!("Waiting for ssh process {:?}", ssh_process);
-//                 ssh_process.wait();
-//             }
-//         }
-//     }   
-// }
+impl Drop for Comms {
+    // Tell the other end (thread or process through ssh) to shutdown once we're finished.
+    // They should exit anyway due to a disconnection (of their channel or stdin), but this
+    // gives a cleaner exit without errors.
+    fn drop(&mut self) {
+        self.send_command(Command::Shutdown);
+    }   
+}
 
 
 fn setup_comms(remote_hostname: &str, remote_user: &str) -> Option<Comms> {
