@@ -284,14 +284,24 @@ fn setup_comms(remote_hostname: &str, remote_user: &str, debug_name: String) -> 
             },
         };
     }
-    panic!("Shouldn't get here")
+    panic!("Unreachable code");
 }
 
+// Result of launch_doer_via_ssh function.
 enum SshDoerLaunchResult {
+    /// The ssh process couldn't be started, for example because the ssh executable isn't available on the PATH.
     FailedToRunSsh,
+    /// We connected to the remote computer, but couldn't launch rjrssync because it didn't exist.
+    /// This would be expected if this computer has never been used as a remote target before.
     NotPresentOnRemote,
+    /// ssh exited before the handshake with rjrssync took place. This could be due to many reasons,
+    /// for example rjrssync couldn't launch correctly.
     ExitedBeforeHandshake,
+    /// rjrssync launched successfully on the remote computer, but it reported a version number that
+    /// isn't compatible with our version.
     HandshakeIncompatibleVersion,
+    /// rjrssync launched successfully on the remote computer and is a compatible version.
+    /// The fields here can be used to communicate with the remote rjrssync.
     Success {
         ssh_process: std::process::Child,
         stdin: ChildStdin,
@@ -300,15 +310,12 @@ enum SshDoerLaunchResult {
     }
 }
 
-// Generic thread function for reading from stdout or stderr of the ssh process.
-// We need to handle both in the same way - waiting until we receive the magic line indicating that the doer
-// copy has started up correctly. And so that each background thread knows when it's time to return control
-// of the stream.
+// Sent from the threads reading stdout and stderr of ssh back to the main thread.
 enum OutputReaderThreadMsg {
     Line(String),
     Error(std::io::Error),
     StreamClosed,
-    HandshakeReceived(String, OutputReaderStream), // Also sends back the stream, so the main thread takes control.
+    HandshakeReceived(String, OutputReaderStream), // Also sends back the stream, so the main thread can take back control
 }
 
 #[derive(Clone, Copy)]
@@ -325,6 +332,7 @@ impl Display for OutputReaderStreamType {
     }
 }
 
+// To avoid having to use trait objects, this provides a simple abstraction over either a stdout or stderr.
 enum OutputReaderStream {
     Stdout(BufReader<ChildStdout>),
     Stderr(BufReader<ChildStderr>)
@@ -344,6 +352,11 @@ impl OutputReaderStream {
     }
 }
 
+// Generic thread function for reading from stdout or stderr of the ssh process. 
+// It sends messages back to the main thread using a channel.
+// We need to handle both in the same way - waiting until we receive the handshake line indicating that the doer
+// copy has started up correctly. We need a handshake on both threads so that each background thread knows when 
+// it's time to finish and return control of the stream to the main thread.
 fn output_reader_thread_main(mut stream: OutputReaderStream, sender: Sender<(OutputReaderStreamType, OutputReaderThreadMsg)>) {
     let stream_type = stream.get_type();
     loop  {
@@ -354,8 +367,7 @@ fn output_reader_thread_main(mut stream: OutputReaderStream, sender: Sender<(Out
                 sender.send((stream_type, OutputReaderThreadMsg::Error(e))).unwrap();
                 return;
             },
-            Ok(0) => {
-                // end of stream
+            Ok(0) => { // end of stream
                 sender.send((stream_type, OutputReaderThreadMsg::StreamClosed)).unwrap();
                 return;
             }
@@ -367,6 +379,7 @@ fn output_reader_thread_main(mut stream: OutputReaderStream, sender: Sender<(Out
                     sender.send((stream_type, OutputReaderThreadMsg::HandshakeReceived(l, stream))).unwrap();
                     return;
                 } else {
+                    // A line of other content, for example a prompt or error from ssh itself
                     sender.send((stream_type, OutputReaderThreadMsg::Line(l))).unwrap();
                 }
             }
@@ -374,12 +387,11 @@ fn output_reader_thread_main(mut stream: OutputReaderStream, sender: Sender<(Out
     }
 }
 
+/// Attempts to launch a remote copy of rjrssync on the given remote computer using ssh.
 fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str) -> SshDoerLaunchResult {
     let user_prefix = if remote_user.is_empty() { "".to_string() } else { remote_user.to_string() + "@" };
-    let remote_temp_folder = PathBuf::from("/tmp/rjrssync/");
-    let remote_command = format!("cd {} && target/release/rjrssync --doer", remote_temp_folder.display());
-    info!("Running remote command: {}", remote_command);
-    //TODO: should we run "cmd /C ssh ..." rather than just "ssh", otherwise the line endings get messed up and subsequent log messages are broken?
+    let remote_command = format!("cd {} && target/release/rjrssync --doer", REMOTE_TEMP_FOLDER);
+    debug!("Running remote command: {}", remote_command);
     let mut ssh_process = match std::process::Command::new("ssh")
         .arg(user_prefix + remote_hostname)
         .arg(remote_command)
@@ -457,6 +469,7 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str) -> SshDoerLaunc
                 let remote_version = line.split_at(HANDSHAKE_MSG.len()).1;
                 if remote_version != VERSION.to_string() {
                     warn!("Remote server has incompatible version ({} vs local version {})", remote_version, VERSION);
+                    //TODO: in this case who closes the ssh process etc?
                     return SshDoerLaunchResult::HandshakeIncompatibleVersion;
                 }
 
@@ -533,7 +546,7 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> 
     // Deploy to remote target
     // Note we need to deal with the case where the the remote folder doesn't exist, and the case where it does, so
     // we copy into /tmp (which should always exist).
-    let remote_temp_folder = PathBuf::from("/tmp/rjrssync/");
+    let remote_temp_folder = PathBuf::from(REMOTE_TEMP_FOLDER);
     let user_prefix = if remote_user.is_empty() { "".to_string() } else { remote_user.to_string() + "@" };
     let source_spec = temp_dir.path().join("rjrssync");
     let remote_spec = user_prefix.clone() + remote_hostname + ":" + remote_temp_folder.parent().unwrap().to_str().unwrap();

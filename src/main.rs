@@ -15,6 +15,8 @@ pub const VERSION: i32 = 16;
 // Note that this format needs to always be backwards-compatible, so is very basic.
 pub const HANDSHAKE_MSG : &str = "rjrssync doer v"; // Version number will be appended
 
+pub const REMOTE_TEMP_FOLDER : &str = "/tmp/rjrssync/";
+
 fn main() -> ExitCode {
     // The process can run as either a CLI which takes input from command line arguments, performs
     // a transfer and then exits once complete ("boss"), or as a remote process on either the source
