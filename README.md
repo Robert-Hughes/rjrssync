@@ -1,5 +1,12 @@
-Fast rsync-like tool for incrementally copying files. Runs natively on both Windows and Linux and uses network for communication,
-to maximise speed syncing between Windows and WSL filesystems (accessing WSL filesytem from Windows or vice-versa is slow).
+Fast rsync-like tool for incrementally copying files. Runs natively on both Windows and Linux and uses network for communication, to maximise speed when syncing between Windows and WSL filesystems (accessing WSL filesytem from Windows or vice-versa is slow).
+
+Some perf results of walking directories on each OS:
+
+   Host ->       Windows     Linux
+Filesystem:
+  Windows        100k        9k
+   Linux          1k         500k
+
 
 TODO:
 

@@ -8,10 +8,13 @@ use crate::*;
 
 #[derive(clap::Parser)]
 struct DoerCliArgs {
-    #[arg(short, long)]
+    /// [Internal] Launches as a doer process, rather than a boss process. 
+    /// This shouldn't be needed for regular operation.
+    #[arg(long)]
     doer: bool,
 }
 
+/// Commands are sent from the boss to the doer, to request something to be done.
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Command {
     GetFiles {
@@ -20,20 +23,26 @@ pub enum Command {
     Shutdown,
 }
 
+/// Responses are sent back from the doer to the boss to report on something, usually
+/// the result of a Command.
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Response {
-    // Split into lots of individual messages (rather than one big file list) so that the boss can start doing stuff before receiving the full list
+    // The result of GetFiles is split into lots of individual messages (rather than one big file list) 
+    // so that the boss can start doing stuff before receiving the full list
     File(String),
     EndOfFileList,
-    Error(String)
+
+    Error(String),
 }
 
+/// Abstraction of two-way communication channel between this doer and the boss, which might be 
+/// remote (communicating through our stdin and stdout) or local (communicating via a channel to the main thread).
 enum Comms {
-    Local { // Local uses mpsc to communicate with the boss thread
+    Local {
         sender: Sender<Response>,
         receiver: Receiver<Command>,
     },
-    Remote // Remote doesn't need to store anything, as it uses the process' stdin and stdout
+    Remote, // Remote doesn't need to store anything, as it uses the process' stdin and stdout which are globally available
 }
 impl Comms {
     fn send_response(&self, r: Response) -> Result<(), String> {
@@ -74,21 +83,17 @@ impl Comms {
 impl Display for Comms {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Comms::Local { .. } => {
-                write!(f, "Local boss")
-            },
-            Comms::Remote { .. } => {
-                write!(f, "Remote boss")
-            }
+            Comms::Local { .. } => write!(f, "Local boss"),
+            Comms::Remote { .. } => write!(f, "Remote boss"),
         }
     }
 }
-//TODO: impl Drop?
 
 pub fn doer_main() -> ExitCode {
-    // Configure logging. Note that we can't use stdout as that is our communication channel with the boss!
-    // We use stderr instead, which the boss will read from and echo
-    //TODO: We could additionally log to a file, which might be useful for cases where the logs don't
+    // Configure logging. 
+    // Note that we can't use stdout as that is our communication channel with the boss.
+    // We use stderr instead, which the boss will read from and echo for easier debugging.
+    // TODO: We could additionally log to a file, which might be useful for cases where the logs don't
     // make it back to the boss (e.g. communication errors)
     stderrlog::StdErrLog::new().verbosity(log::Level::Debug).init().unwrap();
 
@@ -97,36 +102,46 @@ pub fn doer_main() -> ExitCode {
     // We take commands from our stdin and send responses on our stdout. These will be piped over ssh
     // back to the Boss.
 
-    // The first thing we send is a special message that the Boss will recognise, to know that we've started up correctly
-    // and to make sure we are running compatible versions etc.
+    // The first thing we send is a special handshake message that the Boss will recognise, 
+    // to know that we've started up correctly and to make sure we are running compatible versions.
     // We need to do this on both stdout and stderr, because both those streams need to be synchronised on the receiving end.
     let msg = format!("{}{}", HANDSHAKE_MSG, VERSION);
     println!("{}", msg);
     eprintln!("{}", msg);
 
-    // If the Boss isn't happy, they will stop us and deploy a new version. So at this point we can assume
-    // they are happy and move on to processing commands they (might) send us
-
-    // Message-processing loop, until Boss disconnects.
-    message_loop(Comms::Remote).unwrap();
-
-   // info!("Boss disconnected!");
-
-    return ExitCode::from(22);
+    // If the Boss isn't happy (e.g. we are an old version), they will stop us and deploy a new version.
+    // So at this point we can assume they are happy and move on to processing commands they (might) send us.
+    match message_loop(Comms::Remote) {
+        Ok(_) => {
+            debug!("doer process finished successfully!");
+            return ExitCode::SUCCESS;
+        }
+        Err(e) => {
+            debug!("doer process finished with error: {:?}", e);
+            return ExitCode::from(20);
+        }
+    }
 }
 
+// When the source and/or dest is local, the doer is run as a thread in the boss process,
+// rather than over ssh.
 pub fn doer_thread_running_on_boss(receiver: Receiver<Command>, sender: Sender<Response>) {
     debug!("doer thread running");
-    // Message-processing loop, until Boss disconnects.
-    message_loop(Comms::Local { sender, receiver }).unwrap();
-    debug!("doer thread finished");
+    match message_loop(Comms::Local { sender, receiver }) {
+        Ok(_) => debug!("doer thread finished successfully!"),
+        Err(e) => debug!("doer thread finished with error: {:?}", e),
+    }
 }
 
+// Repeatedly waits for Commands from the boss and processes them (possibly sending back Responses).
+// This function returns when we receive a Shutdown Command, or there is an unrecoverable error
+// (recoverable errors while handling Commands will not stop the loop).
 fn message_loop (comms: Comms) -> Result<(), ()> {
     loop {
         match comms.receive_command() {
             Ok(c) => {
                 if !exec_command(c, &comms) {
+                    debug!("Shutdown command received - finishing message_loop");
                     return Ok(());
                 }
             }
@@ -138,77 +153,39 @@ fn message_loop (comms: Comms) -> Result<(), ()> {
     }
 }
 
+/// Handles a Command from the boss, possibly replying with one or more Responses.
+/// Returns false if we received a Shutdown Command, otherwise true.
 fn exec_command(command : Command, comms: &Comms) -> bool {
     match command {
         Command::GetFiles { root } => {
             let start = Instant::now();
             let walker = WalkDir::new(&root).into_iter();
-            let mut _count = 0;
-      //      for entry in walker.filter_entry(|e| e.file_name() != ".git" && e.file_name() != "dependencies") {
-            for entry in walker {
+            let mut count = 0;
+            for entry in walker.filter_entry(|_e| true) {
                 match entry {
                     Ok(e) => {
                         comms.send_response(Response::File(e.file_name().to_str().unwrap().to_string())).unwrap();
-                    }
+//                      if e.file_type().is_file() {
+//                         let bytes = std::fs::read(e.path()).unwrap();
+//                         let hash = md5::compute(&bytes);
+//                         hash_sum += hash.into_iter().sum::<u8>();
+//                         count += 1;
+//                      }
+                   }
                     Err(e) => {
                         comms.send_response(Response::Error(e.to_string())).unwrap();
                         break;
                     }
                 }
-                _count += 1;
+                count += 1;
             }
-            let _elapsed = start.elapsed().as_millis();
+            let elapsed = start.elapsed().as_millis();
             comms.send_response(Response::EndOfFileList).unwrap();
-            //println!("Walked {} in {} ({}/s)", count, elapsed, 1000.0 * count as f32 / elapsed as f32);
-
+            debug!("Walked {} in {}ms ({}/s)", count, elapsed, 1000.0 * count as f32 / elapsed as f32);
         }
         Command::Shutdown => {
             return false;
         }
- //     {
-//         let start = Instant::now();
-//         let walker = WalkDir::new(&args.path).into_iter();
-//         let mut hash_sum: u8 = 0;
-//         let mut count = 0;
-//         for entry in walker.filter_entry(|e| e.file_name() != ".git" && e.file_name() != "dependencies") {
-//             let e = entry.unwrap();
-//             if e.file_type().is_file() {
-//                 let bytes = std::fs::read(e.path()).unwrap();
-//                 let hash = md5::compute(&bytes);
-//                 hash_sum += hash.into_iter().sum::<u8>();
-//                 count += 1;
-//             }
-//         }
-//         let elapsed = start.elapsed().as_millis();
-//         println!("Hashed {} ({}) in {} ({}/s)", count, hash_sum, elapsed, 1000.0 * count as f32 / elapsed as f32);
-//     }
-
-//  Host:           Windows     Linux
-//  Filesystem:
-//    Windows        100k        9k
-//     Linux          1k         500k
-
-//    let mut buf: [u8; 1] = [0];
-//    while stdin().read(&mut buf).unwrap_or(0) > 0 {
-      //  info!("Received data from Boss: {}", buf[0]);
-
-        // echo back
-//        stdout().write(&buf).unwrap();
-
-        //exec_command();
-
-        //TODO: if get a message telling us to start a transfer, setup_comms(false) with the dest.
-        //        (false cos the Dest should already have been set up with new version if necessary, so don't do it again)
-        //TODO:     get a list of all the files in the local dir, and ask the dest to do the same
-        //TODO:     compare the lists
-        //TODO:     send over any files that have changed
-
-        //TODO: if get a message telling us to provide a file list, do so
-
-        //TODO: if get a message telling us to receive a file, do so
- //   }
-
-
     }
     return true;
 }
