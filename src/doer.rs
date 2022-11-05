@@ -80,6 +80,7 @@ impl Display for Comms {
         }
     }
 }
+//TODO: impl Drop?
 
 pub fn doer_main() -> ExitCode {
     // Configure logging. Note that we can't use stdout as that is our communication channel with the boss!

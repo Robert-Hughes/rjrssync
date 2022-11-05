@@ -16,7 +16,7 @@ pub const VERSION: i32 = 8;
 pub const HANDSHAKE_MSG : &str = "rjrssync doer v"; // Version number will be appended
 
 fn main() -> ExitCode {
-    // The process can run as either a CLI which takes input from the command line, performs
+    // The process can run as either a CLI which takes input from command line arguments, performs
     // a transfer and then exits once complete ("boss"), or as a remote process on either the source
     // or destination computer which responds to commands from the boss (this is a "doer").
     // The boss (CLI) and doer modes have different command-line arguments, so handle them separately.

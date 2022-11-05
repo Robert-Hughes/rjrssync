@@ -3,7 +3,7 @@ use std::sync::mpsc;
 use std::sync::mpsc::{Sender, Receiver};
 use clap::{Parser};
 use env_logger::{fmt::Color, Env};
-use log::{info, error, warn};
+use log::{info, error, warn, debug};
 use rust_embed::RustEmbed;
 use tempdir::TempDir;
 
@@ -12,49 +12,76 @@ use crate::boss_sync::*;
 
 #[derive(clap::Parser)]
 struct BossCliArgs {
-    src: String,
-    dest: String,
+    /// The source folder, which will be synced to the destination folder.
+    /// Optionally contains a username and hostname for specifying remote folders.
+    /// Format: [[username@]hostname:]folder
+    src: RemoteFolderDesc,
+    /// The destination folder, which will be synced from the source folder.
+    /// Optionally contains a username and hostname for specifying remote folders.
+    /// Format: [[username@]hostname:]folder
+    dest: RemoteFolderDesc,
+    /// [Internal] Launches as a doer process, rather than a boss process. 
+    /// This shouldn't be needed for regular operation.
     #[arg(short, long)]
     doer: bool,
     //TODO: arg to force re-deploy the remote copy, e.g. useful if the handshake changes
 }
 
-#[derive(Default)]
+/// Describes a local or remote folder, parsed from the `src` or `dest` command-line arguments.
+#[derive(Clone, Default, PartialEq, Debug)]
 pub struct RemoteFolderDesc {
-    user: String,
+    username: String,
     hostname: String,
     folder: String,
 }
+impl std::str::FromStr for RemoteFolderDesc {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        // There's some quirks here with windows paths containing colons for drive letters
 
-fn parse_remote_folder(s: &str) -> RemoteFolderDesc {
-    let mut r = RemoteFolderDesc::default();
+        let mut r = RemoteFolderDesc::default();
 
-    let after_user;
-    match s.split_once('@') {
-        None => after_user = s,
-        Some((a, b)) => {
-            r.user = a.to_string();
-            after_user = b;
+        // The first colon splits folder from the rest, apart from special case for drive letters
+        match s.split_once(':') {
+            None => {
+                r.folder = s.to_string();
+            },
+            Some((a, b)) if a.len() == 1 && (b.is_empty() || b.starts_with(r"\")) => {
+                r.folder = s.to_string();
+            }
+            Some((user_and_host, folder)) => {
+                r.folder = folder.to_string();
+
+                // The first @ splits the user and hostname
+                match user_and_host.split_once('@') {
+                    None => { 
+                        r.hostname = user_and_host.to_string();
+                    }
+                    Some((user, host)) => {
+                        r.username = user.to_string();
+                        if r.username.is_empty() {
+                            return Err("Missing username".to_string());
+                        }                                        
+                        r.hostname = host.to_string();
+                    }
+                };
+                if r.hostname.is_empty() {
+                    return Err("Missing hostname".to_string());
+                }                                        
+            }
+        };
+
+        if r.folder.is_empty() {
+            return Err("Folder must be specified".to_string());
         }
-    };
-    //TODO: colon clashes with windows drive letters!
-    match after_user.split_once(':') {
-        None => {
-            r.folder = after_user.to_string();
-        },
-        Some((a, b)) => {
-            r.hostname = a.to_string();
-            r.folder = b.to_string();
-        }
-    };
-
-    return r;
+    
+        return Ok(r);
+    }
 }
 
 pub fn boss_main() -> ExitCode {
     // Configure logging
-    let mut builder = env_logger::Builder::from_env(Env::default().default_filter_or("info"));
-
+    let mut builder = env_logger::Builder::from_env(Env::default().default_filter_or("debug"));
     builder.format(|buf, record| {
         let mut level_style = buf.style();
 
@@ -82,48 +109,45 @@ pub fn boss_main() -> ExitCode {
     // There are therefore up to three copies of our program involved (although some may actually be the same as each other)
     //   Boss - this copy, which received the command line from the user
     //   Source - runs on the computer specified by the `src` command-line arg, and so if this is the local computer
-    //            then this may be the same copy as the Boss.
+    //            then this may be the same copy as the Boss. If it's remote then it will be a remote doer process.
     //   Dest - the computer specified by the `dest` command-line arg, and so if this is the local computer
-    //          then this may be the same copy as the Boss.
+    //          then this may be the same copy as the Boss. If it's remote then it will be a remote doer process.
     //          If Source and Dest are the same computer, they are still separate copies for simplicity.
     //          (It might be more efficient to just have one remote copy, but remember that there could be different users specified
     //           on the Source and Dest, with separate permissions to the folders being synced, so they can't access each others' folders,
     //           in which case we couldn't share a copy. Also might need to make it multithreaded on the other end to handle
     //           doing one command at the same time for each Source and Dest, which might be more complicated.)
 
-    // Get list of hosts to launch and estabilish communication with
-    let src_folder_desc = parse_remote_folder(&args.src);
-    let dest_folder_desc = parse_remote_folder(&args.dest);
+    // Launch doers on remote hosts or threads on local targets and estabilish communication (check version etc.)
+    let src_comms = match setup_comms(&args.src.hostname, &args.src.username) {
+        Some(c) => c,
+        None => return ExitCode::from(10),
+    };
+    let dest_comms = match setup_comms(&args.dest.hostname, &args.dest.username) {
+        Some(c) => c,
+        None => return ExitCode::from(11),
+    };
 
-    // Launch rjrssync (if not already running) on both remote hosts and estabilish communication (check version etc.)
-    let src_comms = setup_comms(&src_folder_desc.hostname, &src_folder_desc.user, true);
-    if src_comms.is_none() {
-        return ExitCode::from(10);
-    }
-    let src_comms = src_comms.unwrap();
+    // Perform the actual file sync
+    let sync_result = sync(args.src.folder, args.dest.folder, src_comms, dest_comms);
 
-    let dest_comms = setup_comms(&dest_folder_desc.hostname, &dest_folder_desc.user, true);
-    if dest_comms.is_none() {
-        return ExitCode::from(11);
-    }
-    let dest_comms = dest_comms.unwrap();
-
-    let sync_result = sync(src_folder_desc.folder, dest_folder_desc.folder, src_comms, dest_comms);
-
+    //TODO: do we need to clean up any of the Comms, maybe this should happen automatically on Drop?
     return match sync_result{
         Ok(()) => ExitCode::SUCCESS,
         Err(()) => ExitCode::from(12),
     };
 }
 
-//TODO: can we share implementation between the two Comms classes (boss and doer?)
+/// Abstraction of two-way communication channel between this boss and a doer, which might be 
+/// remote (communicating over ssh) or local (communicating via a channel to a background thread).
 pub enum Comms {
     Local {
-        _thread: JoinHandle<()>,
+        thread: JoinHandle<()>,
         sender: Sender<Command>,
         receiver: Receiver<Response>,
     },
     Remote {
+        ssh_process: std::process::Child,
         stdin: ChildStdin,
         stdout: BufReader<ChildStdout>,
         _stderr: BufReader<ChildStderr>, //TODO: should we be reading from this??
@@ -134,10 +158,10 @@ impl Comms {
         info!("Sending command {:?} to {}", c, &self);
         let res;
         match self {
-            Comms::Local { _thread: _, sender, receiver: _ } => {
+            Comms::Local { sender, .. } => {
                 res = sender.send(c).map_err(|e| e.to_string());
             },
-            Comms::Remote { stdin, stdout: _, _stderr: _ } => {
+            Comms::Remote { stdin, .. } => {
                 res = bincode::serialize_into(stdin, &c).map_err(|e| e.to_string());
                 std::io::stdout().flush().unwrap(); // Otherwise could be buffered and we hang!
             }
@@ -152,10 +176,10 @@ impl Comms {
         info!("Waiting for response from {}", &self);
         let r;
         match self {
-            Comms::Local { _thread: _, sender: _, receiver } => {
+            Comms::Local {receiver, .. } => {
                 r = receiver.recv().map_err(|e| e.to_string());
             },
-            Comms::Remote { stdin: _, stdout, _stderr: _ } => {
+            Comms::Remote { stdout, .. } => {
                 r = bincode::deserialize_from(stdout.by_ref()).map_err(|e| e.to_string());
             },
         }
@@ -175,9 +199,26 @@ impl Display for Comms {
         }
     }
 }
+// impl Drop for Comms {
+//     // Both thread JoinHandles and child processes don't clean up the thread/process
+//     // when dropped (they will keep running), so we do this manually to clean up.
+//     fn drop(&mut self) {
+//         match self {
+//             Comms::Local { thread, sender, .. } => {
+//                 drop(*sender);
+//                 debug!("Waiting for doer thread {:?}", thread);
+//                 thread.take().unwrap().join();
+//             },
+//             Comms::Remote { ssh_process, .. } => {
+//                 debug!("Waiting for ssh process {:?}", ssh_process);
+//                 ssh_process.wait();
+//             }
+//         }
+//     }   
+// }
 
 
-fn setup_comms(remote_hostname: &str, remote_user: &str, _allow_restart_remote_daemon_if_necessary: bool) -> Option<Comms> {
+fn setup_comms(remote_hostname: &str, remote_user: &str) -> Option<Comms> {
     info!("setup_comms with '{}'", remote_hostname);
 
     // If remote is empty (i.e. local), then start a thread to handle commands.
@@ -190,12 +231,12 @@ fn setup_comms(remote_hostname: &str, remote_user: &str, _allow_restart_remote_d
         let (response_sender, response_receiver) = mpsc::channel();
         let thread = std::thread::spawn(
             move || { doer_thread_running_on_boss(command_receiver, response_sender); });
-        return Some(Comms::Local { _thread: thread, sender: command_sender, receiver: response_receiver });
+        return Some(Comms::Local { thread, sender: command_sender, receiver: response_receiver });
     }
 
     // We first attempt to run a previously-deployed copy of the program on the remote, to save time.
     // If it exists and is a compatible version, we can use that.
-    loop {
+    loop { //TODO: inifinite loop? Stop after one retry maybe?
         match launch_doer_via_ssh(remote_hostname, remote_user) {
             SshDoerLaunchResult::FailedToRunSsh => {
 
@@ -213,9 +254,9 @@ fn setup_comms(remote_hostname: &str, remote_user: &str, _allow_restart_remote_d
                 error!("Not gonna try doing anything, as we don't know what happened");
                 return None;
             }
-            SshDoerLaunchResult::Success { stdin, stdout, stderr } => {
+            SshDoerLaunchResult::Success { ssh_process, stdin, stdout, stderr } => {
                 info!("Connection estabilished");
-                return Some(Comms::Remote { stdin, stdout, _stderr: stderr });
+                return Some(Comms::Remote { ssh_process, stdin, stdout, _stderr: stderr });
             },
         };
     }
@@ -293,6 +334,7 @@ enum SshDoerLaunchResult {
     ExitedBeforeHandshake,
     HandshakeIncompatibleVersion,
     Success {
+        ssh_process: std::process::Child,
         stdin: ChildStdin,
         stdout: BufReader<ChildStdout>,
         stderr: BufReader<ChildStderr>,
@@ -381,7 +423,7 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str) -> SshDoerLaunc
     let remote_command = format!("cd {} && target/release/rjrssync --doer", remote_temp_folder.display());
     info!("Running remote command: {}", remote_command);
     //TODO: should we run "cmd /C ssh ..." rather than just "ssh", otherwise the line endings get messed up and subsequent log messages are broken?
-    let mut ssh = match std::process::Command::new("ssh")
+    let mut ssh_process = match std::process::Command::new("ssh")
         .arg(user_prefix + remote_hostname)
         .arg(remote_command)
         .stdin(Stdio::piped()) //TODO: even though we're piping this, it still seems able to accept password input somehow?? Using /dev/tty?
@@ -398,9 +440,9 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str) -> SshDoerLaunc
     // Note that some of the output from ssh (errors etc.) comes on stderr, so we need to display both stdout and stderr
     // to the user, before handshake is estabilished.
 
-    let ssh_stdin = ssh.stdin.take().unwrap(); // stdin should always be available as we piped it
-    let ssh_stdout = ssh.stdout.take().unwrap(); // stdin should always be available as we piped it
-    let ssh_stderr = ssh.stderr.take().unwrap(); // stdin should always be available as we piped it
+    let ssh_stdin = ssh_process.stdin.take().unwrap(); // stdin should always be available as we piped it
+    let ssh_stdout = ssh_process.stdout.take().unwrap(); // stdin should always be available as we piped it
+    let ssh_stderr = ssh_process.stderr.take().unwrap(); // stdin should always be available as we piped it
 
     let (sender1, receiver): (Sender<(OutputReaderStreamType, OutputReaderThreadMsg)>, Receiver<(OutputReaderStreamType, OutputReaderThreadMsg)>) = mpsc::channel();
     let sender2 = sender1.clone();
@@ -429,7 +471,7 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str) -> SshDoerLaunc
             Err(RecvError) => {
                 info!("Receiver error - all threads done, process exited?");
                 // Wait for the process to exit, for tidyness?
-                let result = ssh.wait();
+                let result = ssh_process.wait();
                 info!("Process exited with {:?}", result);
                 if not_present_on_remote {
                     return SshDoerLaunchResult::NotPresentOnRemote;
@@ -463,7 +505,7 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str) -> SshDoerLaunc
 
                 //TODO: check version. Check both stdout and stderr?
                 if handshook_stdout.is_some() && handshook_stderr.is_some() {
-                    return SshDoerLaunchResult::Success { stdin: ssh_stdin, stdout: handshook_stdout.unwrap(), stderr: handshook_stderr.unwrap() };
+                    return SshDoerLaunchResult::Success { ssh_process, stdin: ssh_stdin, stdout: handshook_stdout.unwrap(), stderr: handshook_stderr.unwrap() };
                 }
 
             },
@@ -587,4 +629,53 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> 
     };
 
     return Ok(());
+}
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use super::*;
+
+    #[test]
+    fn parse_remote_folder_desc() {
+        // There's some quirks here with windows paths containing colons for drive letters
+
+        assert_eq!(RemoteFolderDesc::from_str(""), Err("Folder must be specified".to_string()));
+        assert_eq!(RemoteFolderDesc::from_str("f"), Ok(RemoteFolderDesc { folder: "f".to_string(), ..Default::default()}));
+        assert_eq!(RemoteFolderDesc::from_str("h:f"), Ok(RemoteFolderDesc { folder: "f".to_string(), hostname: "h".to_string(), username: "".to_string()}));
+        assert_eq!(RemoteFolderDesc::from_str("hh:"), Err("Folder must be specified".to_string()));
+        assert_eq!(RemoteFolderDesc::from_str(":f"), Err("Missing hostname".to_string()));
+        assert_eq!(RemoteFolderDesc::from_str(":"), Err("Missing hostname".to_string()));
+        assert_eq!(RemoteFolderDesc::from_str("@"), Ok(RemoteFolderDesc { folder: "@".to_string(), ..Default::default()}));
+
+        assert_eq!(RemoteFolderDesc::from_str("u@h:f"), Ok(RemoteFolderDesc { folder: "f".to_string(), hostname: "h".to_string(), username: "u".to_string()}));
+        assert_eq!(RemoteFolderDesc::from_str("@h:f"), Err("Missing username".to_string()));
+        assert_eq!(RemoteFolderDesc::from_str("u@h:"), Err("Folder must be specified".to_string()));
+        assert_eq!(RemoteFolderDesc::from_str("u@:f"), Err("Missing hostname".to_string()));
+        assert_eq!(RemoteFolderDesc::from_str("@:f"), Err("Missing username".to_string()));
+        assert_eq!(RemoteFolderDesc::from_str("u@:"), Err("Missing hostname".to_string()));
+        assert_eq!(RemoteFolderDesc::from_str("@h:"), Err("Missing username".to_string()));
+
+        assert_eq!(RemoteFolderDesc::from_str("u@f"), Ok(RemoteFolderDesc { folder: "u@f".to_string(), ..Default::default()}));
+        assert_eq!(RemoteFolderDesc::from_str("@f"), Ok(RemoteFolderDesc { folder: "@f".to_string(), ..Default::default()}));
+        assert_eq!(RemoteFolderDesc::from_str("u@"), Ok(RemoteFolderDesc { folder: "u@".to_string(), ..Default::default()}));
+
+        assert_eq!(RemoteFolderDesc::from_str("u:u@u:u@h:f:f:f@f"), Ok(RemoteFolderDesc { folder: "u@u:u@h:f:f:f@f".to_string(), hostname: "u".to_string(), username: "".to_string()}));
+
+        assert_eq!(RemoteFolderDesc::from_str(r"C:\Path\On\Windows"), Ok(RemoteFolderDesc { folder: r"C:\Path\On\Windows".to_string(), ..Default::default()}));
+        assert_eq!(RemoteFolderDesc::from_str(r"C:"), Ok(RemoteFolderDesc { folder: r"C:".to_string(), ..Default::default()}));
+        assert_eq!(RemoteFolderDesc::from_str(r"C:\"), Ok(RemoteFolderDesc { folder: r"C:\".to_string(), ..Default::default()}));
+        assert_eq!(RemoteFolderDesc::from_str(r"C:folder"), Ok(RemoteFolderDesc { folder: r"folder".to_string(), hostname: "C".to_string(), ..Default::default()}));
+        assert_eq!(RemoteFolderDesc::from_str(r"C:\folder"), Ok(RemoteFolderDesc { folder: r"C:\folder".to_string(), ..Default::default()}));
+        assert_eq!(RemoteFolderDesc::from_str(r"CC:folder"), Ok(RemoteFolderDesc { folder: r"folder".to_string(), hostname: "CC".to_string(), ..Default::default()}));
+        assert_eq!(RemoteFolderDesc::from_str(r"CC:\folder"), Ok(RemoteFolderDesc { folder: r"\folder".to_string(), hostname: "CC".to_string(), ..Default::default()}));
+        assert_eq!(RemoteFolderDesc::from_str(r"s:C:\folder"), Ok(RemoteFolderDesc { folder: r"C:\folder".to_string(), hostname: "s".to_string(), ..Default::default()}));
+        assert_eq!(RemoteFolderDesc::from_str(r"u@s:C:\folder"), Ok(RemoteFolderDesc { folder: r"C:\folder".to_string(), hostname: "s".to_string(), username: "u".to_string()}));
+      
+        assert_eq!(RemoteFolderDesc::from_str(r"\\network\share\windows"), Ok(RemoteFolderDesc { folder: r"\\network\share\windows".to_string(), ..Default::default()}));
+      
+        assert_eq!(RemoteFolderDesc::from_str("/unix/absolute"), Ok(RemoteFolderDesc { folder: "/unix/absolute".to_string(), ..Default::default()}));
+        assert_eq!(RemoteFolderDesc::from_str("username@server:/unix/absolute"), Ok(RemoteFolderDesc { folder: "/unix/absolute".to_string(), hostname: "server".to_string(), username: "username".to_string()}));
+    }
 }
