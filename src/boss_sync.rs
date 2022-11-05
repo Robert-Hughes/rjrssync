@@ -10,6 +10,8 @@ pub fn sync(src_folder: String, dest_folder: String, mut src_comms: Comms, mut d
     //TODO: delete files that don't exist on the source
     //TODO: delete folders that don't exist on the source
     //TODO: what about symlinks
+    //TODO: if a file/folder exists already but we need to make the opposite kind (replace file with folder etc.)
+    // then what happens?
 
     let mut src_files = Vec::new();
     loop {

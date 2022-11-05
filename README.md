@@ -24,3 +24,4 @@ TODO:
 * SSH host key verification prompt doesn't echo the user's typing, but it does seem to work anyway
 * Probably better to batch together File() Responses, to avoid overhead from sending loads of messages
 * Perf comparison with regular rsync (for cases where there are zero or few changes, and for cases with more changes)
+* Compare and sync file permissions?
