@@ -22,3 +22,5 @@ TODO:
 * Investigate if pipelining some stages would speed it up, e.g. sending file list while also sending it
 * Remote launching on windows (temp folder path is unix-style!)
 * SSH host key verification prompt doesn't echo the user's typing, but it does seem to work anyway
+* Probably better to batch together File() Responses, to avoid overhead from sending loads of messages
+* Perf comparison with regular rsync (for cases where there are zero or few changes, and for cases with more changes)

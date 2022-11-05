@@ -28,7 +28,7 @@ pub enum Command {
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Response {
     // The result of GetFiles is split into lots of individual messages (rather than one big file list) 
-    // so that the boss can start doing stuff before receiving the full list
+    // so that the boss can start doing stuff before receiving the full list.
     File(String),
     EndOfFileList,
 
