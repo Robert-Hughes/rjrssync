@@ -17,10 +17,29 @@ struct DoerCliArgs {
 /// Commands are sent from the boss to the doer, to request something to be done.
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Command {
-    GetFiles {
+    GetFileList {
         root: String,
     },
+    GetFileContent {
+        path: String,
+    },
+    CreateOrUpdateFile {
+        path: String,
+        data: Vec<u8>,
+    },
     Shutdown,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub enum FileType {
+    File,
+    Folder,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub struct FileDetails {
+    pub path: String,
+    pub file_type: FileType
 }
 
 /// Responses are sent back from the doer to the boss to report on something, usually
@@ -29,9 +48,14 @@ pub enum Command {
 pub enum Response {
     // The result of GetFiles is split into lots of individual messages (rather than one big file list) 
     // so that the boss can start doing stuff before receiving the full list.
-    File(String),
+    FileListEntry(FileDetails),
     EndOfFileList,
 
+    FileContent {
+        data: Vec<u8>
+    },
+
+    Ack,
     Error(String),
 }
 
@@ -133,14 +157,22 @@ pub fn doer_thread_running_on_boss(receiver: Receiver<Command>, sender: Sender<R
     }
 }
 
+/// Context for each doer instance. We can't use anything global (e.g. like changing the 
+/// process' current directory), because there might be multiple doer threads in the same process
+/// (if these are local doers).
+struct DoerContext {
+    pub root: String,
+}
+
 // Repeatedly waits for Commands from the boss and processes them (possibly sending back Responses).
 // This function returns when we receive a Shutdown Command, or there is an unrecoverable error
 // (recoverable errors while handling Commands will not stop the loop).
 fn message_loop (comms: Comms) -> Result<(), ()> {
+    let mut context = DoerContext { root: String::new() };
     loop {
         match comms.receive_command() {
             Ok(c) => {
-                if !exec_command(c, &comms) {
+                if !exec_command(c, &comms, &mut context) {
                     debug!("Shutdown command received - finishing message_loop");
                     return Ok(());
                 }
@@ -155,16 +187,37 @@ fn message_loop (comms: Comms) -> Result<(), ()> {
 
 /// Handles a Command from the boss, possibly replying with one or more Responses.
 /// Returns false if we received a Shutdown Command, otherwise true.
-fn exec_command(command : Command, comms: &Comms) -> bool {
+fn exec_command(command : Command, comms: &Comms, context: &mut DoerContext) -> bool {
     match command {
-        Command::GetFiles { root } => {
+        Command::GetFileList { root } => {
+            // Store the root folder for future operations
+            context.root = root;
+
             let start = Instant::now();
-            let walker = WalkDir::new(&root).into_iter();
+            let walker = WalkDir::new(&context.root).into_iter();
             let mut count = 0;
             for entry in walker.filter_entry(|_e| true) {
                 match entry {
                     Ok(e) => {
-                        comms.send_response(Response::File(e.file_name().to_str().unwrap().to_string())).unwrap();
+                        let file_type;
+                        if e.file_type().is_dir() {
+                            file_type = FileType::Folder;
+                        } else if e.file_type().is_file() { 
+                            file_type = FileType::File;
+                        } else {
+                            comms.send_response(Response::Error("Unknown file type".to_string())).unwrap();
+                            break;
+                        }
+
+                        let path = e.path().to_str().unwrap().to_string();
+                        let path = path[context.root.len()..path.len()].to_string(); //TODO: almost certainly wrong
+
+                        let d = FileDetails {
+                            path,
+                            file_type
+                        };
+
+                        comms.send_response(Response::FileListEntry(d)).unwrap();
 //                      if e.file_type().is_file() {
 //                         let bytes = std::fs::read(e.path()).unwrap();
 //                         let hash = md5::compute(&bytes);
@@ -182,6 +235,22 @@ fn exec_command(command : Command, comms: &Comms) -> bool {
             let elapsed = start.elapsed().as_millis();
             comms.send_response(Response::EndOfFileList).unwrap();
             debug!("Walked {} in {}ms ({}/s)", count, elapsed, 1000.0 * count as f32 / elapsed as f32);
+        },
+        Command::GetFileContent { path } => {
+            let full_path = context.root.clone() + &path; //TODO: what if context.root doesn't have terminating separator?
+            match std::fs::read(full_path) {
+                Ok(data) => comms.send_response(Response::FileContent{ data }).unwrap(),
+                Err(e) =>  comms.send_response(Response::Error(e.to_string())).unwrap(),
+            }
+        },
+        Command::CreateOrUpdateFile { path, data } => {
+            let full_path = context.root.clone() + &path; //TODO: what if context.root doesn't have terminating separator?
+            //TODO: might need to make folder(s) for this file? Or maybe not if we explicitly create folders
+            // as another command?
+            match std::fs::write(full_path, data) {
+                Ok(()) => comms.send_response(Response::Ack).unwrap(),
+                Err(e) =>  comms.send_response(Response::Error(e.to_string())).unwrap(),
+            }
         }
         Command::Shutdown => {
             return false;

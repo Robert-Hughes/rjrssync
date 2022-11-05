@@ -19,7 +19,7 @@
                     "kind": "bin"
                 }
             },
-            "args": [ "rob@localhost:/home/rob/.ssh", "T:\\Temp" ],
+            "args": [ "T:\\Source\\", "T:\\Dest\\" ],
             "cwd": "${workspaceFolder}"
         },
         {
