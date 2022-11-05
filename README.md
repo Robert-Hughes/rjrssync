@@ -14,3 +14,4 @@ TODO:
 * Investigate if parallelising some stages would speed it up, e.g. walking the dir structure on multiple threads, or sending data across network on multiple threads
 * Investigate if pipelining some stages would speed it up, e.g. sending file list while also sending it
 * Remote launching on windows (temp folder path is unix-style!)
+* SSH host key verification prompt doesn't echo the user's typing, but it does seem to work anyway

@@ -1,4 +1,4 @@
-use std::{io::{Write, BufReader, BufRead, Read}, path::PathBuf, process::{Stdio, ExitCode, ChildStdout, ChildStdin, ChildStderr}, sync::mpsc::RecvError, fmt::{Display, self}, thread::JoinHandle};
+use std::{io::{Write, BufReader, BufRead, Read}, path::PathBuf, process::{Stdio, ExitCode, ChildStdout, ChildStdin, ChildStderr}, sync::mpsc::{RecvError, SendError}, fmt::{Display, self}, thread::JoinHandle};
 use std::sync::mpsc;
 use std::sync::mpsc::{Sender, Receiver};
 use clap::{Parser};
@@ -83,20 +83,24 @@ pub fn boss_main() -> ExitCode {
     // Configure logging
     let mut builder = env_logger::Builder::from_env(Env::default().default_filter_or("debug"));
     builder.format(|buf, record| {
-        let mut level_style = buf.style();
-
-        let color = match record.target(){
+        let target_color = match record.target(){
             "rjrssync::boss" => Color::Rgb(255, 64, 255),
             "rjrssync::doer" => Color::Cyan,
             "remote doer" => Color::Yellow,
             _ => Color::Green
         };
+        let target_style = buf.style().set_color(target_color).clone();
 
-        level_style.set_color(color);
+        let level_color = match record.level(){
+            log::Level::Error => Color::Red,
+            log::Level::Warn => Color::Yellow,
+            _ => Color::Black,
+        };
+        let level_style = buf.style().set_color(level_color).clone();
 
         writeln!(buf, "{:5} | {}: {}",
-            record.level(),
-            level_style.value(record.target()),
+            level_style.value(record.level()),
+            target_style.value(record.target()),
             record.args())
     });
     builder.init();
@@ -251,8 +255,8 @@ fn setup_comms(remote_hostname: &str, remote_user: &str, debug_name: String) -> 
                 error!("Failed to launch remote doer even after new deployment.");
                 return None;
             },
-            SshDoerLaunchResult::ExitedBeforeHandshake => {
-                error!("Remote process exited unexpectedly.");
+            SshDoerLaunchResult::ExitedUnexpectedly => {
+                // No point trying again. launch_doer_via_ssh will have logged the error already.
                 return None;
             }
             SshDoerLaunchResult::Success { ssh_process, stdin, stdout, mut stderr } => {
@@ -296,7 +300,7 @@ enum SshDoerLaunchResult {
     NotPresentOnRemote,
     /// ssh exited before the handshake with rjrssync took place. This could be due to many reasons,
     /// for example rjrssync couldn't launch correctly.
-    ExitedBeforeHandshake,
+    ExitedUnexpectedly,
     /// rjrssync launched successfully on the remote computer, but it reported a version number that
     /// isn't compatible with our version.
     HandshakeIncompatibleVersion,
@@ -357,30 +361,32 @@ impl OutputReaderStream {
 // We need to handle both in the same way - waiting until we receive the handshake line indicating that the doer
 // copy has started up correctly. We need a handshake on both threads so that each background thread knows when 
 // it's time to finish and return control of the stream to the main thread.
-fn output_reader_thread_main(mut stream: OutputReaderStream, sender: Sender<(OutputReaderStreamType, OutputReaderThreadMsg)>) {
+fn output_reader_thread_main(mut stream: OutputReaderStream, sender: Sender<(OutputReaderStreamType, OutputReaderThreadMsg)>) -> 
+    Result<(), SendError<(OutputReaderStreamType, OutputReaderThreadMsg)>> {
     let stream_type = stream.get_type();
     loop  {
         let mut l : String = "".to_string();
-        // Note we unwrap() the errors on the sender here, as the other end should never have been dropped before this thread exits.
+        // Note we ignore errors on the sender here, as the other end should never have been dropped while it still cares
+        // about our messages, but may have dropped if they abandon the ssh process, letting it finish itself.
         match stream.read_line(&mut l) {
             Err(e) => {
-                sender.send((stream_type, OutputReaderThreadMsg::Error(e))).unwrap();
-                return;
+                sender.send((stream_type, OutputReaderThreadMsg::Error(e)))?;
+                return Ok(());
             },
             Ok(0) => { // end of stream
-                sender.send((stream_type, OutputReaderThreadMsg::StreamClosed)).unwrap();
-                return;
+                sender.send((stream_type, OutputReaderThreadMsg::StreamClosed))?;
+                return Ok(());
             }
             Ok(_) => {
                 l.pop(); // Remove the trailing newline
                 if l.starts_with(HANDSHAKE_MSG) {
                     // remote end has booted up properly and is ready for comms.
                     // finish this thread and return control of the stdout to the main thread, so it can communicate directly
-                    sender.send((stream_type, OutputReaderThreadMsg::HandshakeReceived(l, stream))).unwrap();
-                    return;
+                    sender.send((stream_type, OutputReaderThreadMsg::HandshakeReceived(l, stream)))?;
+                    return Ok(());
                 } else {
                     // A line of other content, for example a prompt or error from ssh itself
-                    sender.send((stream_type, OutputReaderThreadMsg::Line(l))).unwrap();
+                    sender.send((stream_type, OutputReaderThreadMsg::Line(l)))?;
                 }
             }
         }
@@ -395,10 +401,13 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str) -> SshDoerLaunc
     let mut ssh_process = match std::process::Command::new("ssh")
         .arg(user_prefix + remote_hostname)
         .arg(remote_command)
-        .stdin(Stdio::piped()) //TODO: even though we're piping this, it still seems able to accept password input somehow?? Using /dev/tty?
+        // Note that even though we're piping stdin, ssh still seems able to accept answers to prompts about
+        // host key verification and password input somehow.
+        .stdin(Stdio::piped()) 
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .spawn() {
+        .spawn() 
+    {
         Ok(c) => c,
         Err(e) => {
             error!("Error launching ssh: {}", e);
@@ -406,95 +415,78 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str) -> SshDoerLaunc
         },
     };
 
-    // Note that some of the output from ssh (errors etc.) comes on stderr, so we need to display both stdout and stderr
-    // to the user, before handshake is estabilished.
+    // Some of the output from ssh (errors etc.) comes on stderr, so we need to display both stdout and stderr
+    // to the user, before the handshake is estabilished.
+    debug!("Waiting for remote copy to send version handshake");
 
-    let ssh_stdin = ssh_process.stdin.take().unwrap(); // stdin should always be available as we piped it
-    let ssh_stdout = ssh_process.stdout.take().unwrap(); // stdin should always be available as we piped it
-    let ssh_stderr = ssh_process.stderr.take().unwrap(); // stdin should always be available as we piped it
+    // unwrap is fine here, as the streams should always be available as we piped them all
+    let ssh_stdin = ssh_process.stdin.take().unwrap(); 
+    let ssh_stdout = ssh_process.stdout.take().unwrap();
+    let ssh_stderr = ssh_process.stderr.take().unwrap();
 
+    // Spawn a background thread for each stdout and stderr, to process messages we get from ssh
+    // and forward them to the main thread. This is easier than some kind of async IO stuff.
     let (sender1, receiver): (Sender<(OutputReaderStreamType, OutputReaderThreadMsg)>, Receiver<(OutputReaderStreamType, OutputReaderThreadMsg)>) = mpsc::channel();
     let sender2 = sender1.clone();
-    // std::thread::spawn(move || {
-    //     std::io::copy(&mut stdin(), &mut ssh_stdin).expect("stdin error");
-    //  });
-
     std::thread::spawn(move || output_reader_thread_main(OutputReaderStream::Stdout(BufReader::new(ssh_stdout)), sender1));
     std::thread::spawn(move || output_reader_thread_main(OutputReaderStream::Stderr(BufReader::new(ssh_stderr)), sender2));
 
-    info!("Waiting for remote copy to send version handshake");
-    //TODO: wait until ssh either exits (e.g. due to an error), or we see a special print from our doer program
-    // that says it's up and running. Perhaps this replaces the "Magic"? as we won't need that anymore? We could include
-    // the version number in the special print too, so we can replace that too?
-    // then we can transition into command mode, where we talk in binary?
-    //TOOD: the ssh process could not exit but also never print anything useful, e.g. if it hangs or is waiting for input that never comes.
-    // In this case the user would need to kill it, so need Ctrl+C to work.
-    //TODO: can/should/how can we forward Ctrl+C to ssh?
-    //TODO: can we make it so that the remote copy is killed once teh ssh session is dropped, e.g. if the boss copy is killed.
-    // do we need to close all the streams that we have open too??
-    let mut not_present_on_remote = false;
+    // Wait for messages from the background threads which are reading stdout and stderr
     let mut handshook_stdout : Option<BufReader<ChildStdout>> = None;
     let mut handshook_stderr : Option<BufReader<ChildStderr>> = None;
     loop {
         match receiver.recv() {
-            Err(RecvError) => {
-                info!("Receiver error - all threads done, process exited?");
-                // Wait for the process to exit, for tidyness?
-                let result = ssh_process.wait();
-                info!("Process exited with {:?}", result);
-                if not_present_on_remote {
-                    return SshDoerLaunchResult::NotPresentOnRemote;
-                } else {
-                    return SshDoerLaunchResult::ExitedBeforeHandshake;
-                }
-            }
             Ok((stream_type, OutputReaderThreadMsg::Line(l))) => {
-                info!("Line received from {}: {}", stream_type, l);
+                // Show ssh output to the user, as this might be useful/necessary
+                info!("ssh {}: {}", stream_type, l);
                 if l.contains("No such file or directory") {
-                    not_present_on_remote = true;
+                   warn!("rjrssync not present on remote computer");
+                   // Note the stdin of the ssh will be dropped and this will tidy everything up nicely
+                   return SshDoerLaunchResult::NotPresentOnRemote;
                 }
             },
             Ok((stream_type, OutputReaderThreadMsg::HandshakeReceived(line, s))) => {
-                info!("HandshakeReceived from {}: {}", stream_type, line);
-                // Need to wait for both stdout and stderr to pass the handshake
+                debug!("Handshake received from {}: {}", stream_type, line);
                 match s {
-                    OutputReaderStream::Stdout(b) => {
-                        handshook_stdout = Some(b);
-                    },
-                    OutputReaderStream::Stderr(b) => {
-                        handshook_stderr = Some(b);
-                    },
+                    OutputReaderStream::Stdout(b) => handshook_stdout = Some(b),
+                    OutputReaderStream::Stderr(b) => handshook_stderr = Some(b),
                 }
 
                 let remote_version = line.split_at(HANDSHAKE_MSG.len()).1;
                 if remote_version != VERSION.to_string() {
                     warn!("Remote server has incompatible version ({} vs local version {})", remote_version, VERSION);
-                    //TODO: in this case who closes the ssh process etc?
+                    // Note the stdin of the ssh will be dropped and this will tidy everything up nicely
                     return SshDoerLaunchResult::HandshakeIncompatibleVersion;
                 }
 
-                //TODO: check version. Check both stdout and stderr?
+                // Need to wait for both stdout and stderr to pass the handshake
                 if handshook_stdout.is_some() && handshook_stderr.is_some() {
-                    return SshDoerLaunchResult::Success { ssh_process, stdin: ssh_stdin, stdout: handshook_stdout.unwrap(), stderr: handshook_stderr.unwrap() };
+                    return SshDoerLaunchResult::Success { 
+                        ssh_process, stdin: 
+                        ssh_stdin, 
+                        stdout: handshook_stdout.unwrap(), 
+                        stderr: handshook_stderr.unwrap() 
+                    };
                 }
-
             },
             Ok((stream_type, OutputReaderThreadMsg::Error(e))) => {
-                info!("Error from {}: {}", stream_type, e);
-                // Wait for the process to exit, for tidyness?
-               // ssh.wait();
+                error!("Error reading from {}: {}", stream_type, e);
             },
             Ok((stream_type, OutputReaderThreadMsg::StreamClosed)) => {
-                info!("StreamClosed {}", stream_type);
-                // Wait for the process to exit, for tidyness?
-               // ssh.wait();
+                debug!("ssh {} closed", stream_type);
+            }
+            Err(RecvError) => {
+                // Both senders have been dropped, i.e. both background threads exited, before
+                // we got any expected error (e.g. "No such file or directory"), so we don't know
+                // why it exited.
+                debug!("Both reader threads done, ssh must have exited. Waiting for process.");
+                // Wait for the process to exit, for tidyness
+                let result = ssh_process.wait();
+                error!("ssh exited unexpectedly with {:?}", result);
+                return SshDoerLaunchResult::ExitedUnexpectedly;
             }
         }
     }
-
-    //TODO: wait for threads to exit, for completeness?
-
-    //TODO: wait for SSH password prompt etc. to finish, then do version handshake
 }
 
 // This embeds the source code of the program into the executable, so it can be deployed remotely and built on other platforms
