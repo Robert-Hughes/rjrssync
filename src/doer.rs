@@ -267,6 +267,8 @@ fn exec_command(command : Command, comms: &Comms, context: &mut DoerContext) -> 
             //TODO: need to account for time zone differences etc. between source and dest when updating the timestamp
             //TODO: would this play nicely with other tools (e.g. build systems) that check timestamps - it might think that it doesn't
             // need to rebuild anything, as the new timestamp for this file is still really old?
+            // Maybe instead we could store something else, like a hash or our own marker to indicate when this file was synced,
+            // so that the timestamp is "correct", but we know not to sync it again next time.
             match std::fs::write(full_path, data) {
                 Ok(()) => comms.send_response(Response::Ack).unwrap(),
                 Err(e) =>  comms.send_response(Response::Error(e.to_string())).unwrap(),
