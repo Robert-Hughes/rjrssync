@@ -26,16 +26,14 @@ TODO:
 * Probably better to batch together File() Responses, to avoid overhead from sending loads of messages
 * Perf comparison with regular rsync (for cases where there are zero or few changes, and for cases with more changes)
 * Compare and sync file permissions?
-
-            //TODO: need to set the modified time of the file to that of the original, otherwise it will immediately count as modified...
-            //TODO: need to account for time zone differences etc. between source and dest when updating the timestamp
-            //TODO: would this play nicely with other tools (e.g. build systems) that check timestamps - it might think that it doesn't
-            // need to rebuild anything, as the new timestamp for this file is still really old?
-            // Maybe instead we could store something else, like a hash or our own marker to indicate when this file was synced,
-            // so that the timestamp is "correct", but we know not to sync it again next time.
-
+* Modified time:
+    - need to account for time zone differences etc. between source and dest when updating the timestamp
+    - would this play nicely with other tools (e.g. build systems) that check timestamps - it might think that it doesn't need to rebuild anything, as the new timestamp for this file is still really old?
+    - Maybe instead we could store something else, like a hash or our own marker to indicate when this file was synced, so that the timestamp is "correct", but we know not to sync it again next time.
 * Testing for ssh launching/copying/deploying stuff
 * Testing for sync logic
+* Progress bar
+* Format total bytes and total files etc. with commas, or GB, MB etc.
 
 Idea for filters, with re-usable "functions":
 ===============

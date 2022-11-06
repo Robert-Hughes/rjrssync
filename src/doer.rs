@@ -51,6 +51,7 @@ pub enum EntryType {
 }
 
 /// Details of a file or folder.
+//TODO: use an enum as folders don't have modified_time or size!
 #[derive(Serialize, Deserialize, Debug)]
 pub struct EntryDetails {
     pub path: String,
@@ -290,6 +291,8 @@ fn exec_command(command : Command, comms: &Comms, context: &mut DoerContext) -> 
                 return true;
             }
 
+            // After changing the content, we need to override the modified time of the file to that of the original,
+            // otherwise it will immediately count as modified again if we do another sync.
             if let Some(t) = set_modified_time {
                 let r = filetime::set_file_mtime(&full_path, filetime::FileTime::from_system_time(t));
                 if let Err(e) = r {
