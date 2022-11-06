@@ -35,7 +35,9 @@ struct BossCliArgs {
 pub struct RemoteFolderDesc {
     username: String,
     hostname: String,
-    folder: String,
+    // Note this shouldn't be a PathBuf, because the syntax of this path will be for the remote system,
+    // which might be different to the local system.
+    folder: String, 
 }
 impl std::str::FromStr for RemoteFolderDesc {
     type Err = String;

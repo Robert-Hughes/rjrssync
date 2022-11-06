@@ -1,4 +1,4 @@
-use std::{sync::mpsc::{Sender, Receiver}, time::Instant, fmt::{Display, self}, io::{Write}};
+use std::{sync::mpsc::{Sender, Receiver}, time::{Instant, SystemTime}, fmt::{Display, self}, io::{Write}, path::PathBuf};
 use clap::Parser;
 use log::{error, debug};
 use serde::{Serialize, Deserialize};
@@ -17,6 +17,8 @@ struct DoerCliArgs {
 /// Commands are sent from the boss to the doer, to request something to be done.
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Command {
+    // Note we shouldn't use PathBufs, because the syntax of this path might differ between the boss and doer
+    // platforms (e.g. Windows vs Linux), and so the type might have different meaning/behaviour on each side.
     GetFileList {
         root: String,
     },
@@ -36,10 +38,12 @@ pub enum FileType {
     Folder,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct FileDetails {
     pub path: String,
-    pub file_type: FileType
+    pub file_type: FileType,
+    pub modified_time: SystemTime, //TODO: is this compatible between platforms, time zone changes, precision differences, etc. etc.
+    //TODO: can we safely serialize this on one platform and deserialize on another?
 }
 
 /// Responses are sent back from the doer to the boss to report on something, usually
@@ -161,14 +165,14 @@ pub fn doer_thread_running_on_boss(receiver: Receiver<Command>, sender: Sender<R
 /// process' current directory), because there might be multiple doer threads in the same process
 /// (if these are local doers).
 struct DoerContext {
-    pub root: String,
+    pub root: PathBuf,
 }
 
 // Repeatedly waits for Commands from the boss and processes them (possibly sending back Responses).
 // This function returns when we receive a Shutdown Command, or there is an unrecoverable error
 // (recoverable errors while handling Commands will not stop the loop).
 fn message_loop (comms: Comms) -> Result<(), ()> {
-    let mut context = DoerContext { root: String::new() };
+    let mut context = DoerContext { root: PathBuf::new() };
     loop {
         match comms.receive_command() {
             Ok(c) => {
@@ -191,10 +195,11 @@ fn exec_command(command : Command, comms: &Comms, context: &mut DoerContext) -> 
     match command {
         Command::GetFileList { root } => {
             // Store the root folder for future operations
-            context.root = root;
+            context.root = PathBuf::from(root);
 
             let start = Instant::now();
-            let walker = WalkDir::new(&context.root).into_iter();
+            // Don't follow symlinks - we want to sync the links themselves
+            let walker = WalkDir::new(&context.root).follow_links(false).into_iter();
             let mut count = 0;
             for entry in walker.filter_entry(|_e| true) {
                 match entry {
@@ -206,15 +211,24 @@ fn exec_command(command : Command, comms: &Comms, context: &mut DoerContext) -> 
                             file_type = FileType::File;
                         } else {
                             comms.send_response(Response::Error("Unknown file type".to_string())).unwrap();
-                            break;
+                            return true;
                         }
 
                         let path = e.path().to_str().unwrap().to_string();
-                        let path = path[context.root.len()..path.len()].to_string(); //TODO: almost certainly wrong
+                        let path = path[context.root.to_str().unwrap().len()..path.len()].to_string(); //TODO: almost certainly wrong
+
+                        let modified_time = match e.metadata().map_err(|e| e.to_string()).and_then(|m| m.modified().map_err(|e| e.to_string())) {
+                            Ok(m) => m,
+                            Err(e) => {
+                                comms.send_response(Response::Error(format!("Unknown modified time: {}", e))).unwrap();
+                                return true;                                   
+                            }
+                        };
 
                         let d = FileDetails {
                             path,
-                            file_type
+                            file_type,
+                            modified_time,
                         };
 
                         comms.send_response(Response::FileListEntry(d)).unwrap();
@@ -237,16 +251,22 @@ fn exec_command(command : Command, comms: &Comms, context: &mut DoerContext) -> 
             debug!("Walked {} in {}ms ({}/s)", count, elapsed, 1000.0 * count as f32 / elapsed as f32);
         },
         Command::GetFileContent { path } => {
-            let full_path = context.root.clone() + &path; //TODO: what if context.root doesn't have terminating separator?
+            let mut full_path = context.root.clone();
+            full_path.push(&path); //TODO: what if context.root doesn't have terminating separator?
             match std::fs::read(full_path) {
                 Ok(data) => comms.send_response(Response::FileContent{ data }).unwrap(),
                 Err(e) =>  comms.send_response(Response::Error(e.to_string())).unwrap(),
             }
         },
         Command::CreateOrUpdateFile { path, data } => {
-            let full_path = context.root.clone() + &path; //TODO: what if context.root doesn't have terminating separator?
+            let mut full_path = context.root.clone();
+            full_path.push(&path); //TODO: what if context.root doesn't have terminating separator?
             //TODO: might need to make folder(s) for this file? Or maybe not if we explicitly create folders
             // as another command?
+            //TODO: need to set the modified time of the file to that of the original, otherwise it will immediately count as modified...
+            //TODO: need to account for time zone differences etc. between source and dest when updating the timestamp
+            //TODO: would this play nicely with other tools (e.g. build systems) that check timestamps - it might think that it doesn't
+            // need to rebuild anything, as the new timestamp for this file is still really old?
             match std::fs::write(full_path, data) {
                 Ok(()) => comms.send_response(Response::Ack).unwrap(),
                 Err(e) =>  comms.send_response(Response::Error(e.to_string())).unwrap(),
