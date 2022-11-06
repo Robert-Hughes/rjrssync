@@ -29,6 +29,9 @@ pub enum Command {
         path: String,
         data: Vec<u8>,
     },
+    DeleteFileOrFolder {
+        path: String,
+    },
     Shutdown,
 }
 
@@ -270,6 +273,14 @@ fn exec_command(command : Command, comms: &Comms, context: &mut DoerContext) -> 
             // Maybe instead we could store something else, like a hash or our own marker to indicate when this file was synced,
             // so that the timestamp is "correct", but we know not to sync it again next time.
             match std::fs::write(full_path, data) {
+                Ok(()) => comms.send_response(Response::Ack).unwrap(),
+                Err(e) =>  comms.send_response(Response::Error(e.to_string())).unwrap(),
+            }
+        },
+        Command::DeleteFileOrFolder { path } => {
+            let mut full_path = context.root.clone();
+            full_path.push(&path); //TODO: what if context.root doesn't have terminating separator?
+            match std::fs::remove_file(full_path) { //TODO: what about folders?
                 Ok(()) => comms.send_response(Response::Ack).unwrap(),
                 Err(e) =>  comms.send_response(Response::Error(e.to_string())).unwrap(),
             }

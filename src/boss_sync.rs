@@ -45,11 +45,12 @@ pub fn sync(src_folder: String, dest_folder: String, mut src_comms: Comms, mut d
 
     // Delete dest files that don't exist on the source. This needs to be done first in case there
     // are files/folders with the same name but different type (files vs folders).
-    for dest_file in dest_files {
+    // We do this in reverse to make sure that files are deleted before their parent folder
+    // (otherwise deleting the parent is harder/more risky - possibly also problems with files being filtered
+    // so the folder is needed still as there are filtered-out files in there?)
+    for dest_file in dest_files.iter().rev() {
         if !src_files.iter().any(|f| f.path == dest_file.path && f.file_type == dest_file.file_type) {
             debug!("Deleting {}", dest_file.path);
-            //TODO: deleting a folder will also delete files inside? That means we will then try to delete those files,
-            // which don't exist any more!
             dest_comms.send_command(Command::DeleteFileOrFolder { path: dest_file.path.to_string() }).unwrap();
             match dest_comms.receive_response() {
                 Ok(doer::Response::Ack) => (),
