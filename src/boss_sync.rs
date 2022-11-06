@@ -12,8 +12,6 @@ pub fn sync(src_folder: String, dest_folder: String, mut src_comms: Comms, mut d
     //TODO: delete files that don't exist on the source
     //TODO: delete folders that don't exist on the source
     //TODO: what about symlinks
-    //TODO: if a file/folder exists already but we need to make the opposite kind (replace file with folder etc.)
-    // then what happens?
 
     let mut src_files = Vec::new();
     loop {
@@ -45,8 +43,28 @@ pub fn sync(src_folder: String, dest_folder: String, mut src_comms: Comms, mut d
     }
     debug!("Src files = {}, dest files = {}", src_files.len(), dest_files.len());
 
+    // Delete dest files that don't exist on the source. This needs to be done first in case there
+    // are files/folders with the same name but different type (files vs folders).
+    for dest_file in dest_files {
+        if !src_files.iter().any(|f| f.path == dest_file.path && f.file_type == dest_file.file_type) {
+            debug!("Deleting {}", dest_file.path);
+            //TODO: deleting a folder will also delete files inside? That means we will then try to delete those files,
+            // which don't exist any more!
+            dest_comms.send_command(Command::DeleteFileOrFolder { path: dest_file.path.to_string() }).unwrap();
+            match dest_comms.receive_response() {
+                Ok(doer::Response::Ack) => (),
+                _ => { 
+                    error!("Wrong response");
+                    return Err(());
+                }
+            };                   
+        }
+    }
+
+
     for src_file in src_files {
         if src_file.file_type != FileType::File {
+            warn!("not supported folder");
             continue;
         }
 
