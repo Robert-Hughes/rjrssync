@@ -110,7 +110,7 @@ pub fn boss_main() -> ExitCode {
     });
     builder.init();
 
-    info!("Running as boss");
+    debug!("Running as boss");
 
     let args = BossCliArgs::parse();
 

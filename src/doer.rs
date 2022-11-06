@@ -19,7 +19,7 @@ struct DoerCliArgs {
 pub enum Command {
     // Note we shouldn't use PathBufs, because the syntax of this path might differ between the boss and doer
     // platforms (e.g. Windows vs Linux), and so the type might have different meaning/behaviour on each side.
-    GetFileList {
+    GetEntries {
         root: String,
     },
     GetFileContent {
@@ -28,35 +28,45 @@ pub enum Command {
     CreateOrUpdateFile {
         path: String,
         data: Vec<u8>,
+        set_modified_time: Option<SystemTime>, //TODO: is this compatible between platforms, time zone changes, precision differences, etc. etc.
+        //TODO: can we safely serialize this on one platform and deserialize on another?
     },
-    DeleteFileOrFolder {
+    CreateFolder {
         path: String,
     },
-    Shutdown,
+    DeleteFile {
+        path: String,
+    },
+    DeleteFolder {
+        path: String,
+    },
+   Shutdown,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
-pub enum FileType {
+pub enum EntryType {
     File,
     Folder,
 }
 
+/// Details of a file or folder.
 #[derive(Serialize, Deserialize, Debug)]
-pub struct FileDetails {
+pub struct EntryDetails {
     pub path: String,
-    pub file_type: FileType,
+    pub entry_type: EntryType,
     pub modified_time: SystemTime, //TODO: is this compatible between platforms, time zone changes, precision differences, etc. etc.
     //TODO: can we safely serialize this on one platform and deserialize on another?
+    pub size: u64,
 }
 
 /// Responses are sent back from the doer to the boss to report on something, usually
 /// the result of a Command.
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Response {
-    // The result of GetFiles is split into lots of individual messages (rather than one big file list) 
+    // The result of GetEntries is split into lots of individual messages (rather than one big list) 
     // so that the boss can start doing stuff before receiving the full list.
-    FileListEntry(FileDetails),
-    EndOfFileList,
+    Entry(EntryDetails),
+    EndOfEntries,
 
     FileContent {
         data: Vec<u8>
@@ -196,7 +206,7 @@ fn message_loop (comms: Comms) -> Result<(), ()> {
 /// Returns false if we received a Shutdown Command, otherwise true.
 fn exec_command(command : Command, comms: &Comms, context: &mut DoerContext) -> bool {
     match command {
-        Command::GetFileList { root } => {
+        Command::GetEntries { root } => {
             // Store the root folder for future operations
             context.root = PathBuf::from(root);
 
@@ -207,11 +217,11 @@ fn exec_command(command : Command, comms: &Comms, context: &mut DoerContext) -> 
             for entry in walker.filter_entry(|_e| true) {
                 match entry {
                     Ok(e) => {
-                        let file_type;
+                        let entry_type;
                         if e.file_type().is_dir() {
-                            file_type = FileType::Folder;
+                            entry_type = EntryType::Folder;
                         } else if e.file_type().is_file() { 
-                            file_type = FileType::File;
+                            entry_type = EntryType::File;
                         } else {
                             comms.send_response(Response::Error("Unknown file type".to_string())).unwrap();
                             return true;
@@ -220,7 +230,15 @@ fn exec_command(command : Command, comms: &Comms, context: &mut DoerContext) -> 
                         let path = e.path().to_str().unwrap().to_string();
                         let path = path[context.root.to_str().unwrap().len()..path.len()].to_string(); //TODO: almost certainly wrong
 
-                        let modified_time = match e.metadata().map_err(|e| e.to_string()).and_then(|m| m.modified().map_err(|e| e.to_string())) {
+                        let metadata = match e.metadata() {
+                            Ok(m) => m,
+                            Err(e) => {
+                                comms.send_response(Response::Error(format!("Unable to get metadata: {}", e))).unwrap();
+                                return true;                                   
+                            }
+                        };
+
+                        let modified_time = match metadata.modified() {
                             Ok(m) => m,
                             Err(e) => {
                                 comms.send_response(Response::Error(format!("Unknown modified time: {}", e))).unwrap();
@@ -228,13 +246,14 @@ fn exec_command(command : Command, comms: &Comms, context: &mut DoerContext) -> 
                             }
                         };
 
-                        let d = FileDetails {
+                        let d = EntryDetails {
                             path,
-                            file_type,
+                            entry_type,
                             modified_time,
+                            size: metadata.len()
                         };
 
-                        comms.send_response(Response::FileListEntry(d)).unwrap();
+                        comms.send_response(Response::Entry(d)).unwrap();
 //                      if e.file_type().is_file() {
 //                         let bytes = std::fs::read(e.path()).unwrap();
 //                         let hash = md5::compute(&bytes);
@@ -250,7 +269,7 @@ fn exec_command(command : Command, comms: &Comms, context: &mut DoerContext) -> 
                 count += 1;
             }
             let elapsed = start.elapsed().as_millis();
-            comms.send_response(Response::EndOfFileList).unwrap();
+            comms.send_response(Response::EndOfEntries).unwrap();
             debug!("Walked {} in {}ms ({}/s)", count, elapsed, 1000.0 * count as f32 / elapsed as f32);
         },
         Command::GetFileContent { path } => {
@@ -261,26 +280,45 @@ fn exec_command(command : Command, comms: &Comms, context: &mut DoerContext) -> 
                 Err(e) =>  comms.send_response(Response::Error(e.to_string())).unwrap(),
             }
         },
-        Command::CreateOrUpdateFile { path, data } => {
+        Command::CreateOrUpdateFile { path, data, set_modified_time } => {
             let mut full_path = context.root.clone();
             full_path.push(&path); //TODO: what if context.root doesn't have terminating separator?
-            //TODO: might need to make folder(s) for this file? Or maybe not if we explicitly create folders
-            // as another command?
-            //TODO: need to set the modified time of the file to that of the original, otherwise it will immediately count as modified...
-            //TODO: need to account for time zone differences etc. between source and dest when updating the timestamp
-            //TODO: would this play nicely with other tools (e.g. build systems) that check timestamps - it might think that it doesn't
-            // need to rebuild anything, as the new timestamp for this file is still really old?
-            // Maybe instead we could store something else, like a hash or our own marker to indicate when this file was synced,
-            // so that the timestamp is "correct", but we know not to sync it again next time.
-            match std::fs::write(full_path, data) {
+            let r = std::fs::write(&full_path, data);
+            if let Err(e) = r {
+                comms.send_response(Response::Error(e.to_string())).unwrap();
+                return true;
+            }
+
+            if let Some(t) = set_modified_time {
+                let r = filetime::set_file_mtime(&full_path, filetime::FileTime::from_system_time(t));
+                if let Err(e) = r {
+                    comms.send_response(Response::Error(e.to_string())).unwrap();
+                    return true;
+                }  
+            }
+
+            comms.send_response(Response::Ack).unwrap();
+        },
+        Command::CreateFolder { path } => {
+            let mut full_path = context.root.clone();
+            full_path.push(&path); //TODO: what if context.root doesn't have terminating separator?
+            match std::fs::create_dir(full_path) { 
                 Ok(()) => comms.send_response(Response::Ack).unwrap(),
                 Err(e) =>  comms.send_response(Response::Error(e.to_string())).unwrap(),
             }
-        },
-        Command::DeleteFileOrFolder { path } => {
+        }
+        Command::DeleteFile { path } => {
             let mut full_path = context.root.clone();
             full_path.push(&path); //TODO: what if context.root doesn't have terminating separator?
-            match std::fs::remove_file(full_path) { //TODO: what about folders?
+            match std::fs::remove_file(full_path) { 
+                Ok(()) => comms.send_response(Response::Ack).unwrap(),
+                Err(e) =>  comms.send_response(Response::Error(e.to_string())).unwrap(),
+            }
+        }
+        Command::DeleteFolder { path } => {
+            let mut full_path = context.root.clone();
+            full_path.push(&path); //TODO: what if context.root doesn't have terminating separator?
+            match std::fs::remove_dir(full_path) {
                 Ok(()) => comms.send_response(Response::Ack).unwrap(),
                 Err(e) =>  comms.send_response(Response::Error(e.to_string())).unwrap(),
             }
