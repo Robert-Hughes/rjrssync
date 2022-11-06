@@ -34,6 +34,8 @@ TODO:
             // Maybe instead we could store something else, like a hash or our own marker to indicate when this file was synced,
             // so that the timestamp is "correct", but we know not to sync it again next time.
 
+* Testing for ssh launching/copying/deploying stuff
+* Testing for sync logic
 
 Idea for filters, with re-usable "functions":
 ===============

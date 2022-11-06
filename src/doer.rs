@@ -19,6 +19,7 @@ struct DoerCliArgs {
 pub enum Command {
     // Note we shouldn't use PathBufs, because the syntax of this path might differ between the boss and doer
     // platforms (e.g. Windows vs Linux), and so the type might have different meaning/behaviour on each side.
+    //TODO: what format do we use then, do we need to convert between them??
     GetEntries {
         root: String,
     },

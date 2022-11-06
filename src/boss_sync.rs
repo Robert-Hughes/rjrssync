@@ -17,6 +17,8 @@ struct Stats {
     pub num_files_copied: u32,
     pub num_bytes_copied: u64,
     pub num_folders_created: u32,
+    pub num_files_deleted: u32,
+    pub num_folders_deleted: u32,
 }
 
 pub fn sync(src_folder: String, dest_folder: String, mut src_comms: Comms, mut dest_comms: Comms) -> Result<(), ()> {
@@ -83,8 +85,14 @@ pub fn sync(src_folder: String, dest_folder: String, mut src_comms: Comms, mut d
         if !src_entries.iter().any(|f| f.path == dest_entry.path && f.entry_type == dest_entry.entry_type) {
             debug!("Deleting {}", dest_entry.path);
             let c = match dest_entry.entry_type {
-                EntryType::File => Command::DeleteFile { path: dest_entry.path.to_string() },
-                EntryType::Folder => Command::DeleteFolder { path: dest_entry.path.to_string() },
+                EntryType::File => {
+                    stats.num_files_deleted += 1;
+                    Command::DeleteFile { path: dest_entry.path.to_string() }
+                }
+                EntryType::Folder =>  {
+                    stats.num_folders_deleted += 1;
+                    Command::DeleteFolder { path: dest_entry.path.to_string() }
+                }
             };
             dest_comms.send_command(c).unwrap();
             match dest_comms.receive_response() {
@@ -145,7 +153,15 @@ pub fn sync(src_folder: String, dest_folder: String, mut src_comms: Comms, mut d
         }
     }
 
-    info!("Copied {} file(s) totalling {} bytes and created {} folder(s)", stats.num_files_copied, stats.num_bytes_copied, stats.num_folders_created);
+    if stats.num_files_deleted + stats.num_folders_deleted > 0 {
+        info!("Deleted {} file(s) and {} folder(s)", stats.num_files_deleted, stats.num_folders_deleted);
+    }
+    if stats.num_files_copied + stats.num_folders_created > 0 {
+        info!("Copied {} file(s) totalling {} bytes and created {} folder(s)", stats.num_files_copied, stats.num_bytes_copied, stats.num_folders_created);
+    }
+    if stats.num_files_deleted + stats.num_folders_deleted + stats.num_files_copied + stats.num_folders_created == 0 {
+        info!("Nothing to do!");
+    }
 
     return Ok(());
 }
