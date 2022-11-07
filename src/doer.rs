@@ -1,4 +1,4 @@
-use std::{sync::mpsc::{Sender, Receiver}, time::{Instant, SystemTime}, fmt::{Display, self}, io::{Write}, path::PathBuf};
+use std::{sync::mpsc::{Sender, Receiver}, time::{Instant, SystemTime}, fmt::{Display, self}, io::{Write}, path::{PathBuf, Path}};
 use clap::Parser;
 use log::{error, debug};
 use serde::{Serialize, Deserialize};
@@ -12,6 +12,32 @@ struct DoerCliArgs {
     /// This shouldn't be needed for regular operation.
     #[arg(long)]
     doer: bool,
+}
+
+/// Converts a platform-specific relative path (inside the source or dest root)
+/// to something that can be sent over our comms. We can't simply use PathBuf
+/// because the syntax of this path might differ between the boss and doer
+/// platforms (e.g. Windows vs Linux), and so the type might have different 
+/// meaning/behaviour on each side.
+/// We instead convert a normalized representation using forward slashes (i.e. Unix-style).
+fn normalize_path(p: &Path) -> Result<String, String> {
+    if p.is_absolute() {
+        return Err("Must be relative".to_string());
+    }
+
+    let mut result = String::new();
+    for c in p.iter() {
+        let cs = match c.to_str() {
+            Some(x) => x,
+            None => return Err("Can't convert path component".to_string()),
+        };
+        if !result.is_empty() {
+            result += "/";
+        }
+        result += cs;
+    }
+
+    return Ok(result);
 }
 
 /// Commands are sent from the boss to the doer, to request something to be done.
@@ -231,7 +257,14 @@ fn exec_command(command : Command, comms: &Comms, context: &mut DoerContext) -> 
 
                         // Paths returned by WalkDir will include the root, but we want paths relative to the root
                         let path = e.path().strip_prefix(&context.root).unwrap();
-                        let path = path.to_str().unwrap(); //TODO: handle error? This would also be a good place to convert to platform-agnostic representation.
+                        // Convert to platform-agnostic representation
+                        let path = match normalize_path(path) {
+                            Ok(p) => p,
+                            Err(e) => {
+                                comms.send_response(Response::Error(format!("normalize_path failed: {}", e))).unwrap();
+                                return true;    
+                            }
+                        };
 
                         let metadata = match e.metadata() {
                             Ok(m) => m,

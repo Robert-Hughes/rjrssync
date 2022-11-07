@@ -10,6 +10,7 @@ Filesystem:
 
 TODO:
 
+* Review/tidy up sync code in boss_sync.rs and also the command handling code in doer.rs
 * Dry run flag
 * Config file containing src/dest, ignore/allow list etc. Use serde_json?
     * List of folders to sync, with src and dest spec (computer and absolute path)
@@ -31,9 +32,11 @@ TODO:
     - would this play nicely with other tools (e.g. build systems) that check timestamps - it might think that it doesn't need to rebuild anything, as the new timestamp for this file is still really old?
     - Maybe instead we could store something else, like a hash or our own marker to indicate when this file was synced, so that the timestamp is "correct", but we know not to sync it again next time.
 * Testing for ssh launching/copying/deploying stuff
-* Testing for sync logic
+* Testing for sync logic, including between different combinations of windows and linux, remote and local etc.
 * Progress bar
 * Format total bytes and total files etc. with commas, or GB, MB etc.
+* Use BufReader/writer for stdin and stdout, to avoid lots of small read/writes to system. Keep one of these alive for the whole comms, rather than making a new one each time.
+* Create destination root if it doesn't exist?
 
 Idea for filters, with re-usable "functions":
 ===============
