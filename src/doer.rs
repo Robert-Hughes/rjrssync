@@ -229,8 +229,9 @@ fn exec_command(command : Command, comms: &Comms, context: &mut DoerContext) -> 
                             return true;
                         }
 
-                        let path = e.path().to_str().unwrap().to_string();
-                        let path = path[context.root.to_str().unwrap().len()..path.len()].to_string(); //TODO: almost certainly wrong
+                        // Paths returned by WalkDir will include the root, but we want paths relative to the root
+                        let path = e.path().strip_prefix(&context.root).unwrap();
+                        let path = path.to_str().unwrap(); //TODO: handle error? This would also be a good place to convert to platform-agnostic representation.
 
                         let metadata = match e.metadata() {
                             Ok(m) => m,
@@ -249,7 +250,7 @@ fn exec_command(command : Command, comms: &Comms, context: &mut DoerContext) -> 
                         };
 
                         let d = EntryDetails {
-                            path,
+                            path: path.to_string(),
                             entry_type,
                             modified_time,
                             size: metadata.len()
@@ -275,16 +276,14 @@ fn exec_command(command : Command, comms: &Comms, context: &mut DoerContext) -> 
             debug!("Walked {} in {}ms ({}/s)", count, elapsed, 1000.0 * count as f32 / elapsed as f32);
         },
         Command::GetFileContent { path } => {
-            let mut full_path = context.root.clone();
-            full_path.push(&path); //TODO: what if context.root doesn't have terminating separator?
+            let full_path = context.root.join(&path);
             match std::fs::read(full_path) {
                 Ok(data) => comms.send_response(Response::FileContent{ data }).unwrap(),
                 Err(e) =>  comms.send_response(Response::Error(e.to_string())).unwrap(),
             }
         },
         Command::CreateOrUpdateFile { path, data, set_modified_time } => {
-            let mut full_path = context.root.clone();
-            full_path.push(&path); //TODO: what if context.root doesn't have terminating separator?
+            let full_path = context.root.join(&path);
             let r = std::fs::write(&full_path, data);
             if let Err(e) = r {
                 comms.send_response(Response::Error(e.to_string())).unwrap();
@@ -304,24 +303,21 @@ fn exec_command(command : Command, comms: &Comms, context: &mut DoerContext) -> 
             comms.send_response(Response::Ack).unwrap();
         },
         Command::CreateFolder { path } => {
-            let mut full_path = context.root.clone();
-            full_path.push(&path); //TODO: what if context.root doesn't have terminating separator?
+            let full_path = context.root.join(&path);
             match std::fs::create_dir(full_path) { 
                 Ok(()) => comms.send_response(Response::Ack).unwrap(),
                 Err(e) =>  comms.send_response(Response::Error(e.to_string())).unwrap(),
             }
         }
         Command::DeleteFile { path } => {
-            let mut full_path = context.root.clone();
-            full_path.push(&path); //TODO: what if context.root doesn't have terminating separator?
+            let full_path = context.root.join(&path);
             match std::fs::remove_file(full_path) { 
                 Ok(()) => comms.send_response(Response::Ack).unwrap(),
                 Err(e) =>  comms.send_response(Response::Error(e.to_string())).unwrap(),
             }
         }
         Command::DeleteFolder { path } => {
-            let mut full_path = context.root.clone();
-            full_path.push(&path); //TODO: what if context.root doesn't have terminating separator?
+            let full_path = context.root.join(&path);
             match std::fs::remove_dir(full_path) {
                 Ok(()) => comms.send_response(Response::Ack).unwrap(),
                 Err(e) =>  comms.send_response(Response::Error(e.to_string())).unwrap(),

@@ -405,7 +405,9 @@ fn output_reader_thread_main(mut stream: OutputReaderStream, sender: Sender<(Out
 /// Attempts to launch a remote copy of rjrssync on the given remote computer using ssh.
 fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str) -> SshDoerLaunchResult {
     let user_prefix = if remote_user.is_empty() { "".to_string() } else { remote_user.to_string() + "@" };
-    let remote_command = format!("cd {} && target/release/rjrssync --doer", REMOTE_TEMP_FOLDER);
+    // Note we don't cd, so that relative paths for the folder specified by the user on the remote
+    // will be correct
+    let remote_command = format!("{}target/release/rjrssync --doer", REMOTE_TEMP_FOLDER);
     debug!("Running remote command: {}", remote_command);
     // Note we use the user's existing ssh tool so that their config/settings will be used for
     // logging in to the remote system (as opposed to using an ssh library called from our code).
