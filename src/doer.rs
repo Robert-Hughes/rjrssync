@@ -1,7 +1,13 @@
-use std::{sync::mpsc::{Sender, Receiver}, time::{Instant, SystemTime}, fmt::{Display, self}, io::{Write, BufWriter, BufReader, Stdin, Stdout}, path::{PathBuf, Path}};
 use clap::Parser;
-use log::{error, debug};
-use serde::{Serialize, Deserialize};
+use log::{debug, error};
+use serde::{Deserialize, Serialize};
+use std::{
+    fmt::{self, Display},
+    io::{BufReader, BufWriter, Stdin, Stdout, Write},
+    path::{Path, PathBuf},
+    sync::mpsc::{Receiver, Sender},
+    time::{Instant, SystemTime},
+};
 use walkdir::WalkDir;
 
 use crate::*;
@@ -60,7 +66,7 @@ pub enum Command {
         path: String,
         data: Vec<u8>,
         set_modified_time: Option<SystemTime>, //TODO: is this compatible between platforms, time zone changes, precision differences, etc. etc.
-        //TODO: can we safely serialize this on one platform and deserialize on another?
+                                               //TODO: can we safely serialize this on one platform and deserialize on another?
     },
     CreateFolder {
         path: String,
@@ -71,7 +77,7 @@ pub enum Command {
     DeleteFolder {
         path: String,
     },
-   Shutdown,
+    Shutdown,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
@@ -100,9 +106,7 @@ pub enum Response {
     Entry(EntryDetails),
     EndOfEntries,
 
-    FileContent {
-        data: Vec<u8>
-    },
+    FileContent { data: Vec<u8> },
 
     Ack,
     Error(String),
@@ -120,16 +124,19 @@ enum Comms {
         // to reduce number of underlying system calls, for performance
         stdin: BufReader<Stdin>,
         stdout: BufWriter<Stdout>,
-    }
+    },
 }
 impl Comms {
     fn send_response(&mut self, r: Response) -> Result<(), String> {
         debug!("Sending response {:?} to {}", r, &self);
         let mut res;
         match self {
-            Comms::Local { sender, receiver: _ } => {
+            Comms::Local {
+                sender,
+                receiver: _,
+            } => {
                 res = sender.send(r).map_err(|e| e.to_string());
-            },
+            }
             Comms::Remote { stdout, .. } => {
                 res = bincode::serialize_into(stdout.by_ref(), &r).map_err(|e| e.to_string());
                 if res.is_ok() {
@@ -141,18 +148,19 @@ impl Comms {
             error!("Error sending response: {:?}", res);
         }
         res
-   }
+    }
 
     fn receive_command(&mut self) -> Result<Command, String> {
         debug!("Waiting for command from {}", &self);
 
         let c = match self {
-            Comms::Local { sender: _, receiver } => {
-                receiver.recv().map_err(|e| e.to_string())
-            },
+            Comms::Local {
+                sender: _,
+                receiver,
+            } => receiver.recv().map_err(|e| e.to_string()),
             Comms::Remote { stdin, .. } => {
                 bincode::deserialize_from(stdin).map_err(|e| e.to_string())
-            },
+            }
         };
         debug!("Received command {:?} from {}", c, &self);
         c
@@ -173,7 +181,10 @@ pub fn doer_main() -> ExitCode {
     // We use stderr instead, which the boss will read from and echo for easier debugging.
     // TODO: We could additionally log to a file, which might be useful for cases where the logs don't
     // make it back to the boss (e.g. communication errors)
-    stderrlog::StdErrLog::new().verbosity(log::Level::Debug).init().unwrap();
+    stderrlog::StdErrLog::new()
+        .verbosity(log::Level::Debug)
+        .init()
+        .unwrap();
 
     let _args = DoerCliArgs::parse();
 
@@ -189,7 +200,10 @@ pub fn doer_main() -> ExitCode {
 
     // If the Boss isn't happy (e.g. we are an old version), they will stop us and deploy a new version.
     // So at this point we can assume they are happy and move on to processing commands they (might) send us.
-    let comms = Comms::Remote { stdin: BufReader::new(std::io::stdin()), stdout: BufWriter::new(std::io::stdout()) };
+    let comms = Comms::Remote {
+        stdin: BufReader::new(std::io::stdin()),
+        stdout: BufWriter::new(std::io::stdout()),
+    };
 
     match message_loop(comms) {
         Ok(_) => {
@@ -223,8 +237,10 @@ struct DoerContext {
 // Repeatedly waits for Commands from the boss and processes them (possibly sending back Responses).
 // This function returns when we receive a Shutdown Command, or there is an unrecoverable error
 // (recoverable errors while handling Commands will not stop the loop).
-fn message_loop (mut comms: Comms) -> Result<(), ()> {
-    let mut context = DoerContext { root: PathBuf::new() };
+fn message_loop(mut comms: Comms) -> Result<(), ()> {
+    let mut context = DoerContext {
+        root: PathBuf::new(),
+    };
     loop {
         match comms.receive_command() {
             Ok(c) => {
@@ -243,7 +259,7 @@ fn message_loop (mut comms: Comms) -> Result<(), ()> {
 
 /// Handles a Command from the boss, possibly replying with one or more Responses.
 /// Returns false if we received a Shutdown Command, otherwise true.
-fn exec_command(command : Command, comms: &mut Comms, context: &mut DoerContext) -> bool {
+fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) -> bool {
     match command {
         Command::GetEntries { root } => {
             // Store the root folder for future operations
@@ -262,7 +278,9 @@ fn exec_command(command : Command, comms: &mut Comms, context: &mut DoerContext)
                         } else if e.file_type().is_file() {
                             entry_type = EntryType::File;
                         } else {
-                            comms.send_response(Response::Error("Unknown file type".to_string())).unwrap();
+                            comms
+                                .send_response(Response::Error("Unknown file type".to_string()))
+                                .unwrap();
                             return true;
                         }
 
@@ -272,7 +290,12 @@ fn exec_command(command : Command, comms: &mut Comms, context: &mut DoerContext)
                         let path = match normalize_path(path) {
                             Ok(p) => p,
                             Err(e) => {
-                                comms.send_response(Response::Error(format!("normalize_path failed: {}", e))).unwrap();
+                                comms
+                                    .send_response(Response::Error(format!(
+                                        "normalize_path failed: {}",
+                                        e
+                                    )))
+                                    .unwrap();
                                 return true;
                             }
                         };
@@ -280,7 +303,12 @@ fn exec_command(command : Command, comms: &mut Comms, context: &mut DoerContext)
                         let metadata = match e.metadata() {
                             Ok(m) => m,
                             Err(e) => {
-                                comms.send_response(Response::Error(format!("Unable to get metadata: {}", e))).unwrap();
+                                comms
+                                    .send_response(Response::Error(format!(
+                                        "Unable to get metadata: {}",
+                                        e
+                                    )))
+                                    .unwrap();
                                 return true;
                             }
                         };
@@ -288,7 +316,12 @@ fn exec_command(command : Command, comms: &mut Comms, context: &mut DoerContext)
                         let modified_time = match metadata.modified() {
                             Ok(m) => m,
                             Err(e) => {
-                                comms.send_response(Response::Error(format!("Unknown modified time: {}", e))).unwrap();
+                                comms
+                                    .send_response(Response::Error(format!(
+                                        "Unknown modified time: {}",
+                                        e
+                                    )))
+                                    .unwrap();
                                 return true;
                             }
                         };
@@ -297,17 +330,17 @@ fn exec_command(command : Command, comms: &mut Comms, context: &mut DoerContext)
                             path: path.to_string(),
                             entry_type,
                             modified_time,
-                            size: metadata.len()
+                            size: metadata.len(),
                         };
 
                         comms.send_response(Response::Entry(d)).unwrap();
-//                      if e.file_type().is_file() {
-//                         let bytes = std::fs::read(e.path()).unwrap();
-//                         let hash = md5::compute(&bytes);
-//                         hash_sum += hash.into_iter().sum::<u8>();
-//                         count += 1;
-//                      }
-                   }
+                        //                      if e.file_type().is_file() {
+                        //                         let bytes = std::fs::read(e.path()).unwrap();
+                        //                         let hash = md5::compute(&bytes);
+                        //                         hash_sum += hash.into_iter().sum::<u8>();
+                        //                         count += 1;
+                        //                      }
+                    }
                     Err(e) => {
                         comms.send_response(Response::Error(e.to_string())).unwrap();
                         break;
@@ -317,16 +350,25 @@ fn exec_command(command : Command, comms: &mut Comms, context: &mut DoerContext)
             }
             let elapsed = start.elapsed().as_millis();
             comms.send_response(Response::EndOfEntries).unwrap();
-            debug!("Walked {} in {}ms ({}/s)", count, elapsed, 1000.0 * count as f32 / elapsed as f32);
-        },
+            debug!(
+                "Walked {} in {}ms ({}/s)",
+                count,
+                elapsed,
+                1000.0 * count as f32 / elapsed as f32
+            );
+        }
         Command::GetFileContent { path } => {
             let full_path = context.root.join(&path);
             match std::fs::read(full_path) {
-                Ok(data) => comms.send_response(Response::FileContent{ data }).unwrap(),
-                Err(e) =>  comms.send_response(Response::Error(e.to_string())).unwrap(),
+                Ok(data) => comms.send_response(Response::FileContent { data }).unwrap(),
+                Err(e) => comms.send_response(Response::Error(e.to_string())).unwrap(),
             }
-        },
-        Command::CreateOrUpdateFile { path, data, set_modified_time } => {
+        }
+        Command::CreateOrUpdateFile {
+            path,
+            data,
+            set_modified_time,
+        } => {
             let full_path = context.root.join(&path);
             let r = std::fs::write(&full_path, data);
             if let Err(e) = r {
@@ -337,7 +379,8 @@ fn exec_command(command : Command, comms: &mut Comms, context: &mut DoerContext)
             // After changing the content, we need to override the modified time of the file to that of the original,
             // otherwise it will immediately count as modified again if we do another sync.
             if let Some(t) = set_modified_time {
-                let r = filetime::set_file_mtime(&full_path, filetime::FileTime::from_system_time(t));
+                let r =
+                    filetime::set_file_mtime(&full_path, filetime::FileTime::from_system_time(t));
                 if let Err(e) = r {
                     comms.send_response(Response::Error(e.to_string())).unwrap();
                     return true;
@@ -345,26 +388,26 @@ fn exec_command(command : Command, comms: &mut Comms, context: &mut DoerContext)
             }
 
             comms.send_response(Response::Ack).unwrap();
-        },
+        }
         Command::CreateFolder { path } => {
             let full_path = context.root.join(&path);
             match std::fs::create_dir(full_path) {
                 Ok(()) => comms.send_response(Response::Ack).unwrap(),
-                Err(e) =>  comms.send_response(Response::Error(e.to_string())).unwrap(),
+                Err(e) => comms.send_response(Response::Error(e.to_string())).unwrap(),
             }
         }
         Command::DeleteFile { path } => {
             let full_path = context.root.join(&path);
             match std::fs::remove_file(full_path) {
                 Ok(()) => comms.send_response(Response::Ack).unwrap(),
-                Err(e) =>  comms.send_response(Response::Error(e.to_string())).unwrap(),
+                Err(e) => comms.send_response(Response::Error(e.to_string())).unwrap(),
             }
         }
         Command::DeleteFolder { path } => {
             let full_path = context.root.join(&path);
             match std::fs::remove_dir(full_path) {
                 Ok(()) => comms.send_response(Response::Ack).unwrap(),
-                Err(e) =>  comms.send_response(Response::Error(e.to_string())).unwrap(),
+                Err(e) => comms.send_response(Response::Error(e.to_string())).unwrap(),
             }
         }
         Command::Shutdown => {
