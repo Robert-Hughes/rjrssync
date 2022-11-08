@@ -1,14 +1,60 @@
-use std::cmp::Ordering;
+use std::{cmp::Ordering, fmt::Display};
 
 use log::{debug, error, info};
 
 use crate::*;
 
 #[derive(Default)]
+struct FileSizeHistogram {
+    buckets: Vec<u32>
+}
+impl FileSizeHistogram {
+    fn add(&mut self, val: u64) {
+        let bucket = (val as f64).log10() as usize;
+        while self.buckets.len() <= bucket {
+            self.buckets.push(0);
+        }
+        self.buckets[bucket] += 1;
+    }
+}
+impl Display for FileSizeHistogram {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "")?;
+        let h = 5;
+        let max = *self.buckets.iter().max().unwrap();
+        for y in 0..h {
+            let mut l = "".to_string();
+            for x in 0..self.buckets.len() {
+                if self.buckets[x] as f32 / max as f32 > (h - y - 1) as f32 / h as f32 {
+                    l += "#";
+                } else {
+                    l += " ";
+                }
+            }
+            writeln!(f, "{}", l)?;
+        }
+
+        let mut l = "".to_string();
+        for x in 0..self.buckets.len() {
+            match x {
+                3 => l += "K",
+                6 => l += "M",
+                9 => l += "G",
+                _ => l += &format!("{}", x),
+            }
+        }
+        writeln!(f, "{}", l)?;
+
+        return std::fmt::Result::Ok(());
+    }
+}
+
+#[derive(Default)]
 struct Stats {
     pub num_src_files: u32,
     pub num_src_folders: u32,
     pub src_total_bytes: u64,
+    pub src_file_size_hist: FileSizeHistogram,
 
     pub num_dest_files: u32,
     pub num_dest_folders: u32,
@@ -19,6 +65,7 @@ struct Stats {
     pub num_folders_created: u32,
     pub num_files_deleted: u32,
     pub num_folders_deleted: u32,
+    pub copied_file_size_hist: FileSizeHistogram,
 }
 
 pub fn sync(src_folder: String, dest_folder: String, mut src_comms: Comms, mut dest_comms: Comms) -> Result<(), ()> {
@@ -38,6 +85,7 @@ pub fn sync(src_folder: String, dest_folder: String, mut src_comms: Comms, mut d
                     EntryType::File => { 
                         stats.num_src_files += 1;
                         stats.src_total_bytes += d.size;
+                        stats.src_file_size_hist.add(d.size);
                     }
                     EntryType::Folder => stats.num_src_folders += 1,
                 }
@@ -74,6 +122,8 @@ pub fn sync(src_folder: String, dest_folder: String, mut src_comms: Comms, mut d
     info!("Source: {} file(s) totalling {} bytes and {} folder(s) => Dest: {} file(s) totalling {} bytes and {} folder(s)",
         stats.num_src_files, stats.src_total_bytes, stats.num_src_folders, 
         stats.num_dest_files, stats.dest_total_bytes, stats.num_dest_folders);
+    info!("Source file size distribution:");
+    info!("{}", stats.src_file_size_hist);
 
 
     // Delete dest entries that don't exist on the source. This needs to be done first in case there
@@ -158,7 +208,9 @@ pub fn sync(src_folder: String, dest_folder: String, mut src_comms: Comms, mut d
     }
     if stats.num_files_copied + stats.num_folders_created > 0 {
         info!("Copied {} file(s) totalling {} bytes and created {} folder(s)", stats.num_files_copied, stats.num_bytes_copied, stats.num_folders_created);
-    }
+        info!("Copied file size distribution:");
+        info!("{}", stats.copied_file_size_hist);
+        }
     if stats.num_files_deleted + stats.num_folders_deleted + stats.num_files_copied + stats.num_folders_created == 0 {
         info!("Nothing to do!");
     }
@@ -192,6 +244,7 @@ fn copy_file(src_file: &EntryDetails, src_comms: &mut Comms, dest_comms: &mut Co
 
     stats.num_files_copied += 1;
     stats.num_bytes_copied += src_file.size;
+    stats.copied_file_size_hist.add(src_file.size);
 
     return Ok(());
 }
