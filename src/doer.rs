@@ -8,7 +8,7 @@ use crate::*;
 
 #[derive(clap::Parser)]
 struct DoerCliArgs {
-    /// [Internal] Launches as a doer process, rather than a boss process. 
+    /// [Internal] Launches as a doer process, rather than a boss process.
     /// This shouldn't be needed for regular operation.
     #[arg(long)]
     doer: bool,
@@ -17,7 +17,7 @@ struct DoerCliArgs {
 /// Converts a platform-specific relative path (inside the source or dest root)
 /// to something that can be sent over our comms. We can't simply use PathBuf
 /// because the syntax of this path might differ between the boss and doer
-/// platforms (e.g. Windows vs Linux), and so the type might have different 
+/// platforms (e.g. Windows vs Linux), and so the type might have different
 /// meaning/behaviour on each side.
 /// We instead convert a normalized representation using forward slashes (i.e. Unix-style).
 fn normalize_path(p: &Path) -> Result<String, String> {
@@ -31,7 +31,7 @@ fn normalize_path(p: &Path) -> Result<String, String> {
             Some(x) => x,
             None => return Err("Can't convert path component".to_string()),
         };
-        if cs.contains('/') || cs.contains(r"\") {
+        if cs.contains('/') || cs.contains('\\') {
             // Slashes in any component would mess things up, once we change which slash is significant
             return Err("Illegal characters in path".to_string());
         }
@@ -41,7 +41,7 @@ fn normalize_path(p: &Path) -> Result<String, String> {
         result += cs;
     }
 
-    return Ok(result);
+    Ok(result)
 }
 
 /// Commands are sent from the boss to the doer, to request something to be done.
@@ -95,7 +95,7 @@ pub struct EntryDetails {
 /// the result of a Command.
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Response {
-    // The result of GetEntries is split into lots of individual messages (rather than one big list) 
+    // The result of GetEntries is split into lots of individual messages (rather than one big list)
     // so that the boss can start doing stuff before receiving the full list.
     Entry(EntryDetails),
     EndOfEntries,
@@ -108,14 +108,14 @@ pub enum Response {
     Error(String),
 }
 
-/// Abstraction of two-way communication channel between this doer and the boss, which might be 
+/// Abstraction of two-way communication channel between this doer and the boss, which might be
 /// remote (communicating through our stdin and stdout) or local (communicating via a channel to the main thread).
 enum Comms {
     Local {
         sender: Sender<Response>,
         receiver: Receiver<Command>,
     },
-    Remote { 
+    Remote {
         // Remote reads/writes to the process' stdin/stdout, but uses bufferred readers/writers
         // to reduce number of underlying system calls, for performance
         stdin: BufReader<Stdin>,
@@ -140,22 +140,22 @@ impl Comms {
         if res.is_err() {
             error!("Error sending response: {:?}", res);
         }
-        return res;
+        res
    }
 
     fn receive_command(&mut self) -> Result<Command, String> {
         debug!("Waiting for command from {}", &self);
-        let c;
-        match self {
+
+        let c = match self {
             Comms::Local { sender: _, receiver } => {
-                c = receiver.recv().map_err(|e| e.to_string());
+                receiver.recv().map_err(|e| e.to_string())
             },
             Comms::Remote { stdin, .. } => {
-                c = bincode::deserialize_from(stdin).map_err(|e| e.to_string());
+                bincode::deserialize_from(stdin).map_err(|e| e.to_string())
             },
-        }
+        };
         debug!("Received command {:?} from {}", c, &self);
-        return c;
+        c
     }
 }
 impl Display for Comms {
@@ -168,7 +168,7 @@ impl Display for Comms {
 }
 
 pub fn doer_main() -> ExitCode {
-    // Configure logging. 
+    // Configure logging.
     // Note that we can't use stdout as that is our communication channel with the boss.
     // We use stderr instead, which the boss will read from and echo for easier debugging.
     // TODO: We could additionally log to a file, which might be useful for cases where the logs don't
@@ -180,7 +180,7 @@ pub fn doer_main() -> ExitCode {
     // We take commands from our stdin and send responses on our stdout. These will be piped over ssh
     // back to the Boss.
 
-    // The first thing we send is a special handshake message that the Boss will recognise, 
+    // The first thing we send is a special handshake message that the Boss will recognise,
     // to know that we've started up correctly and to make sure we are running compatible versions.
     // We need to do this on both stdout and stderr, because both those streams need to be synchronised on the receiving end.
     let msg = format!("{}{}", HANDSHAKE_MSG, VERSION);
@@ -194,11 +194,11 @@ pub fn doer_main() -> ExitCode {
     match message_loop(comms) {
         Ok(_) => {
             debug!("doer process finished successfully!");
-            return ExitCode::SUCCESS;
+            ExitCode::SUCCESS
         }
         Err(e) => {
             debug!("doer process finished with error: {:?}", e);
-            return ExitCode::from(20);
+            ExitCode::from(20)
         }
     }
 }
@@ -213,7 +213,7 @@ pub fn doer_thread_running_on_boss(receiver: Receiver<Command>, sender: Sender<R
     }
 }
 
-/// Context for each doer instance. We can't use anything global (e.g. like changing the 
+/// Context for each doer instance. We can't use anything global (e.g. like changing the
 /// process' current directory), because there might be multiple doer threads in the same process
 /// (if these are local doers).
 struct DoerContext {
@@ -259,7 +259,7 @@ fn exec_command(command : Command, comms: &mut Comms, context: &mut DoerContext)
                         let entry_type;
                         if e.file_type().is_dir() {
                             entry_type = EntryType::Folder;
-                        } else if e.file_type().is_file() { 
+                        } else if e.file_type().is_file() {
                             entry_type = EntryType::File;
                         } else {
                             comms.send_response(Response::Error("Unknown file type".to_string())).unwrap();
@@ -273,7 +273,7 @@ fn exec_command(command : Command, comms: &mut Comms, context: &mut DoerContext)
                             Ok(p) => p,
                             Err(e) => {
                                 comms.send_response(Response::Error(format!("normalize_path failed: {}", e))).unwrap();
-                                return true;    
+                                return true;
                             }
                         };
 
@@ -281,7 +281,7 @@ fn exec_command(command : Command, comms: &mut Comms, context: &mut DoerContext)
                             Ok(m) => m,
                             Err(e) => {
                                 comms.send_response(Response::Error(format!("Unable to get metadata: {}", e))).unwrap();
-                                return true;                                   
+                                return true;
                             }
                         };
 
@@ -289,7 +289,7 @@ fn exec_command(command : Command, comms: &mut Comms, context: &mut DoerContext)
                             Ok(m) => m,
                             Err(e) => {
                                 comms.send_response(Response::Error(format!("Unknown modified time: {}", e))).unwrap();
-                                return true;                                   
+                                return true;
                             }
                         };
 
@@ -341,21 +341,21 @@ fn exec_command(command : Command, comms: &mut Comms, context: &mut DoerContext)
                 if let Err(e) = r {
                     comms.send_response(Response::Error(e.to_string())).unwrap();
                     return true;
-                }  
+                }
             }
 
             comms.send_response(Response::Ack).unwrap();
         },
         Command::CreateFolder { path } => {
             let full_path = context.root.join(&path);
-            match std::fs::create_dir(full_path) { 
+            match std::fs::create_dir(full_path) {
                 Ok(()) => comms.send_response(Response::Ack).unwrap(),
                 Err(e) =>  comms.send_response(Response::Error(e.to_string())).unwrap(),
             }
         }
         Command::DeleteFile { path } => {
             let full_path = context.root.join(&path);
-            match std::fs::remove_file(full_path) { 
+            match std::fs::remove_file(full_path) {
                 Ok(()) => comms.send_response(Response::Ack).unwrap(),
                 Err(e) =>  comms.send_response(Response::Error(e.to_string())).unwrap(),
             }
@@ -371,5 +371,5 @@ fn exec_command(command : Command, comms: &mut Comms, context: &mut DoerContext)
             return false;
         }
     }
-    return true;
+    true
 }
