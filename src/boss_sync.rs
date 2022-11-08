@@ -1,4 +1,4 @@
-use std::{cmp::Ordering, fmt::Display};
+use std::{cmp::Ordering, fmt::{Display, Write}};
 
 use log::{debug, error, info};
 
@@ -19,7 +19,7 @@ impl FileSizeHistogram {
 }
 impl Display for FileSizeHistogram {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "")?;
+        writeln!(f)?;
         let h = 5;
         let max = *self.buckets.iter().max().unwrap();
         for y in 0..h {
@@ -40,12 +40,12 @@ impl Display for FileSizeHistogram {
                 3 => l += "K",
                 6 => l += "M",
                 9 => l += "G",
-                _ => l += &format!("{}", x),
+                _ => write!(&mut l, "{x}").unwrap(),
             }
         }
         writeln!(f, "{}", l)?;
 
-        return std::fmt::Result::Ok(());
+        std::fmt::Result::Ok(())
     }
 }
 
@@ -82,7 +82,7 @@ pub fn sync(src_folder: String, dest_folder: String, mut src_comms: Comms, mut d
             Ok(Response::Entry(d)) => {
                 debug!("{:?}", d);
                 match d.entry_type {
-                    EntryType::File => { 
+                    EntryType::File => {
                         stats.num_src_files += 1;
                         stats.src_total_bytes += d.size;
                         stats.src_file_size_hist.add(d.size);
@@ -104,7 +104,7 @@ pub fn sync(src_folder: String, dest_folder: String, mut src_comms: Comms, mut d
             Ok(Response::Entry(d)) => {
                 debug!("{:?}", d);
                 match d.entry_type {
-                    EntryType::File => { 
+                    EntryType::File => {
                         stats.num_dest_files += 1;
                         stats.dest_total_bytes += d.size;
                     }
@@ -120,7 +120,7 @@ pub fn sync(src_folder: String, dest_folder: String, mut src_comms: Comms, mut d
         }
     }
     info!("Source: {} file(s) totalling {} bytes and {} folder(s) => Dest: {} file(s) totalling {} bytes and {} folder(s)",
-        stats.num_src_files, stats.src_total_bytes, stats.num_src_folders, 
+        stats.num_src_files, stats.src_total_bytes, stats.num_src_folders,
         stats.num_dest_files, stats.dest_total_bytes, stats.num_dest_folders);
     info!("Source file size distribution:");
     info!("{}", stats.src_file_size_hist);
@@ -147,11 +147,11 @@ pub fn sync(src_folder: String, dest_folder: String, mut src_comms: Comms, mut d
             dest_comms.send_command(c).unwrap();
             match dest_comms.receive_response() {
                 Ok(doer::Response::Ack) => (),
-                _ => { 
+                _ => {
                     error!("Wrong response");
                     return Err(());
                 }
-            };                   
+            };
         }
     }
 
@@ -178,7 +178,7 @@ pub fn sync(src_folder: String, dest_folder: String, mut src_comms: Comms, mut d
                     EntryType::Folder => {
                         debug!("{}: folder already exists - nothing to do", src_entry.path)
                     }
-                }        
+                }
             }
             None => {
                 match src_entry.entry_type {
@@ -191,11 +191,11 @@ pub fn sync(src_folder: String, dest_folder: String, mut src_comms: Comms, mut d
                         dest_comms.send_command(Command::CreateFolder { path: src_entry.path.to_string() }).unwrap();
                         match dest_comms.receive_response() {
                             Ok(doer::Response::Ack) => (),
-                            _ => { 
+                            _ => {
                                 error!("Wrong response");
                                 return Err(());
                             }
-                        };                    
+                        };
                         stats.num_folders_created += 1;
                     }
                 }
@@ -215,7 +215,7 @@ pub fn sync(src_folder: String, dest_folder: String, mut src_comms: Comms, mut d
         info!("Nothing to do!");
     }
 
-    return Ok(());
+    Ok(())
 }
 
 fn copy_file(src_file: &EntryDetails, src_comms: &mut Comms, dest_comms: &mut Comms, stats: &mut Stats) -> Result<(), ()> {
@@ -223,20 +223,20 @@ fn copy_file(src_file: &EntryDetails, src_comms: &mut Comms, dest_comms: &mut Co
     src_comms.send_command(Command::GetFileContent { path: src_file.path.to_string() }).unwrap();
     let data = match src_comms.receive_response() {
         Ok(Response::FileContent { data }) => data,
-        _ => { 
+        _ => {
             error!("Wrong response");
             return Err(());
         }
     };
     debug!("Writing {}", src_file.path);
-    dest_comms.send_command(Command::CreateOrUpdateFile { 
-        path: src_file.path.to_string(), 
-        data: data, 
+    dest_comms.send_command(Command::CreateOrUpdateFile {
+        path: src_file.path.to_string(),
+        data,
         set_modified_time: Some(src_file.modified_time)
     }).unwrap();
     match dest_comms.receive_response() {
         Ok(doer::Response::Ack) => (),
-        _ => { 
+        _ => {
             error!("Wrong response");
             return Err(());
         }
@@ -246,5 +246,5 @@ fn copy_file(src_file: &EntryDetails, src_comms: &mut Comms, dest_comms: &mut Co
     stats.num_bytes_copied += src_file.size;
     stats.copied_file_size_hist.add(src_file.size);
 
-    return Ok(());
+    Ok(())
 }

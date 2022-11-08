@@ -23,9 +23,9 @@ fn main() -> ExitCode {
     // or destination computer which responds to commands from the boss (this is a "doer").
     // The boss (CLI) and doer modes have different command-line arguments, so handle them separately.
     if std::env::args().any(|a| a == "--doer") {
-        return doer_main();
+        doer_main()
     } else {
-        return boss_main();
+        boss_main()
     }
 }
 
