@@ -35,7 +35,6 @@ TODO:
 * Testing for sync logic, including between different combinations of windows and linux, remote and local etc.
 * Progress bar
 * Format total bytes and total files etc. with commas, or GB, MB etc.
-* Use BufReader/writer for stdin and stdout, to avoid lots of small read/writes to system. Keep one of these alive for the whole comms, rather than making a new one each time.
 * Create destination root if it doesn't exist?
 
 Idea for filters, with re-usable "functions":

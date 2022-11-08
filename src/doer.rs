@@ -1,4 +1,4 @@
-use std::{sync::mpsc::{Sender, Receiver}, time::{Instant, SystemTime}, fmt::{Display, self}, io::{Write}, path::{PathBuf, Path}};
+use std::{sync::mpsc::{Sender, Receiver}, time::{Instant, SystemTime}, fmt::{Display, self}, io::{Write, BufWriter, BufReader, Stdin, Stdout}, path::{PathBuf, Path}};
 use clap::Parser;
 use log::{error, debug};
 use serde::{Serialize, Deserialize};
@@ -31,6 +31,10 @@ fn normalize_path(p: &Path) -> Result<String, String> {
             Some(x) => x,
             None => return Err("Can't convert path component".to_string()),
         };
+        if cs.contains('/') || cs.contains(r"\") {
+            // Slashes in any component would mess things up, once we change which slash is significant
+            return Err("Illegal characters in path".to_string());
+        }
         if !result.is_empty() {
             result += "/";
         }
@@ -111,20 +115,25 @@ enum Comms {
         sender: Sender<Response>,
         receiver: Receiver<Command>,
     },
-    Remote, // Remote doesn't need to store anything, as it uses the process' stdin and stdout which are globally available
+    Remote { 
+        // Remote reads/writes to the process' stdin/stdout, but uses bufferred readers/writers
+        // to reduce number of underlying system calls, for performance
+        stdin: BufReader<Stdin>,
+        stdout: BufWriter<Stdout>,
+    }
 }
 impl Comms {
-    fn send_response(&self, r: Response) -> Result<(), String> {
+    fn send_response(&mut self, r: Response) -> Result<(), String> {
         debug!("Sending response {:?} to {}", r, &self);
         let mut res;
         match self {
             Comms::Local { sender, receiver: _ } => {
                 res = sender.send(r).map_err(|e| e.to_string());
             },
-            Comms::Remote => {
-                res = bincode::serialize_into(std::io::stdout(), &r).map_err(|e| e.to_string());
+            Comms::Remote { stdout, .. } => {
+                res = bincode::serialize_into(stdout.by_ref(), &r).map_err(|e| e.to_string());
                 if res.is_ok() {
-                    res = std::io::stdout().flush().map_err(|e| e.to_string()); // Otherwise could be buffered and we hang!
+                    res = stdout.flush().map_err(|e| e.to_string()); // Otherwise could be buffered and we hang!
                 }
             }
         }
@@ -134,15 +143,15 @@ impl Comms {
         return res;
    }
 
-    fn receive_command(&self) -> Result<Command, String> {
+    fn receive_command(&mut self) -> Result<Command, String> {
         debug!("Waiting for command from {}", &self);
         let c;
         match self {
             Comms::Local { sender: _, receiver } => {
                 c = receiver.recv().map_err(|e| e.to_string());
             },
-            Comms::Remote => {
-                c = bincode::deserialize_from(std::io::stdin()).map_err(|e| e.to_string());
+            Comms::Remote { stdin, .. } => {
+                c = bincode::deserialize_from(stdin).map_err(|e| e.to_string());
             },
         }
         debug!("Received command {:?} from {}", c, &self);
@@ -180,7 +189,9 @@ pub fn doer_main() -> ExitCode {
 
     // If the Boss isn't happy (e.g. we are an old version), they will stop us and deploy a new version.
     // So at this point we can assume they are happy and move on to processing commands they (might) send us.
-    match message_loop(Comms::Remote) {
+    let comms = Comms::Remote { stdin: BufReader::new(std::io::stdin()), stdout: BufWriter::new(std::io::stdout()) };
+
+    match message_loop(comms) {
         Ok(_) => {
             debug!("doer process finished successfully!");
             return ExitCode::SUCCESS;
@@ -212,12 +223,12 @@ struct DoerContext {
 // Repeatedly waits for Commands from the boss and processes them (possibly sending back Responses).
 // This function returns when we receive a Shutdown Command, or there is an unrecoverable error
 // (recoverable errors while handling Commands will not stop the loop).
-fn message_loop (comms: Comms) -> Result<(), ()> {
+fn message_loop (mut comms: Comms) -> Result<(), ()> {
     let mut context = DoerContext { root: PathBuf::new() };
     loop {
         match comms.receive_command() {
             Ok(c) => {
-                if !exec_command(c, &comms, &mut context) {
+                if !exec_command(c, &mut comms, &mut context) {
                     debug!("Shutdown command received - finishing message_loop");
                     return Ok(());
                 }
@@ -232,7 +243,7 @@ fn message_loop (comms: Comms) -> Result<(), ()> {
 
 /// Handles a Command from the boss, possibly replying with one or more Responses.
 /// Returns false if we received a Shutdown Command, otherwise true.
-fn exec_command(command : Command, comms: &Comms, context: &mut DoerContext) -> bool {
+fn exec_command(command : Command, comms: &mut Comms, context: &mut DoerContext) -> bool {
     match command {
         Command::GetEntries { root } => {
             // Store the root folder for future operations

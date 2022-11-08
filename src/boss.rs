@@ -1,4 +1,4 @@
-use std::{io::{Write, BufReader, BufRead, Read}, path::PathBuf, process::{Stdio, ExitCode, ChildStdout, ChildStdin, ChildStderr}, sync::mpsc::{RecvError, SendError}, fmt::{Display, self}, thread::JoinHandle};
+use std::{io::{Write, BufReader, BufRead, Read, BufWriter}, path::PathBuf, process::{Stdio, ExitCode, ChildStdout, ChildStdin, ChildStderr}, sync::mpsc::{RecvError, SendError}, fmt::{Display, self}, thread::JoinHandle};
 use std::sync::mpsc;
 use std::sync::mpsc::{Sender, Receiver};
 use clap::{Parser};
@@ -159,13 +159,14 @@ pub enum Comms {
     Remote {
         debug_name: String, // To identify this Comms against others for debugging, when there are several
         ssh_process: std::process::Child,
-        stdin: ChildStdin,
+        // Use bufferred readers/writers to reduce number of underlying system calls, for performance
+        stdin: BufWriter<ChildStdin>,
         stdout: BufReader<ChildStdout>,
         stderr_reading_thread: JoinHandle<()>,
     }
 }
 impl Comms {
-    pub fn send_command(&self, c: Command) -> Result<(), String> {
+    pub fn send_command(&mut self, c: Command) -> Result<(), String> {
         debug!("Sending command {:?} to {}", c, &self);
         let mut res;
         match self {
@@ -173,9 +174,9 @@ impl Comms {
                 res = sender.send(c).map_err(|e| e.to_string());
             },
             Comms::Remote { stdin, .. } => {
-                res = bincode::serialize_into(stdin, &c).map_err(|e| e.to_string());
+                res = bincode::serialize_into(stdin.by_ref(), &c).map_err(|e| e.to_string());
                 if res.is_ok() {
-                    res = std::io::stdout().flush().map_err(|e| e.to_string()); // Otherwise could be buffered and we hang!
+                    res = stdin.flush().map_err(|e| e.to_string()); // Otherwise could be buffered and we hang!
                 }
             }
         }
@@ -291,7 +292,7 @@ fn setup_comms(remote_hostname: &str, remote_user: &str, debug_name: String, for
                 return Some(Comms::Remote { 
                     debug_name: "Remote ".to_string() + &debug_name + " at " + remote_hostname, 
                     ssh_process, 
-                    stdin, 
+                    stdin: BufWriter::new(stdin), 
                     stdout, 
                     stderr_reading_thread });
             },
