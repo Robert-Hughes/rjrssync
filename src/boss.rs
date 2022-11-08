@@ -38,7 +38,7 @@ struct BossCliArgs {
 }
 
 /// Describes a local or remote folder, parsed from the `src` or `dest` command-line arguments.
-#[derive(Clone, Default, PartialEq, Debug)]
+#[derive(Clone, Default, PartialEq, Eq, Debug)]
 pub struct RemoteFolderDesc {
     username: String,
     hostname: String,
@@ -507,8 +507,12 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str) -> SshDoerLaunc
     });
 
     // Wait for messages from the background threads which are reading stdout and stderr
-    let _handshook_stdout: Option<BufReader<ChildStdout>> = None;
-    let _handshook_stderr: Option<BufReader<ChildStderr>> = None;
+    #[derive(Default)]
+    struct HandshookStdoutAndStderr {
+        stdout: Option<BufReader<ChildStdout>>,
+        stderr: Option<BufReader<ChildStderr>>,
+    }
+    let mut handshook_stdout_and_stderr = HandshookStdoutAndStderr::default();
     loop {
         match receiver.recv() {
             Ok((stream_type, OutputReaderThreadMsg::Line(l))) => {
@@ -522,10 +526,10 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str) -> SshDoerLaunc
             }
             Ok((stream_type, OutputReaderThreadMsg::HandshakeReceived(line, s))) => {
                 debug!("Handshake received from {}: {}", stream_type, line);
-                let (handshook_stdout, handshook_stderr) = match s {
-                    OutputReaderStream::Stdout(b) => (Some(b), None),
-                    OutputReaderStream::Stderr(b) => (None, Some(b)),
-                };
+                match s {
+                    OutputReaderStream::Stdout(b) => handshook_stdout_and_stderr.stdout = Some(b),
+                    OutputReaderStream::Stderr(b) => handshook_stdout_and_stderr.stderr = Some(b),
+                }
 
                 let remote_version = line.split_at(HANDSHAKE_MSG.len()).1;
                 if remote_version != VERSION.to_string() {
@@ -538,12 +542,12 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str) -> SshDoerLaunc
                 }
 
                 // Need to wait for both stdout and stderr to pass the handshake
-                if let (Some(stdout), Some(stderr)) = (handshook_stdout, handshook_stderr) {
+                if let HandshookStdoutAndStderr { stdout: Some(stdout), stderr: Some(stderr) } = handshook_stdout_and_stderr {
                     return SshDoerLaunchResult::Success {
                         ssh_process,
                         stdin: ssh_stdin,
-                        stdout,
-                        stderr,
+                        stdout, 
+                        stderr, 
                     };
                 };
             }

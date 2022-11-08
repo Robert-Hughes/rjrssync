@@ -80,7 +80,7 @@ pub enum Command {
     Shutdown,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub enum EntryType {
     File,
     Folder,
