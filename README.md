@@ -37,6 +37,8 @@ TODO:
 * Format total bytes and total files etc. with commas, or GB, MB etc.
 * Create destination root if it doesn't exist?
 * Only show histograms based on an argument, to avoid cluttering the output?
+* Logging seems to be slowing things down by adding extra bandwidth, especially for the remote side?
+Even when it's disabled, it might still be evaluating ths log arguments (including the full contents of files!)
 
 Idea for filters, with re-usable "functions":
 ===============

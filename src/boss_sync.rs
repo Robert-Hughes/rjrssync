@@ -1,6 +1,6 @@
 use std::{
     cmp::Ordering,
-    fmt::{Display, Write},
+    fmt::{Display, Write}, time::Instant,
 };
 
 use log::{debug, error, info};
@@ -173,6 +173,8 @@ pub fn sync(
         }
     }
 
+    let start = Instant::now();
+
     for src_entry in src_entries {
         match dest_entries
             .iter()
@@ -224,6 +226,8 @@ pub fn sync(
         }
     }
 
+    let elapsed = start.elapsed().as_secs_f32();
+
     if stats.num_files_deleted + stats.num_folders_deleted > 0 {
         info!(
             "Deleted {} file(s) and {} folder(s)",
@@ -235,6 +239,8 @@ pub fn sync(
             "Copied {} file(s) totalling {} bytes and created {} folder(s)",
             stats.num_files_copied, stats.num_bytes_copied, stats.num_folders_created
         );
+        info!("Copied {} bytes in {} seconds ({} bytes/s)", stats.num_bytes_copied, elapsed,
+            stats.num_bytes_copied as f32 / elapsed as f32);
         info!("Copied file size distribution:");
         info!("{}", stats.copied_file_size_hist);
     }
