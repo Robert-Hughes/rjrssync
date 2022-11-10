@@ -1,7 +1,8 @@
 use clap::Parser;
 use env_logger::{fmt::Color, Env};
-use log::{debug, error, info, warn};
+use log::{debug, error, info, warn, log};
 use rust_embed::RustEmbed;
+use std::str::FromStr;
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
 use std::{
@@ -93,7 +94,7 @@ impl std::str::FromStr for RemoteFolderDesc {
 
 pub fn boss_main() -> ExitCode {
     // Configure logging
-    let mut builder = env_logger::Builder::from_env(Env::default().default_filter_or("debug"));
+    let mut builder = env_logger::Builder::from_env(Env::default().default_filter_or("info"));
     builder.format(|buf, record| {
         let target_color = match record.target() {
             "rjrssync::boss" => Color::Rgb(255, 64, 255),
@@ -318,8 +319,17 @@ fn setup_comms(
                             Ok(0) => break, // end of stream
                             Ok(_) => {
                                 l.pop(); // Remove the trailing newline
-                                         // Use a custom target to indicate this is from a remote doer in the log output
-                                debug!(target: "remote doer", "{}", l);
+                                // Use a custom target to indicate this is from a remote doer in the log output
+                                // Preserve the log level of the remote messages if possible
+                                match l.split_once(' ') {
+                                    Some((level_str, msg)) => {
+                                        match log::Level::from_str(level_str) {
+                                            Ok(level) => log!(target: "remote doer", level, "{}", msg),
+                                            Err(_) => debug!(target: "remote doer", "{}", l),
+                                        }                                        
+                                    }
+                                    None => debug!(target: "remote doer", "{}", l),
+                                }
                             }
                             Err(_) => break,
                         }
@@ -456,7 +466,10 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str) -> SshDoerLaunc
     };
     // Note we don't cd, so that relative paths for the folder specified by the user on the remote
     // will be correct
-    let remote_command = format!("{}target/release/rjrssync --doer", REMOTE_TEMP_FOLDER);
+    let remote_command = format!("{}{}target/release/rjrssync --doer",
+        // Forward the RUST_LOG env var, so that our logging levels are in sync
+        std::env::var("RUST_LOG").map_or("".to_string(), |e| format!("RUST_LOG={} ", e)),
+        REMOTE_TEMP_FOLDER);
     debug!("Running remote command: {}", remote_command);
     // Note we use the user's existing ssh tool so that their config/settings will be used for
     // logging in to the remote system (as opposed to using an ssh library called from our code).

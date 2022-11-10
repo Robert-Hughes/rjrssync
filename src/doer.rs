@@ -1,4 +1,5 @@
 use clap::Parser;
+use env_logger::Env;
 use log::{debug, error};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -181,10 +182,18 @@ pub fn doer_main() -> ExitCode {
     // We use stderr instead, which the boss will read from and echo for easier debugging.
     // TODO: We could additionally log to a file, which might be useful for cases where the logs don't
     // make it back to the boss (e.g. communication errors)
-    stderrlog::StdErrLog::new()
-        .verbosity(log::Level::Debug)
-        .init()
-        .unwrap();
+    let mut builder = env_logger::Builder::from_env(Env::default().default_filter_or("info"));
+    builder.target(env_logger::Target::Stderr);
+    // Configure format so that the boss can parse and re-log it
+    builder.format(|buf, record| {
+        writeln!(
+            buf,
+            "{} {}",
+            record.level(),
+            record.args()
+        )
+    });
+    builder.init();
 
     let _args = DoerCliArgs::parse();
 
