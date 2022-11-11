@@ -74,14 +74,15 @@ struct Stats {
 pub fn sync(
     src_folder: String,
     dest_folder: String,
+    exclude_filters: Vec<String>,
     mut src_comms: Comms,
     mut dest_comms: Comms,
 ) -> Result<(), ()> {
     src_comms
-        .send_command(Command::GetEntries { root: src_folder })
+        .send_command(Command::GetEntries { root: src_folder, exclude_filters: exclude_filters.clone() })
         .unwrap();
     dest_comms
-        .send_command(Command::GetEntries { root: dest_folder })
+        .send_command(Command::GetEntries { root: dest_folder, exclude_filters: exclude_filters.clone() })
         .unwrap();
 
     //TODO: what about symlinks

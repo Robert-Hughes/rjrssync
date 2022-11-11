@@ -1,6 +1,7 @@
 use clap::Parser;
 use env_logger::Env;
 use log::{debug, error};
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::{
     fmt::{self, Display},
@@ -59,6 +60,7 @@ pub enum Command {
     //TODO: what format do we use then, do we need to convert between them??
     GetEntries {
         root: String,
+        exclude_filters: Vec<String>,
     },
     GetFileContent {
         path: String,
@@ -270,28 +272,31 @@ fn message_loop(mut comms: Comms) -> Result<(), ()> {
 /// Returns false if we received a Shutdown Command, otherwise true.
 fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) -> bool {
     match command {
-        Command::GetEntries { root } => {
+        Command::GetEntries { root, exclude_filters } => {
             // Store the root folder for future operations
             context.root = PathBuf::from(root);
 
+            // Compile filter regexes up-front
+            //TODO: ideally we do this on the boss, not on both doers?
+            //TODO: handle regex errors
+            let exclude_regexes: Vec<Regex> = exclude_filters.iter().map(|f| Regex::new(f).unwrap()).collect();
+
             let start = Instant::now();
-            // Don't follow symlinks - we want to sync the links themselves
-            let walker = WalkDir::new(&context.root).follow_links(false).into_iter();
+            // Due to the way the WalkDir API works, we unfortunately need to do the iter loop manually
+            // so that we can avoid normalizing the path twice (once for the filter, once for the conversion
+            // of the entry to our representation).
+            let mut walker_it = WalkDir::new(&context.root)
+                // Don't follow symlinks - we want to sync the links themselves
+                .follow_links(false)
+                .into_iter();
             let mut count = 0;
-            for entry in walker.filter_entry(|_e| true) {
-                match entry {
-                    Ok(e) => {
-                        let entry_type;
-                        if e.file_type().is_dir() {
-                            entry_type = EntryType::Folder;
-                        } else if e.file_type().is_file() {
-                            entry_type = EntryType::File;
-                        } else {
-                            comms
-                                .send_response(Response::Error("Unknown file type".to_string()))
-                                .unwrap();
-                            return true;
-                        }
+            loop {
+                match walker_it.next() {
+                    None => break,
+                    Some(Ok(e)) => {
+                        // Check if we should filter this entry.
+                        // First normalize the path to our platform-independent representation, so that the filters
+                        // apply equally well on both source and dest sides, if they are different platforms.
 
                         // Paths returned by WalkDir will include the root, but we want paths relative to the root
                         let path = e.path().strip_prefix(&context.root).unwrap();
@@ -308,6 +313,27 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) 
                                 return true;
                             }
                         };
+
+                        if exclude_regexes.iter().any(|r| r.find(&path).is_some()) {
+                            debug!("Skipping {} due to filter", path);
+                            if e.file_type().is_dir() {
+                                // Filtering a folder prevents iterating into child files/folders, so this is efficient.
+                                walker_it.skip_current_dir();
+                            }
+                            continue;
+                        }
+
+                        let entry_type;
+                        if e.file_type().is_dir() {
+                            entry_type = EntryType::Folder;
+                        } else if e.file_type().is_file() {
+                            entry_type = EntryType::File;
+                        } else {
+                            comms
+                                .send_response(Response::Error("Unknown file type".to_string()))
+                                .unwrap();
+                            return true;
+                        }
 
                         let metadata = match e.metadata() {
                             Ok(m) => m,
@@ -350,7 +376,7 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) 
                         //                         count += 1;
                         //                      }
                     }
-                    Err(e) => {
+                    Some(Err(e)) => {
                         comms.send_response(Response::Error(e.to_string())).unwrap();
                         break;
                     }

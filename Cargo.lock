@@ -364,6 +364,7 @@ dependencies = [
  "env_logger",
  "filetime",
  "log",
+ "regex",
  "rust-embed",
  "serde",
  "tempdir",

@@ -32,6 +32,8 @@ struct BossCliArgs {
     /// up-to-date copy.
     #[arg(long)]
     force_redeploy: bool,
+    #[arg(name="exclude", long)]
+    exclude_filters: Vec<String>,
     /// [Internal] Launches as a doer process, rather than a boss process.
     /// This shouldn't be needed for regular operation.
     #[arg(long)]
@@ -160,7 +162,7 @@ pub fn boss_main() -> ExitCode {
     };
 
     // Perform the actual file sync
-    let sync_result = sync(args.src.folder, args.dest.folder, src_comms, dest_comms);
+    let sync_result = sync(args.src.folder, args.dest.folder, args.exclude_filters, src_comms, dest_comms);
 
     match sync_result {
         Ok(()) => ExitCode::SUCCESS,
