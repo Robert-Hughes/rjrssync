@@ -272,126 +272,7 @@ fn message_loop(mut comms: Comms) -> Result<(), ()> {
 /// Returns false if we received a Shutdown Command, otherwise true.
 fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) -> bool {
     match command {
-        Command::GetEntries { root, exclude_filters } => {
-            // Store the root folder for future operations
-            context.root = PathBuf::from(root);
-
-            // Compile filter regexes up-front
-            //TODO: ideally we do this on the boss, not on both doers?
-            //TODO: handle regex errors
-            let exclude_regexes: Vec<Regex> = exclude_filters.iter().map(|f| Regex::new(f).unwrap()).collect();
-
-            let start = Instant::now();
-            // Due to the way the WalkDir API works, we unfortunately need to do the iter loop manually
-            // so that we can avoid normalizing the path twice (once for the filter, once for the conversion
-            // of the entry to our representation).
-            let mut walker_it = WalkDir::new(&context.root)
-                // Don't follow symlinks - we want to sync the links themselves
-                .follow_links(false)
-                .into_iter();
-            let mut count = 0;
-            loop {
-                match walker_it.next() {
-                    None => break,
-                    Some(Ok(e)) => {
-                        // Check if we should filter this entry.
-                        // First normalize the path to our platform-independent representation, so that the filters
-                        // apply equally well on both source and dest sides, if they are different platforms.
-
-                        // Paths returned by WalkDir will include the root, but we want paths relative to the root
-                        let path = e.path().strip_prefix(&context.root).unwrap();
-                        // Convert to platform-agnostic representation
-                        let path = match normalize_path(path) {
-                            Ok(p) => p,
-                            Err(e) => {
-                                comms
-                                    .send_response(Response::Error(format!(
-                                        "normalize_path failed: {}",
-                                        e
-                                    )))
-                                    .unwrap();
-                                return true;
-                            }
-                        };
-
-                        if exclude_regexes.iter().any(|r| r.find(&path).is_some()) {
-                            debug!("Skipping {} due to filter", path);
-                            if e.file_type().is_dir() {
-                                // Filtering a folder prevents iterating into child files/folders, so this is efficient.
-                                walker_it.skip_current_dir();
-                            }
-                            continue;
-                        }
-
-                        let entry_type;
-                        if e.file_type().is_dir() {
-                            entry_type = EntryType::Folder;
-                        } else if e.file_type().is_file() {
-                            entry_type = EntryType::File;
-                        } else {
-                            comms
-                                .send_response(Response::Error("Unknown file type".to_string()))
-                                .unwrap();
-                            return true;
-                        }
-
-                        let metadata = match e.metadata() {
-                            Ok(m) => m,
-                            Err(e) => {
-                                comms
-                                    .send_response(Response::Error(format!(
-                                        "Unable to get metadata: {}",
-                                        e
-                                    )))
-                                    .unwrap();
-                                return true;
-                            }
-                        };
-
-                        let modified_time = match metadata.modified() {
-                            Ok(m) => m,
-                            Err(e) => {
-                                comms
-                                    .send_response(Response::Error(format!(
-                                        "Unknown modified time: {}",
-                                        e
-                                    )))
-                                    .unwrap();
-                                return true;
-                            }
-                        };
-
-                        let d = EntryDetails {
-                            path: path.to_string(),
-                            entry_type,
-                            modified_time,
-                            size: metadata.len(),
-                        };
-
-                        comms.send_response(Response::Entry(d)).unwrap();
-                        //                      if e.file_type().is_file() {
-                        //                         let bytes = std::fs::read(e.path()).unwrap();
-                        //                         let hash = md5::compute(&bytes);
-                        //                         hash_sum += hash.into_iter().sum::<u8>();
-                        //                         count += 1;
-                        //                      }
-                    }
-                    Some(Err(e)) => {
-                        comms.send_response(Response::Error(e.to_string())).unwrap();
-                        break;
-                    }
-                }
-                count += 1;
-            }
-            let elapsed = start.elapsed().as_millis();
-            comms.send_response(Response::EndOfEntries).unwrap();
-            debug!(
-                "Walked {} in {}ms ({}/s)",
-                count,
-                elapsed,
-                1000.0 * count as f32 / elapsed as f32
-            );
-        }
+        Command::GetEntries { root, exclude_filters } => handle_get_entries(comms, context, &root, &exclude_filters),        
         Command::GetFileContent { path } => {
             let full_path = context.root.join(&path);
             match std::fs::read(full_path) {
@@ -450,4 +331,125 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) 
         }
     }
     true
+}
+
+fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, root: &str, exclude_filters: &Vec<String>) {
+    // Store the root folder for future operations
+    context.root = PathBuf::from(root);
+
+    // Compile filter regexes up-front
+    //TODO: ideally we do this on the boss, not on both doers?
+    //TODO: handle regex errors
+    let exclude_regexes: Vec<Regex> = exclude_filters.iter().map(|f| Regex::new(f).unwrap()).collect();
+
+    let start = Instant::now();
+    // Due to the way the WalkDir API works, we unfortunately need to do the iter loop manually
+    // so that we can avoid normalizing the path twice (once for the filter, once for the conversion
+    // of the entry to our representation).
+    let mut walker_it = WalkDir::new(&context.root)
+        // Don't follow symlinks - we want to sync the links themselves
+        .follow_links(false)
+        .into_iter();
+    let mut count = 0;
+    loop {
+        match walker_it.next() {
+            None => break,
+            Some(Ok(e)) => {
+                // Check if we should filter this entry.
+                // First normalize the path to our platform-independent representation, so that the filters
+                // apply equally well on both source and dest sides, if they are different platforms.
+
+                // Paths returned by WalkDir will include the root, but we want paths relative to the root
+                let path = e.path().strip_prefix(&context.root).unwrap();
+                // Convert to platform-agnostic representation
+                let path = match normalize_path(path) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        comms
+                            .send_response(Response::Error(format!(
+                                "normalize_path failed: {}",
+                                e
+                            )))
+                            .unwrap();
+                        return;
+                    }
+                };
+
+                if exclude_regexes.iter().any(|r| r.find(&path).is_some()) {
+                    debug!("Skipping {} due to filter", path);
+                    if e.file_type().is_dir() {
+                        // Filtering a folder prevents iterating into child files/folders, so this is efficient.
+                        walker_it.skip_current_dir();
+                    }
+                    continue;
+                }
+
+                let entry_type;
+                if e.file_type().is_dir() {
+                    entry_type = EntryType::Folder;
+                } else if e.file_type().is_file() {
+                    entry_type = EntryType::File;
+                } else {
+                    comms
+                        .send_response(Response::Error("Unknown file type".to_string()))
+                        .unwrap();
+                    return;
+                }
+
+                let metadata = match e.metadata() {
+                    Ok(m) => m,
+                    Err(e) => {
+                        comms
+                            .send_response(Response::Error(format!(
+                                "Unable to get metadata: {}",
+                                e
+                            )))
+                            .unwrap();
+                        return;
+                    }
+                };
+
+                let modified_time = match metadata.modified() {
+                    Ok(m) => m,
+                    Err(e) => {
+                        comms
+                            .send_response(Response::Error(format!(
+                                "Unknown modified time: {}",
+                                e
+                            )))
+                            .unwrap();
+                        return;
+                    }
+                };
+
+                let d = EntryDetails {
+                    path: path.to_string(),
+                    entry_type,
+                    modified_time,
+                    size: metadata.len(),
+                };
+
+                comms.send_response(Response::Entry(d)).unwrap();
+                //                      if e.file_type().is_file() {
+                //                         let bytes = std::fs::read(e.path()).unwrap();
+                //                         let hash = md5::compute(&bytes);
+                //                         hash_sum += hash.into_iter().sum::<u8>();
+                //                         count += 1;
+                //                      }
+            }
+            Some(Err(e)) => {
+                comms.send_response(Response::Error(e.to_string())).unwrap();
+                break;
+            }
+        }
+        count += 1;
+    }
+    let elapsed = start.elapsed().as_millis();
+    comms.send_response(Response::EndOfEntries).unwrap();
+    debug!(
+        "Walked {} in {}ms ({}/s)",
+        count,
+        elapsed,
+        1000.0 * count as f32 / elapsed as f32
+    );
 }
