@@ -32,7 +32,8 @@ TODO:
     - would this play nicely with other tools (e.g. build systems) that check timestamps - it might think that it doesn't need to rebuild anything, as the new timestamp for this file is still really old?
     - Maybe instead we could store something else, like a hash or our own marker to indicate when this file was synced, so that the timestamp is "correct", but we know not to sync it again next time.
 * Testing for ssh launching/copying/deploying stuff
-* Testing for sync logic, including between different combinations of windows and linux, remote and local etc.
+* Testing for sync logic, including between different combinations of windows and linux, remote and local etc. 
+   - Exclude filters
 * Progress bar
 * Format total bytes and total files etc. with commas, or GB, MB etc.
 * Create destination root if it doesn't exist?
