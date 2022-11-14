@@ -59,3 +59,7 @@ Idea for filters, with re-usable "functions":
    "other/artifacts/.*\.bin" : include,
 ]
 
+Data transfer speed ideas
+===========================
+
+Use ssh to forward/tunnel a TCP conenction. Check the speed of that.

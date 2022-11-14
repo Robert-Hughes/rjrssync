@@ -4,10 +4,14 @@ use clap::Parser;
 
 #[derive(Parser, Debug)]
 struct Args {
+    #[arg(short='b', long)]
+    buffer_size: i32,
     #[arg(short='i', long)]
     stdin_buffer_size: i32,
     #[arg(short='o', long)]
     stdout_buffer_size: i32,
+    #[arg(short='q', long)]
+    quiet: bool,
 }
 
 fn main() {
@@ -23,32 +27,39 @@ fn main() {
     };
 
     let mut measure_start = Instant::now();
-    let mut measure_count = 0;
+    let mut num_bytes_copied = 0;
+    let mut buf = vec![0; args.buffer_size as usize];
+    let mut measure_granularity = 1;
     loop {
-        let x = match stdin_reader {
+        let num_bytes_in_buffer = match stdin_reader {
             Some(ref mut r) => {
-                let mut buf = [0];
                 match r.read(&mut buf) {
-                    Ok(x) if x > 0 => (),
+                    Ok(x) if x > 0 => x,
                     _ => break,
                 }
-                buf[0]
             },
-            None => 'x' as u8,
+            None => args.buffer_size as usize,
         };
 
         if let Some(ref mut w) = stdout_writer {
-            let buf = [x];
-            w.write(&buf).unwrap();
+            w.write(&buf[0..num_bytes_in_buffer]).unwrap();
         }
 
-        measure_count += 1;
-        if measure_count % 1000 == 0 {
-            let elapsed = Instant::now().duration_since(measure_start).as_secs_f32();
+        num_bytes_copied += num_bytes_in_buffer;
+        // Getting time is slow, so only do this once we've copied a certain number of bytes.
+        // This amount is adjusted dynamically based on the speed.
+        if num_bytes_copied % measure_granularity == 0 && !args.quiet {
+            let elapsed = Instant::now().duration_since(measure_start).as_secs_f32();            
             if elapsed > 1.0 {
-                eprintln!("{}: {:.2}MB/s", std::process::id(), (measure_count as f32 / elapsed) / 1000000.0);
-                measure_count = 0;
+                eprintln!("{}: {:.2}MB/s", std::process::id(), (num_bytes_copied as f32 / elapsed) / 1000000.0);
+                num_bytes_copied = 0;
                 measure_start = Instant::now();
+            }
+
+            if elapsed > 2.0 {
+                measure_granularity = std::cmp::max(measure_granularity / 2, 1);
+            } else if elapsed < 0.5 {
+                measure_granularity = measure_granularity * 2;
             }
         }
     }
