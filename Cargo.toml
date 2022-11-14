@@ -2,6 +2,7 @@
 name = "rjrssync"
 version = "0.1.0"
 edition = "2021"
+default-run = "rjrssync"
 
 [dependencies]
 clap = { version = "4.0", features = ["derive"] }
