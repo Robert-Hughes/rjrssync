@@ -7,6 +7,21 @@ Filesystem:
   Windows        100k        9k
    Linux          1k         500k
 
+Notes on performance & security
+===============================
+
+Transferring data through the stdin/stdout of ssh is pretty slow (on Windows at least),
+at most about 20MB/s. It's nice and secure though (we get authentication and encryption).
+
+A faster option would be to use ssh's port forwarding so that we can use a separate TCP
+connection. Testing on Windows showed this could peak at around 200MB/s. We lose some of the
+security though, as anybody can connect to the tunnel.
+
+The best for performance is a direct TCP connection (without ssh), which peaks at around 2GB/s
+locally on Windows. We can use ssh for the initial setup, sharing some kind of secret key 
+so that each side of the connection knows that the other end is authentic. If we want to add
+encryption to the data being transferred, we would need to do this separately, but it isn't
+a big concern at the moment.
 
 TODO:
 
@@ -58,8 +73,3 @@ Idea for filters, with re-usable "functions":
    "artifacts/.*\.bin": include,
    "other/artifacts/.*\.bin" : include,
 ]
-
-Data transfer speed ideas
-===========================
-
-Use ssh to forward/tunnel a TCP conenction. Check the speed of that.

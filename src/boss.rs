@@ -445,6 +445,9 @@ fn output_reader_thread_main(
                 if l.starts_with(HANDSHAKE_MSG) {
                     // remote end has booted up properly and is ready for comms.
                     // finish this thread and return control of the stdout to the main thread, so it can communicate directly
+                    //TODO: this isn't the end of the handshake any more! need toe exchange secrets etc.
+                    // However we should check the version first before proceeding to secret exchange, and give up
+                    // if it's the wrong version (as the secret exchange protocol may have changed!)
                     sender.send((
                         stream_type,
                         OutputReaderThreadMsg::HandshakeReceived(l, stream),

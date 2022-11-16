@@ -8,7 +8,7 @@ use std::{
     io::{BufReader, BufWriter, Stdin, Stdout, Write},
     path::{Path, PathBuf},
     sync::mpsc::{Receiver, Sender},
-    time::{Instant, SystemTime},
+    time::{Instant, SystemTime}, net::TcpListener,
 };
 use walkdir::WalkDir;
 
@@ -20,6 +20,9 @@ struct DoerCliArgs {
     /// This shouldn't be needed for regular operation.
     #[arg(long)]
     doer: bool,
+    /// The network port to listen on for a connection from the boss.
+    #[arg(long)]
+    port: u16,
 }
 
 /// Converts a platform-specific relative path (inside the source or dest root)
@@ -197,10 +200,7 @@ pub fn doer_main() -> ExitCode {
     });
     builder.init();
 
-    let _args = DoerCliArgs::parse();
-
-    // We take commands from our stdin and send responses on our stdout. These will be piped over ssh
-    // back to the Boss.
+    let args = DoerCliArgs::parse();
 
     // The first thing we send is a special handshake message that the Boss will recognise,
     // to know that we've started up correctly and to make sure we are running compatible versions.
@@ -210,7 +210,43 @@ pub fn doer_main() -> ExitCode {
     eprintln!("{}", msg);
 
     // If the Boss isn't happy (e.g. we are an old version), they will stop us and deploy a new version.
-    // So at this point we can assume they are happy and move on to processing commands they (might) send us.
+    // So at this point we can assume they are happy and set up the network connection.
+    // We use a separate network connection for data transfer as it is faster.
+
+    // In order to make sure that the thing that connects to our network port is in fact the boss,
+    // we first receive a secrets over stdin/stdout which we will use to authenticate each other 
+    // on the TCP connection. This exchange is secure because stdin/stdout is run over ssh.
+    let mut secret;
+    if let Err(e) = std::io::stdin().read_line(&mut secret) {
+        error!("Failed to receive secret");
+        return ExitCode::from(22);
+    }
+
+    // Wait for a connection from the boss
+    let listener = match TcpListener::bind("127.0.0.1:" + args.port.into()) {
+        Ok(l) => l,
+        Err(e) => {
+            error!("Failed to bind: {}", e);
+            return ExitCode::from(24);
+        }
+    };
+    match listener.accept() {
+        Ok((socket, addr)) => debug!("new client: {socket:?} {addr:?}"),
+        Err(e) => {
+            error!("Failed to accept: {}", e);
+            return ExitCode::from(25);
+        }
+    }
+
+    // Challenge the boss with some random data and make sure that it replies
+    // with the expected response (the data combined with the secret, which shows that they
+    // have the same secret).
+    // We also need to reply to the boss' challenge by combining it with the secret and send it back,
+    // so that they know we are authentic.
+    //TODO:
+
+    // Now that we know the boss that connected to our network port is the one who launched us,
+    // we can process commands they send us.
     let comms = Comms::Remote {
         stdin: BufReader::new(std::io::stdin()),
         stdout: BufWriter::new(std::io::stdout()),
