@@ -15,3 +15,4 @@ serde = { version = "1.0", features = ["derive"] }
 bincode = "1.2.1"
 filetime = "*"
 regex = "1"
+serde-encrypt = "0.7.0"

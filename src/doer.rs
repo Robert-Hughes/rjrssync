@@ -216,14 +216,14 @@ pub fn doer_main() -> ExitCode {
     // In order to make sure that the thing that connects to our network port is in fact the boss,
     // we first receive a secrets over stdin/stdout which we will use to authenticate each other 
     // on the TCP connection. This exchange is secure because stdin/stdout is run over ssh.
-    let mut secret;
+    let mut secret = String::new();
     if let Err(e) = std::io::stdin().read_line(&mut secret) {
-        error!("Failed to receive secret");
+        error!("Failed to receive secret: {}", e);
         return ExitCode::from(22);
     }
 
     // Wait for a connection from the boss
-    let listener = match TcpListener::bind("127.0.0.1:" + args.port.into()) {
+    let listener = match TcpListener::bind("127.0.0.1:".to_string() + &args.port.to_string()) {
         Ok(l) => l,
         Err(e) => {
             error!("Failed to bind: {}", e);
@@ -237,6 +237,12 @@ pub fn doer_main() -> ExitCode {
             return ExitCode::from(25);
         }
     }
+
+    //TODO: the below probably isn't good enough, because it doesn't stop an attacker
+    // from intercepting the communication and then eavesdropping or changing the messages
+    // once we drop into unencrypted data.
+    // This looks good: https://github.com/laysakura/serde-encrypt
+    // Specifically the shared key encryption. Need to benchmark to test throughput!
 
     // Challenge the boss with some random data and make sure that it replies
     // with the expected response (the data combined with the secret, which shows that they
