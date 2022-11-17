@@ -23,21 +23,37 @@ so that each side of the connection knows that the other end is authentic. If we
 encryption to the data being transferred, we would need to do this separately, but it isn't
 a big concern at the moment.
 
-TCP connection throughput (tcper):
+All readings from home PC (MANTA)
 
-Windows -> Windows: 2-3GB/s
+Stdin throughput (piper, buffers all 40960):
+
+Windows -> Windows (piper.exe | piper.exe): ~2.7GB/s
+Windows -> WSL (piper.exe | wsl piper): ~500MB/s
+WSL -> Windows (piper | piper.exe): 300-400MB/s
+WSL -> WSL (piper | piper): ~7.5GB/s
+
+SSH stdin throughput (piper, buffers all 40960):
+
+Windows -> Windows (piper.exe | ssh windows piper.exe): ~20MB/s
+Windows -> WSL (piper.exe | ssh wsl piper): ~20MB/s
+WSL -> Windows (piper | ssh windows piper.exe): ~200MB/s
+WSL -> WSL (piper | ssh wsl piper.exe): 200-250MB/s
+
+TCP connection throughput (tcper, buffers all 40960):
+
+Windows -> Windows: 2-3GB/s (gets even faster with bigger buffers!)
 Windows -> WSL: 500-600MB/s
-WSL -> Windows: can't connect!
+WSL -> Windows: ~2GB/s (firewall needs enabling for PUBLIC networks!)
+WSL -> WSL: 7-8GB/s
 
-SSH port forwarded throughput (ntttcp):
+SSH port forwarded throughput (tcper, buffers all 40960):
 
-Windows -> Windows: ~200MB/s
+Windows -> Windows (ssh from Windows to Windows to forward local port): ~200MB/s
+Windows -> WSL (ssh from Windows to WSL to forward local port): ~150MB/s
+WSL -> Windows (ssh from WSL to Windows to forward local port): ~200MB/s
+WSL -> WSL (ssh from WSL to WSL to forward local port): ~200MB/s
 
-SSH stdin throughput (piper):
-
-Windows -> Windows: ~20MB/s
-
-Stdin throughput (piper):
+TODO: tcper connection with shared key encryption
 
 
 TODO:

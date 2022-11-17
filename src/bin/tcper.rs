@@ -38,6 +38,7 @@ fn main() {
         let stream = listener.accept().unwrap().0;
 
         reader = Some(BufReader::with_capacity(args.stream_buffer_size as usize, stream));
+        println!("Accepted connection!");
     } else {
         let stream = TcpStream::connect(args.address).unwrap();
         writer = Some(BufWriter::with_capacity(args.stream_buffer_size as usize, stream));
@@ -67,7 +68,7 @@ fn main() {
             num_bytes_copied += num_bytes_in_buffer;
             // Getting time is slow, so only do this once we've copied a certain number of bytes.
             // This amount is adjusted dynamically based on the speed.
-            if num_bytes_copied % measure_granularity == 0 {
+            if num_bytes_copied >= measure_granularity {
                 let elapsed = Instant::now().duration_since(measure_start).as_secs_f32();            
                 if elapsed > 1.0 {
                     eprintln!("{}: {:.2}MB/s", std::process::id(), (num_bytes_copied as f32 / elapsed) / 1000000.0);
