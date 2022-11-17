@@ -23,6 +23,23 @@ so that each side of the connection knows that the other end is authentic. If we
 encryption to the data being transferred, we would need to do this separately, but it isn't
 a big concern at the moment.
 
+TCP connection throughput (tcper):
+
+Windows -> Windows: 2-3GB/s
+Windows -> WSL: 500-600MB/s
+WSL -> Windows: can't connect!
+
+SSH port forwarded throughput (ntttcp):
+
+Windows -> Windows: ~200MB/s
+
+SSH stdin throughput (piper):
+
+Windows -> Windows: ~20MB/s
+
+Stdin throughput (piper):
+
+
 TODO:
 
 * Review/tidy up sync code in boss_sync.rs and also the command handling code in doer.rs
