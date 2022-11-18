@@ -7,13 +7,17 @@ mod doer;
 use boss::*;
 use doer::*;
 
-pub const VERSION: i32 = 33;
+pub const VERSION: i32 = 35;
 
 // Message printed by a doer copy of the program to indicate that it has loaded and is ready
 // to receive commands over its stdin. Also identifies its version, so the boss side can decide
 // if it can continue to communicate or needs to copy over an updated copy of the doer program.
 // Note that this format needs to always be backwards-compatible, so is very basic.
-pub const HANDSHAKE_MSG: &str = "rjrssync doer v"; // Version number will be appended
+pub const HANDSHAKE_STARTED_MSG: &str = "rjrssync doer v"; // Version number will be appended
+
+// Message sent by the doer back to the boss to indicate that it has received the secret key and 
+// is listening on a network port for a connection,
+pub const HANDSHAKE_COMPLETED_MSG: &str = "Waiting for incoming network connection"; 
 
 pub const REMOTE_TEMP_FOLDER: &str = "/tmp/rjrssync/";
 

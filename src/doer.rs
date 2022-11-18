@@ -118,6 +118,8 @@ pub enum Response {
     Error(String),
 }
 
+//TODO: update this to use TCP for remote communication.
+//TODO: add encryption too!
 /// Abstraction of two-way communication channel between this doer and the boss, which might be
 /// remote (communicating through our stdin and stdout) or local (communicating via a channel to the main thread).
 enum Comms {
@@ -205,17 +207,17 @@ pub fn doer_main() -> ExitCode {
     // The first thing we send is a special handshake message that the Boss will recognise,
     // to know that we've started up correctly and to make sure we are running compatible versions.
     // We need to do this on both stdout and stderr, because both those streams need to be synchronised on the receiving end.
-    let msg = format!("{}{}", HANDSHAKE_MSG, VERSION);
+    let msg = format!("{}{}", HANDSHAKE_STARTED_MSG, VERSION);
     println!("{}", msg);
     eprintln!("{}", msg);
 
     // If the Boss isn't happy (e.g. we are an old version), they will stop us and deploy a new version.
     // So at this point we can assume they are happy and set up the network connection.
-    // We use a separate network connection for data transfer as it is faster.
+    // We use a separate network connection for data transfer as it is faster than using stdin/stdout over ssh.
 
-    // In order to make sure that the thing that connects to our network port is in fact the boss,
-    // we first receive a secrets over stdin/stdout which we will use to authenticate each other 
-    // on the TCP connection. This exchange is secure because stdin/stdout is run over ssh.
+    // In order to make sure that incoming network connection is in fact the boss,
+    // we first receive a secret (shared) key over stdin which we will use to authenticate/encrypt
+    // the TCP connection. This exchange is secure because stdin/stdout is run over ssh.
     let mut secret = String::new();
     if let Err(e) = std::io::stdin().read_line(&mut secret) {
         error!("Failed to receive secret: {}", e);
@@ -230,6 +232,11 @@ pub fn doer_main() -> ExitCode {
             return ExitCode::from(24);
         }
     };
+
+    // Let the boss know that we are ready for the network connection
+    println!("{}", HANDSHAKE_COMPLETED_MSG);
+    eprintln!("{}", HANDSHAKE_COMPLETED_MSG);
+   
     match listener.accept() {
         Ok((socket, addr)) => debug!("new client: {socket:?} {addr:?}"),
         Err(e) => {

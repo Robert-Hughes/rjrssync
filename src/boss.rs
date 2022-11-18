@@ -2,6 +2,7 @@ use clap::Parser;
 use env_logger::{fmt::Color, Env};
 use log::{debug, error, info, warn, log};
 use rust_embed::RustEmbed;
+use std::net::TcpStream;
 use std::str::FromStr;
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
@@ -170,6 +171,8 @@ pub fn boss_main() -> ExitCode {
     }
 }
 
+//TODO: update this to use TCP for remote communication.
+//TODO: add encryption too!
 /// Abstraction of two-way communication channel between this boss and a doer, which might be
 /// remote (communicating over ssh) or local (communicating via a channel to a background thread).
 pub enum Comms {
@@ -310,10 +313,8 @@ fn setup_comms(
                 stdout,
                 mut stderr,
             } => {
-                debug!("Connection estabilished");
-
                 // Start a background thread to print out log messages from the remote doer,
-                // which it can send over its stderr (we use stdout for our regular communications).
+                // which it can send over its stderr.
                 let stderr_reading_thread = std::thread::spawn(move || {
                     loop {
                         let mut l: String = "".to_string();
@@ -337,6 +338,18 @@ fn setup_comms(
                         }
                     }
                 });
+
+                // Connect to the network port that the doer should be listening on
+                debug!("Connecting to doer over network");
+                let tcp_connection = match TcpStream::connect(remote_hostname.to_string() + ":40129") {
+                    Ok(t) => t,
+                    Err(e) => {
+                        error!("Failed to connect to network port: {}", e);
+                        return None;        
+                    }
+                };
+
+                debug!("Connected!");
 
                 return Some(Comms::Remote {
                     debug_name: "Remote ".to_string() + &debug_name + " at " + remote_hostname,
@@ -364,8 +377,10 @@ enum SshDoerLaunchResult {
     /// rjrssync launched successfully on the remote computer, but it reported a version number that
     /// isn't compatible with our version.
     HandshakeIncompatibleVersion,
-    /// rjrssync launched successfully on the remote computer and is a compatible version.
-    /// The fields here can be used to communicate with the remote rjrssync.
+    /// rjrssync launched successfully on the remote computer and is a compatible version,
+    /// and is waiting for an incoming network connection.
+    /// The fields here can be used to communicate with the remote rjrssync via its stdin/stdout,
+    /// but we use the network connection for the main data transfer because it is faster (see README).
     Success {
         ssh_process: std::process::Child,
         stdin: ChildStdin,
@@ -379,10 +394,11 @@ enum OutputReaderThreadMsg {
     Line(String),
     Error(std::io::Error),
     StreamClosed,
-    HandshakeReceived(String, OutputReaderStream), // Also sends back the stream, so the main thread can take back control
+    HandshakeStarted(String),
+    HandshakeCompleted(OutputReaderStream), // Also sends back the stream, so the main thread can take back control
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 enum OutputReaderStreamType {
     Stdout,
     Stderr,
@@ -418,7 +434,7 @@ impl OutputReaderStream {
 
 // Generic thread function for reading from stdout or stderr of the ssh process.
 // It sends messages back to the main thread using a channel.
-// We need to handle both in the same way - waiting until we receive the handshake line indicating that the doer
+// We need to handle both in the same way - waiting until we complete the handshake indicating that the doer
 // copy has started up correctly. We need a handshake on both threads so that each background thread knows when
 // it's time to finish and return control of the stream to the main thread.
 fn output_reader_thread_main(
@@ -442,18 +458,23 @@ fn output_reader_thread_main(
             }
             Ok(_) => {
                 l.pop(); // Remove the trailing newline
-                if l.starts_with(HANDSHAKE_MSG) {
-                    // remote end has booted up properly and is ready for comms.
-                    // finish this thread and return control of the stdout to the main thread, so it can communicate directly
-                    //TODO: this isn't the end of the handshake any more! need toe exchange secrets etc.
-                    // However we should check the version first before proceeding to secret exchange, and give up
+                if l.starts_with(HANDSHAKE_STARTED_MSG) {
+                    // Check the version first before passing the secret, so that we can stop
                     // if it's the wrong version (as the secret exchange protocol may have changed!)
                     sender.send((
                         stream_type,
-                        OutputReaderThreadMsg::HandshakeReceived(l, stream),
+                        OutputReaderThreadMsg::HandshakeStarted(l),
+                    ))?;
+                } else if l == HANDSHAKE_COMPLETED_MSG {
+                    // Remote end has booted up properly and is ready for network connection.
+                    // Finish this thread and return control of the stdout to the main thread, so it can communicate directly
+                    sender.send((
+                        stream_type,
+                        OutputReaderThreadMsg::HandshakeCompleted(stream),
                     ))?;
                     return Ok(());
-                } else {
+                }
+                else {
                     // A line of other content, for example a prompt or error from ssh itself
                     sender.send((stream_type, OutputReaderThreadMsg::Line(l)))?;
                 }
@@ -471,7 +492,7 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str) -> SshDoerLaunc
     };
     // Note we don't cd, so that relative paths for the folder specified by the user on the remote
     // will be correct
-    let remote_command = format!("{}{}target/release/rjrssync --doer",
+    let remote_command = format!("{}{}target/release/rjrssync --doer --port 40129",
         // Forward the RUST_LOG env var, so that our logging levels are in sync
         std::env::var("RUST_LOG").map_or("".to_string(), |e| format!("RUST_LOG={} ", e)),
         REMOTE_TEMP_FOLDER);
@@ -500,7 +521,7 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str) -> SshDoerLaunc
     debug!("Waiting for remote copy to send version handshake");
 
     // unwrap is fine here, as the streams should always be available as we piped them all
-    let ssh_stdin = ssh_process.stdin.take().unwrap();
+    let mut ssh_stdin = ssh_process.stdin.take().unwrap();
     let ssh_stdout = ssh_process.stdout.take().unwrap();
     let ssh_stderr = ssh_process.stderr.take().unwrap();
 
@@ -542,21 +563,33 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str) -> SshDoerLaunc
                     return SshDoerLaunchResult::NotPresentOnRemote;
                 }
             }
-            Ok((stream_type, OutputReaderThreadMsg::HandshakeReceived(line, s))) => {
-                debug!("Handshake received from {}: {}", stream_type, line);
-                match s {
-                    OutputReaderStream::Stdout(b) => handshook_stdout_and_stderr.stdout = Some(b),
-                    OutputReaderStream::Stderr(b) => handshook_stdout_and_stderr.stderr = Some(b),
-                }
+            Ok((stream_type, OutputReaderThreadMsg::HandshakeStarted(line))) => {
+                debug!("Handshake started on {}: {}", stream_type, line);
 
-                let remote_version = line.split_at(HANDSHAKE_MSG.len()).1;
+                let remote_version = line.split_at(HANDSHAKE_STARTED_MSG.len()).1;
                 if remote_version != VERSION.to_string() {
                     warn!(
                         "Remote server has incompatible version ({} vs local version {})",
                         remote_version, VERSION
                     );
                     // Note the stdin of the ssh will be dropped and this will tidy everything up nicely
+                    //TODO: i'm not so sure - we seem to be leaving 'orphaned' doers running on the remote side!
                     return SshDoerLaunchResult::HandshakeIncompatibleVersion;
+                }
+
+                // Send our secret key, so that we can authenticate/encrypt the network connection
+                // Only do this once (when stdout has passed the version check)
+                if stream_type == OutputReaderStreamType::Stdout {
+                    debug!("Sending secret key");
+                    ssh_stdin.write("a secret key\n".as_bytes()); //TODO: make random!
+                    panic!("Key needs to be secret!");
+                }
+            }
+            Ok((stream_type, OutputReaderThreadMsg::HandshakeCompleted(s))) => {
+                debug!("Handshake completed on {}", stream_type);
+                match s {
+                    OutputReaderStream::Stdout(b) => handshook_stdout_and_stderr.stdout = Some(b),
+                    OutputReaderStream::Stderr(b) => handshook_stdout_and_stderr.stderr = Some(b),
                 }
 
                 // Need to wait for both stdout and stderr to pass the handshake
