@@ -84,34 +84,33 @@ fn main() {
             }
         }
     } else {
-        let mut buf = vec![0; args.buffer_size as usize];
         loop {
-            let num_bytes_in_buffer = match reader {
-                Some(ref mut r) => {
-                    match r.read(&mut buf) {
-                        Ok(x) if x > 0 => {
-                            buf.resize(x, 0);
-                            let enc_msg = EncryptedMessage::deserialize(buf).unwrap();
-                            let payload = Payload::decrypt_owned(&enc_msg, &shared_key).unwrap();
-                            buf = payload.data;
-                            buf.len()
-                        }
-                        _ => break,
-                    }
-                },
-                None => args.buffer_size as usize,
-            };
-    
-            if let Some(ref mut w) = writer {
-                let payload = Payload { data: buf.clone() };
-                let enc_msg = payload.encrypt(&shared_key).unwrap();
-                w.write(&enc_msg.serialize()).unwrap();
+            let mut unencrypted_data = vec![0 as u8; args.buffer_size as usize];
+            if let Some(ref mut r) = reader {
+                let mut buf = [0 as u8; 8];            
+                r.read_exact(&mut buf).unwrap();
+                let encrypted_len = usize::from_le_bytes(buf);
+
+                let mut buf = vec![0 as u8; encrypted_len];
+                r.read_exact(&mut buf).unwrap();
+                let enc_msg = EncryptedMessage::deserialize(buf).unwrap();
+                let payload = Payload::decrypt_owned(&enc_msg, &shared_key).unwrap();
+                unencrypted_data = payload.data;
             }
     
-            num_bytes_copied += num_bytes_in_buffer;
+            num_bytes_copied += unencrypted_data.len();
+
+            if let Some(ref mut w) = writer {
+                let payload = Payload { data: unencrypted_data };
+                let enc_msg = payload.encrypt(&shared_key).unwrap();
+                let buf = enc_msg.serialize();
+                w.write(&buf.len().to_le_bytes()).unwrap();
+                w.write(&buf).unwrap();
+            }
+    
             // Getting time is slow, so only do this once we've copied a certain number of bytes.
             // This amount is adjusted dynamically based on the speed.
-            if num_bytes_copied % measure_granularity == 0 {
+            if num_bytes_copied >= measure_granularity {
                 let elapsed = Instant::now().duration_since(measure_start).as_secs_f32();            
                 if elapsed > 1.0 {
                     eprintln!("{}: {:.2}MB/s", std::process::id(), (num_bytes_copied as f32 / elapsed) / 1000000.0);

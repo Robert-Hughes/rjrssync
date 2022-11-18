@@ -53,7 +53,12 @@ Windows -> WSL (ssh from Windows to WSL to forward local port): ~150MB/s
 WSL -> Windows (ssh from WSL to Windows to forward local port): ~200MB/s
 WSL -> WSL (ssh from WSL to WSL to forward local port): ~200MB/s
 
-TODO: tcper connection with shared key encryption
+TCP connection with shared key encryption using serde_encrypt (tcper -e, buffers all 40960):
+
+Windows -> Windows: 250-300MB/s
+Windows -> WSL: 250-300MB/s
+WSL -> Windows: ~300MB/s
+WSL -> WSL: ~300MB/s
 
 
 TODO:
