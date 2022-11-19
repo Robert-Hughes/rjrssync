@@ -1,7 +1,11 @@
+use aes_gcm::aead::{OsRng, Nonce, Aead};
+use aes_gcm::aead::generic_array::GenericArray;
+use aes_gcm::{Aes128Gcm, KeyInit, Key};
 use clap::Parser;
 use env_logger::{fmt::Color, Env};
 use log::{debug, error, info, warn, log};
 use rust_embed::RustEmbed;
+use std::io::LineWriter;
 use std::net::TcpStream;
 use std::str::FromStr;
 use std::sync::mpsc;
@@ -171,10 +175,8 @@ pub fn boss_main() -> ExitCode {
     }
 }
 
-//TODO: update this to use TCP for remote communication.
-//TODO: add encryption too!
 /// Abstraction of two-way communication channel between this boss and a doer, which might be
-/// remote (communicating over ssh) or local (communicating via a channel to a background thread).
+/// remote (communicating over a TCP connection) or local (communicating via a channel to a background thread).
 pub enum Comms {
     Local {
         debug_name: String, // To identify this Comms against others for debugging, when there are several
@@ -185,43 +187,90 @@ pub enum Comms {
     Remote {
         debug_name: String, // To identify this Comms against others for debugging, when there are several
         ssh_process: std::process::Child,
+        // Once the network socket is set up, we don't need to communicate over stdin/stdout any more,
+        // but we keep these around anyway in case.
         // Use bufferred readers/writers to reduce number of underlying system calls, for performance
-        stdin: BufWriter<ChildStdin>,
+        stdin: LineWriter<ChildStdin>,
         stdout: BufReader<ChildStdout>,
         stderr_reading_thread: JoinHandle<()>,
+
+        tcp_connection: TcpStream,
+
+        cipher: Aes128Gcm,
+        sending_nonce_counter: u64,
+        receiving_nonce_counter: u64,
     },
 }
 impl Comms {
-    pub fn send_command(&mut self, c: Command) -> Result<(), String> {
-        debug!("Sending command {:?} to {}", c, &self);
-        let mut res;
+    fn send_command_impl(&mut self, c: Command) -> Result<(), String> {
         match self {
             Comms::Local { sender, .. } => {
-                res = sender.send(c).map_err(|e| e.to_string());
+                sender.send(c).map_err(|e| "Error sending on channel: ".to_string() + &e.to_string())
             }
-            Comms::Remote { stdin, .. } => {
-                res = bincode::serialize_into(stdin.by_ref(), &c).map_err(|e| e.to_string());
-                if res.is_ok() {
-                    res = stdin.flush().map_err(|e| e.to_string()); // Otherwise could be buffered and we hang!
-                }
+            Comms::Remote { tcp_connection, cipher, sending_nonce_counter, .. } => {
+                let unencrypted_data = bincode::serialize(&c).map_err(|e| "Error serializing command: ".to_string() + &e.to_string())?;
+
+                assert!(*sending_nonce_counter % 2 == 0);
+                let mut nonce_bytes = sending_nonce_counter.to_le_bytes().to_vec();
+                nonce_bytes.resize(12, 0); // pad it
+                let nonce = Nonce::<Aes128Gcm>::from_slice(&nonce_bytes);
+                *sending_nonce_counter += 2; // Increment by two so that it never overlaps with the nonce used by the doer
+                // This could overflow, but it would take so many messages that we consider this out of scope
+                let ciphertext = cipher.encrypt(&nonce, unencrypted_data.as_ref()).unwrap();
+
+                tcp_connection.write_all(&ciphertext.len().to_le_bytes()).map_err(|e| "Error sending length: ".to_string() + &e.to_string())?;
+                tcp_connection.write_all(&ciphertext).map_err(|e| "Error sending length: ".to_string() + &e.to_string())?;
+
+                tcp_connection.flush().map_err(|e| "Error flushing: ".to_string() + &e.to_string())?;
+
+                Ok(())
             }
         }
-        if res.is_err() {
-            error!("Error sending command: {:?}", res);
+    }
+
+    pub fn send_command(&mut self, c: Command) -> Result<(), String> {
+        debug!("Sending command {:?} to {}", c, &self);
+        let r = self.send_command_impl(c);
+        if let Err(ref e) = &r {
+            error!("{}", e);
         }
-        res
+        r
+    }
+
+    fn receive_response_impl(&mut self) -> Result<Response, String> {
+        match self {
+            Comms::Local { receiver, .. } => receiver.recv().map_err(|e| "Error receiving from channel: ".to_string() + &e.to_string()),
+            Comms::Remote { tcp_connection, cipher, receiving_nonce_counter, .. } => {
+                let mut buf = [0 as u8; 8];            
+                tcp_connection.read_exact(&mut buf).map_err(|e| "Error reading len: ".to_string() + &e.to_string())?;
+                let encrypted_len = usize::from_le_bytes(buf);
+
+                let mut encrypted_data = vec![0 as u8; encrypted_len];
+                tcp_connection.read_exact(&mut encrypted_data).map_err(|e| "Error reading data: ".to_string() + &e.to_string())?;
+ 
+                assert!(*receiving_nonce_counter % 2 == 1);
+                let mut nonce_bytes = receiving_nonce_counter.to_le_bytes().to_vec();
+                nonce_bytes.resize(12, 0); // pad it
+                let nonce = Nonce::<Aes128Gcm>::from_slice(&nonce_bytes);
+                *receiving_nonce_counter += 2; // Increment by two so that it never overlaps with the nonce used by the boss
+                // This could overflow, but it would take so many messages that we consider this out of scope
+
+                let unencrypted_data = cipher.decrypt(nonce, encrypted_data.as_ref()).map_err(|e| "Error decrypting: ".to_string() + &e.to_string())?;
+
+                let resp = bincode::deserialize(&unencrypted_data).map_err(|e| "Error deserializing: ".to_string() + &e.to_string())?;
+
+                Ok(resp)
+            }
+        }
     }
 
     pub fn receive_response(&mut self) -> Result<Response, String> {
         debug!("Waiting for response from {}", &self);
-
-        let r = match self {
-            Comms::Local { receiver, .. } => receiver.recv().map_err(|e| e.to_string()),
-            Comms::Remote { stdout, .. } => {
-                bincode::deserialize_from(stdout.by_ref()).map_err(|e| e.to_string())
-            }
-        };
-        debug!("Received response {:?} from {}", r, &self);
+        let r = self.receive_response_impl();
+        match &r {
+            Err(ref e) => error!("{}", e),
+            Ok(ref r) => debug!("Received response {:?} from {}", r, &self),
+        }
         r
     }
 }
@@ -307,11 +356,16 @@ fn setup_comms(
                 // No point trying again. launch_doer_via_ssh will have logged the error already.
                 return None;
             }
+            SshDoerLaunchResult::CommunicationError => {
+                // No point trying again. launch_doer_via_ssh will have logged the error already.
+                return None;
+            }
             SshDoerLaunchResult::Success {
                 ssh_process,
                 stdin,
                 stdout,
                 mut stderr,
+                secret_key,
             } => {
                 // Start a background thread to print out log messages from the remote doer,
                 // which it can send over its stderr.
@@ -354,9 +408,13 @@ fn setup_comms(
                 return Some(Comms::Remote {
                     debug_name: "Remote ".to_string() + &debug_name + " at " + remote_hostname,
                     ssh_process,
-                    stdin: BufWriter::new(stdin),
+                    stdin,
                     stdout,
                     stderr_reading_thread,
+                    tcp_connection,
+                    cipher: Aes128Gcm::new(&secret_key),
+                    sending_nonce_counter: 0, // Nonce counters must be different, so sender and receiver don't reuse
+                    receiving_nonce_counter: 1,
                 });
             }
         };
@@ -374,6 +432,8 @@ enum SshDoerLaunchResult {
     /// ssh exited before the handshake with rjrssync took place. This could be due to many reasons,
     /// for example rjrssync couldn't launch correctly.
     ExitedUnexpectedly,
+    /// Failed to send/receive some data on stdin/stdout commuicating with the doer.
+    CommunicationError,
     /// rjrssync launched successfully on the remote computer, but it reported a version number that
     /// isn't compatible with our version.
     HandshakeIncompatibleVersion,
@@ -383,9 +443,10 @@ enum SshDoerLaunchResult {
     /// but we use the network connection for the main data transfer because it is faster (see README).
     Success {
         ssh_process: std::process::Child,
-        stdin: ChildStdin,
+        stdin: LineWriter<ChildStdin>,
         stdout: BufReader<ChildStdout>,
         stderr: BufReader<ChildStderr>,
+        secret_key: Key<Aes128Gcm>,
     },
 }
 
@@ -521,7 +582,7 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str) -> SshDoerLaunc
     debug!("Waiting for remote copy to send version handshake");
 
     // unwrap is fine here, as the streams should always be available as we piped them all
-    let mut ssh_stdin = ssh_process.stdin.take().unwrap();
+    let mut ssh_stdin = LineWriter::new(ssh_process.stdin.take().unwrap());
     let ssh_stdout = ssh_process.stdout.take().unwrap();
     let ssh_stderr = ssh_process.stderr.take().unwrap();
 
@@ -552,6 +613,7 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str) -> SshDoerLaunc
         stderr: Option<BufReader<ChildStderr>>,
     }
     let mut handshook_stdout_and_stderr = HandshookStdoutAndStderr::default();
+    let mut secret_key = None;
     loop {
         match receiver.recv() {
             Ok((stream_type, OutputReaderThreadMsg::Line(l))) => {
@@ -574,15 +636,23 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str) -> SshDoerLaunc
                     );
                     // Note the stdin of the ssh will be dropped and this will tidy everything up nicely
                     //TODO: i'm not so sure - we seem to be leaving 'orphaned' doers running on the remote side!
+                    // Remote process not closing when stdin is closed because we're now waiting for tcp connection, whereas before we were reading from stdin so when it was closed, we errored and exited
                     return SshDoerLaunchResult::HandshakeIncompatibleVersion;
                 }
 
                 // Send our secret key, so that we can authenticate/encrypt the network connection
                 // Only do this once (when stdout has passed the version check)
                 if stream_type == OutputReaderStreamType::Stdout {
-                    debug!("Sending secret key");
-                    ssh_stdin.write("a secret key\n".as_bytes()); //TODO: make random!
-                    panic!("Key needs to be secret!");
+                    debug!("Sending secret key");                    
+                    // Note that we generate a new key for each doer
+                    let key = Aes128Gcm::generate_key(&mut OsRng);
+                    let mut msg = base64::encode(key).as_bytes().to_vec();
+                    msg.push(b'\n');
+                    if let Err(e) = ssh_stdin.write_all(&msg) {
+                        error!("Failed to send secret");
+                        return SshDoerLaunchResult::CommunicationError;
+                    }
+                    secret_key = Some(key);
                 }
             }
             Ok((stream_type, OutputReaderThreadMsg::HandshakeCompleted(s))) => {
@@ -599,11 +669,13 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str) -> SshDoerLaunc
                         stdin: ssh_stdin,
                         stdout, 
                         stderr, 
+                        secret_key: secret_key.unwrap(),
                     };
                 };
             }
             Ok((stream_type, OutputReaderThreadMsg::Error(e))) => {
                 error!("Error reading from {}: {}", stream_type, e);
+                return SshDoerLaunchResult::CommunicationError;
             }
             Ok((stream_type, OutputReaderThreadMsg::StreamClosed)) => {
                 debug!("ssh {} closed", stream_type);

@@ -1,3 +1,6 @@
+use aes_gcm::aead::generic_array::GenericArray;
+use aes_gcm::{Aes128Gcm, KeyInit};
+use aes_gcm::aead::{OsRng, Nonce, Aead};
 use clap::Parser;
 use env_logger::Env;
 use log::{debug, error};
@@ -5,10 +8,10 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::{
     fmt::{self, Display},
-    io::{BufReader, BufWriter, Stdin, Stdout, Write},
+    io::{BufReader, BufWriter, Stdin, Stdout, Write, Read},
     path::{Path, PathBuf},
     sync::mpsc::{Receiver, Sender},
-    time::{Instant, SystemTime}, net::TcpListener,
+    time::{Instant, SystemTime}, net::{TcpListener, TcpStream},
 };
 use walkdir::WalkDir;
 
@@ -118,61 +121,94 @@ pub enum Response {
     Error(String),
 }
 
-//TODO: update this to use TCP for remote communication.
-//TODO: add encryption too!
 /// Abstraction of two-way communication channel between this doer and the boss, which might be
-/// remote (communicating through our stdin and stdout) or local (communicating via a channel to the main thread).
+/// remote (communicating over a TCP connection) or local (communicating via a channel to the main thread).
 enum Comms {
     Local {
         sender: Sender<Response>,
         receiver: Receiver<Command>,
     },
     Remote {
-        // Remote reads/writes to the process' stdin/stdout, but uses bufferred readers/writers
-        // to reduce number of underlying system calls, for performance
-        stdin: BufReader<Stdin>,
-        stdout: BufWriter<Stdout>,
+        tcp_connection: TcpStream,
+
+        cipher: Aes128Gcm,
+        sending_nonce_counter: u64,
+        receiving_nonce_counter: u64,
     },
 }
 impl Comms {
-    fn send_response(&mut self, r: Response) -> Result<(), String> {
-        debug!("Sending response {:?} to {}", r, &self);
-        let mut res;
+    fn send_response_impl(&mut self, c: Response) -> Result<(), String> {
         match self {
-            Comms::Local {
-                sender,
-                receiver: _,
-            } => {
-                res = sender.send(r).map_err(|e| e.to_string());
+            Comms::Local { sender, .. } => {
+                sender.send(c).map_err(|e| "Error sending on channel: ".to_string() + &e.to_string())
             }
-            Comms::Remote { stdout, .. } => {
-                res = bincode::serialize_into(stdout.by_ref(), &r).map_err(|e| e.to_string());
-                if res.is_ok() {
-                    res = stdout.flush().map_err(|e| e.to_string()); // Otherwise could be buffered and we hang!
-                }
+            Comms::Remote { tcp_connection, cipher, sending_nonce_counter, .. } => {
+                let unencrypted_data = bincode::serialize(&c).map_err(|e| "Error serializing response: ".to_string() + &e.to_string())?;
+
+                assert!(*sending_nonce_counter % 2 == 1);
+                let mut nonce_bytes = sending_nonce_counter.to_le_bytes().to_vec();
+                nonce_bytes.resize(12, 0); // pad it
+                let nonce = Nonce::<Aes128Gcm>::from_slice(&nonce_bytes);
+                *sending_nonce_counter += 2; // Increment by two so that it never overlaps with the nonce used by the doer
+                // This could overflow, but it would take so many messages that we consider this out of scope
+                let ciphertext = cipher.encrypt(&nonce, unencrypted_data.as_ref()).unwrap();
+
+                tcp_connection.write_all(&ciphertext.len().to_le_bytes()).map_err(|e| "Error sending length: ".to_string() + &e.to_string())?;
+                tcp_connection.write_all(&ciphertext).map_err(|e| "Error sending length: ".to_string() + &e.to_string())?;
+
+                tcp_connection.flush().map_err(|e| "Error flushing: ".to_string() + &e.to_string())?;
+
+                Ok(())
             }
         }
-        if res.is_err() {
-            error!("Error sending response: {:?}", res);
-        }
-        res
     }
 
-    fn receive_command(&mut self) -> Result<Command, String> {
+    pub fn send_response(&mut self, c: Response) -> Result<(), String> {
+        debug!("Sending response {:?} to {}", c, &self);
+        let r = self.send_response_impl(c);
+        if let Err(ref e) = &r {
+            error!("{}", e);
+        }
+        r
+    }
+
+    fn receive_command_impl(&mut self) -> Result<Command, String> {
+        match self {
+            Comms::Local { receiver, .. } => receiver.recv().map_err(|e| "Error receiving from channel: ".to_string() + &e.to_string()),
+            Comms::Remote { tcp_connection, cipher, receiving_nonce_counter, .. } => {
+                let mut buf = [0 as u8; 8];            
+                tcp_connection.read_exact(&mut buf).map_err(|e| "Error reading len: ".to_string() + &e.to_string())?;
+                let encrypted_len = usize::from_le_bytes(buf);
+
+                let mut encrypted_data = vec![0 as u8; encrypted_len];
+                tcp_connection.read_exact(&mut encrypted_data).map_err(|e| "Error reading data: ".to_string() + &e.to_string())?;
+ 
+                assert!(*receiving_nonce_counter % 2 == 0);
+                let mut nonce_bytes = receiving_nonce_counter.to_le_bytes().to_vec();
+                nonce_bytes.resize(12, 0); // pad it
+                let nonce = Nonce::<Aes128Gcm>::from_slice(&nonce_bytes);
+                *receiving_nonce_counter += 2; // Increment by two so that it never overlaps with the nonce used by the boss
+                // This could overflow, but it would take so many messages that we consider this out of scope
+
+                let unencrypted_data = cipher.decrypt(nonce, encrypted_data.as_ref()).map_err(|e| "Error decrypting")?;
+
+                let resp = bincode::deserialize(&unencrypted_data).map_err(|e| "Error deserializing: ".to_string() + &e.to_string())?;
+
+                Ok(resp)
+            }
+        }
+    }
+
+    pub fn receive_command(&mut self) -> Result<Command, String> {
         debug!("Waiting for command from {}", &self);
-
-        let c = match self {
-            Comms::Local {
-                sender: _,
-                receiver,
-            } => receiver.recv().map_err(|e| e.to_string()),
-            Comms::Remote { stdin, .. } => {
-                bincode::deserialize_from(stdin).map_err(|e| e.to_string())
-            }
-        };
-        debug!("Received command {:?} from {}", c, &self);
-        c
+        let r = self.receive_command_impl();
+        match &r {
+            Err(ref e) => error!("{}", e),
+            Ok(ref r) => debug!("Received command {:?} from {}", r, &self),
+        }
+        r
     }
+
 }
 impl Display for Comms {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -223,6 +259,16 @@ pub fn doer_main() -> ExitCode {
         error!("Failed to receive secret: {}", e);
         return ExitCode::from(22);
     }
+    secret.pop(); // remove trailing newline
+
+    let secret_bytes = match base64::decode(secret) {
+        Ok(b) => b,
+        Err(e) => {
+            error!("Failed to decode secret: {}", e);
+            return ExitCode::from(23);
+        }
+    };
+    let secret_key = GenericArray::from_slice(&secret_bytes);
 
     // Wait for a connection from the boss
     let listener = match TcpListener::bind("127.0.0.1:".to_string() + &args.port.to_string()) {
@@ -237,32 +283,24 @@ pub fn doer_main() -> ExitCode {
     println!("{}", HANDSHAKE_COMPLETED_MSG);
     eprintln!("{}", HANDSHAKE_COMPLETED_MSG);
    
-    match listener.accept() {
-        Ok((socket, addr)) => debug!("new client: {socket:?} {addr:?}"),
+    let tcp_connection = match listener.accept() {
+        Ok((socket, addr)) => {
+            debug!("new client: {socket:?} {addr:?}");
+            socket
+        }
         Err(e) => {
             error!("Failed to accept: {}", e);
             return ExitCode::from(25);
         }
-    }
-
-    //TODO: the below probably isn't good enough, because it doesn't stop an attacker
-    // from intercepting the communication and then eavesdropping or changing the messages
-    // once we drop into unencrypted data.
-    // This looks good: https://github.com/laysakura/serde-encrypt
-    // Specifically the shared key encryption. Need to benchmark to test throughput!
-
-    // Challenge the boss with some random data and make sure that it replies
-    // with the expected response (the data combined with the secret, which shows that they
-    // have the same secret).
-    // We also need to reply to the boss' challenge by combining it with the secret and send it back,
-    // so that they know we are authentic.
-    //TODO:
+    };
 
     // Now that we know the boss that connected to our network port is the one who launched us,
     // we can process commands they send us.
     let comms = Comms::Remote {
-        stdin: BufReader::new(std::io::stdin()),
-        stdout: BufWriter::new(std::io::stdout()),
+        tcp_connection,
+        cipher: Aes128Gcm::new(&secret_key),
+        sending_nonce_counter: 1, // Nonce counters must be different, so sender and receiver don't reuse
+        receiving_nonce_counter: 0,
     };
 
     match message_loop(comms) {
