@@ -23,6 +23,12 @@ impl FileSizeHistogram {
 impl Display for FileSizeHistogram {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f)?;
+
+        if self.buckets.is_empty() {
+            writeln!(f, "Empty")?;
+            return Ok(());
+        }
+
         let h = 5;
         let max = *self.buckets.iter().max().unwrap(); //TODO: could be empty! (everything filtered)
         for y in 0..h {
@@ -82,7 +88,7 @@ pub fn sync(
         .send_command(Command::GetEntries { root: src_folder, exclude_filters: exclude_filters.clone() })
         .unwrap();
     dest_comms
-        .send_command(Command::GetEntries { root: dest_folder, exclude_filters: exclude_filters.clone() })
+        .send_command(Command::GetEntries { root: dest_folder, exclude_filters })
         .unwrap();
 
     //TODO: what about symlinks

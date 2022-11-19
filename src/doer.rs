@@ -1,6 +1,5 @@
 use aes_gcm::aead::generic_array::GenericArray;
 use aes_gcm::{Aes128Gcm, KeyInit};
-use aes_gcm::aead::{Nonce, Aead};
 use clap::Parser;
 use env_logger::Env;
 use log::{debug, error};
@@ -8,7 +7,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::{
     fmt::{self, Display},
-    io::{Write, Read},
+    io::{Write},
     path::{Path, PathBuf},
     sync::mpsc::{Receiver, Sender},
     time::{Instant, SystemTime}, net::{TcpListener, TcpStream},
@@ -123,6 +122,7 @@ pub enum Response {
 
 /// Abstraction of two-way communication channel between this doer and the boss, which might be
 /// remote (communicating over an encrypted TCP connection) or local (communicating via a channel to the main thread).
+#[allow(clippy::large_enum_variant)]
 enum Comms {
     Local {
         sender: Sender<Response>,
@@ -264,7 +264,7 @@ pub fn doer_main() -> ExitCode {
     // so that we know it's the boss.
     let comms = Comms::Remote {
         tcp_connection,
-        cipher: Aes128Gcm::new(&secret_key),
+        cipher: Aes128Gcm::new(secret_key),
         sending_nonce_counter: 1, // Nonce counters must be different, so sender and receiver don't reuse
         receiving_nonce_counter: 0,
     };
@@ -386,7 +386,7 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) 
     true
 }
 
-fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, root: &str, exclude_filters: &Vec<String>) {
+fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, root: &str, exclude_filters: &[String]) {
     // Store the root folder for future operations
     context.root = PathBuf::from(root);
 

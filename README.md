@@ -23,6 +23,8 @@ so that each side of the connection is secure.
 
 All readings from home PC (MANTA)
 
+TODO: these readings were taken with a bug in both piper and tcper where we weren't writing all the data! :O
+
 Stdin throughput (piper, buffers all 40960):
 
 Windows -> Windows (piper.exe | piper.exe): ~2.7GB/s

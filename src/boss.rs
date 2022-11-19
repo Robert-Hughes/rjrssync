@@ -1,4 +1,4 @@
-use aes_gcm::aead::{OsRng, Nonce, Aead};
+use aes_gcm::aead::{OsRng};
 use aes_gcm::{Aes128Gcm, KeyInit, Key};
 use clap::Parser;
 use env_logger::{fmt::Color, Env};
@@ -11,7 +11,7 @@ use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
 use std::{
     fmt::{self, Display},
-    io::{BufRead, BufReader, Read, Write},
+    io::{BufRead, BufReader, Write},
     path::PathBuf,
     process::{ChildStderr, ChildStdin, ChildStdout, ExitCode, Stdio},
     sync::mpsc::{RecvError, SendError},
@@ -181,6 +181,7 @@ pub fn boss_main() -> ExitCode {
 
 /// Abstraction of two-way communication channel between this boss and a doer, which might be
 /// remote (communicating over an encrypted TCP connection) or local (communicating via a channel to a background thread).
+#[allow(clippy::large_enum_variant)]
 pub enum Comms {
     Local {
         debug_name: String, // To identify this Comms against others for debugging, when there are several
@@ -559,6 +560,7 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str, remote_port_for
 
     // Spawn a background thread for each stdout and stderr, to process messages we get from ssh
     // and forward them to the main thread. This is easier than some kind of async IO stuff.
+    #[allow(clippy::type_complexity)]
     let (sender1, receiver): (
         Sender<(OutputReaderStreamType, OutputReaderThreadMsg)>,
         Receiver<(OutputReaderStreamType, OutputReaderThreadMsg)>,
