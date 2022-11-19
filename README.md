@@ -23,8 +23,6 @@ so that each side of the connection is secure.
 
 All readings from home PC (MANTA)
 
-TODO: these readings were taken with a bug in both piper and tcper where we weren't writing all the data! :O
-
 Stdin throughput (piper, buffers all 40960):
 
 Windows -> Windows (piper.exe | piper.exe): ~2.7GB/s
@@ -34,26 +32,27 @@ WSL -> WSL (piper | piper): ~7.5GB/s
 
 SSH stdin throughput (piper, buffers all 40960):
 
-Windows -> Windows (piper.exe | ssh windows piper.exe): ~20MB/s
-Windows -> WSL (piper.exe | ssh wsl piper): ~20MB/s
+Windows -> Windows (piper.exe | ssh windows piper.exe): ~18MB/s
+Windows -> WSL (piper.exe | ssh wsl piper): ~18MB/s
 WSL -> Windows (piper | ssh windows piper.exe): ~200MB/s
 WSL -> WSL (piper | ssh wsl piper.exe): 200-250MB/s
 
 TCP connection throughput (tcper, buffers all 40960):
 
-Windows -> Windows: 2-3GB/s (gets even faster with bigger buffers!)
+Windows -> Windows: ~1.5GB/s (gets even faster with bigger buffers!)
 Windows -> WSL: 500-600MB/s
-WSL -> Windows: ~2GB/s (firewall needs enabling for PUBLIC networks!)
-WSL -> WSL: 7-8GB/s
+WSL -> Windows: ~1.5GB/s (firewall needs enabling for PUBLIC networks!)
+WSL -> WSL: ~6GB/s
 
 SSH port forwarded throughput (tcper, buffers all 40960):
 
-Windows -> Windows (ssh from Windows to Windows to forward local port): ~200MB/s
+Windows -> Windows (ssh from Windows to Windows to forward local port): ~150MB/s
 Windows -> WSL (ssh from Windows to WSL to forward local port): ~150MB/s
 WSL -> Windows (ssh from WSL to Windows to forward local port): ~200MB/s
-WSL -> WSL (ssh from WSL to WSL to forward local port): ~200MB/s
+WSL -> WSL (ssh from WSL to WSL to forward local port): ~230MB/s
 
 TCP connection with shared key encryption using serde_encrypt (tcper -e, buffers all 40960):
+NOTE: these readings were taken with a bug in both piper and tcper where we weren't writing all the data! :O
 
 Windows -> Windows: 250-300MB/s
 Windows -> WSL: 250-300MB/s
