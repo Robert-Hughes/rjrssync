@@ -60,6 +60,13 @@ Windows -> WSL: 250-300MB/s
 WSL -> Windows: ~300MB/s
 WSL -> WSL: ~300MB/s
 
+TCP connection with shared key encryption using aes-gcm Aes256Gcm (tcper -e, buffers all 40960):
+
+Windows -> Windows: ~700MB/s
+Windows -> WSL: ~500MB/s
+WSL -> Windows: 700-800MB/s
+WSL -> WSL: 900-1000MB/s
+
 
 TODO:
 

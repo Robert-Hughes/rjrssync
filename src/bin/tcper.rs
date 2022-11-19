@@ -2,7 +2,10 @@ use std::{io::{BufReader, BufWriter, Read, Write}, time::Instant, net::{TcpListe
 
 use clap::Parser;
 use serde::{Deserialize, Serialize};
-use serde_encrypt::{traits::SerdeEncryptSharedKey, serialize::impls::BincodeSerializer, shared_key::SharedKey, EncryptedMessage};
+use aes_gcm::{
+    aead::{Aead, KeyInit, OsRng, generic_array::GenericArray},
+    Aes128Gcm, Nonce
+};
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -17,19 +20,13 @@ struct Args {
     encrypted: bool,
 }
 
-#[derive(Serialize, Deserialize)]
-struct Payload {
-    data: Vec<u8>,
-}
-impl SerdeEncryptSharedKey for Payload {
-    type S = BincodeSerializer<Self>;
-}
-
-
 fn main() {
     let args = Args::parse();
 
-    let shared_key = SharedKey::new([7u8; 32]);
+    //let shared_key = Aes128Gcm::generate_key(&mut OsRng);
+    let shared_key = GenericArray::from_slice(b"secret key.12345");
+    let cipher = Aes128Gcm::new(&shared_key);
+    let nonce = Nonce::from_slice(b"unique nonce"); // 96-bits; unique per message
 
     let mut reader = None;
     let mut writer = None;
@@ -93,19 +90,16 @@ fn main() {
 
                 let mut buf = vec![0 as u8; encrypted_len];
                 r.read_exact(&mut buf).unwrap();
-                let enc_msg = EncryptedMessage::deserialize(buf).unwrap();
-                let payload = Payload::decrypt_owned(&enc_msg, &shared_key).unwrap();
-                unencrypted_data = payload.data;
+                unencrypted_data = cipher.decrypt(nonce, buf.as_ref()).unwrap();
             }
     
             num_bytes_copied += unencrypted_data.len();
 
             if let Some(ref mut w) = writer {
-                let payload = Payload { data: unencrypted_data };
-                let enc_msg = payload.encrypt(&shared_key).unwrap();
-                let buf = enc_msg.serialize();
-                w.write(&buf.len().to_le_bytes()).unwrap();
-                w.write(&buf).unwrap();
+                let ciphertext = cipher.encrypt(nonce, unencrypted_data.as_ref()).unwrap();
+
+                w.write(&ciphertext.len().to_le_bytes()).unwrap();
+                w.write(&ciphertext).unwrap();
             }
     
             // Getting time is slow, so only do this once we've copied a certain number of bytes.
