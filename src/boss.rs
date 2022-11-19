@@ -336,6 +336,8 @@ fn setup_comms(
                 // Connect to the network port that the doer should be listening on
                 let addr = (remote_hostname, remote_port_for_comms);
                 debug!("Connecting to doer over network at {:?}", addr);
+                //TODO: this has a delay ~1 sec even when connecting to localhost, apparently because it first tries connecting to the
+                // IPv6 local address, and it has to wait for this to fail before trying IPv4. Maybe can skip this?
                 let tcp_connection = match TcpStream::connect(addr) {
                     Ok(t) => {
                         debug!("Connected! {:?}", t);
