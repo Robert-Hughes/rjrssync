@@ -42,7 +42,7 @@ fn main() {
         };
 
         if let Some(ref mut w) = stdout_writer {
-            w.write(&buf[0..num_bytes_in_buffer]).unwrap();
+            w.write_all(&buf[0..num_bytes_in_buffer]).unwrap();
         }
 
         num_bytes_copied += num_bytes_in_buffer;
@@ -59,7 +59,7 @@ fn main() {
             if elapsed > 2.0 {
                 measure_granularity = std::cmp::max(measure_granularity / 2, 1);
             } else if elapsed < 0.5 {
-                measure_granularity = measure_granularity * 2;
+                measure_granularity *= 2;
             }
         }
     }

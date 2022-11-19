@@ -1,9 +1,8 @@
 use std::{io::{BufReader, BufWriter, Read, Write}, time::Instant, net::{TcpListener, TcpStream}};
 
 use clap::Parser;
-use serde::{Deserialize, Serialize};
 use aes_gcm::{
-    aead::{Aead, KeyInit, OsRng, generic_array::GenericArray},
+    aead::{Aead, KeyInit, generic_array::GenericArray},
     Aes128Gcm, Nonce
 };
 
@@ -25,7 +24,7 @@ fn main() {
 
     //let shared_key = Aes128Gcm::generate_key(&mut OsRng);
     let shared_key = GenericArray::from_slice(b"secret key.12345");
-    let cipher = Aes128Gcm::new(&shared_key);
+    let cipher = Aes128Gcm::new(shared_key);
     let nonce = Nonce::from_slice(b"unique nonce"); // 96-bits; unique per message
 
     let mut reader = None;
@@ -59,7 +58,7 @@ fn main() {
             };
 
             if let Some(ref mut w) = writer {
-                w.write(&buf[0..num_bytes_in_buffer]).unwrap();
+                w.write_all(&buf[0..num_bytes_in_buffer]).unwrap();
             }
 
             num_bytes_copied += num_bytes_in_buffer;
@@ -76,19 +75,19 @@ fn main() {
                 if elapsed > 2.0 {
                     measure_granularity = std::cmp::max(measure_granularity / 2, 1);
                 } else if elapsed < 0.5 {
-                    measure_granularity = measure_granularity * 2;
+                    measure_granularity *= 2;
                 }
             }
         }
     } else {
         loop {
-            let mut unencrypted_data = vec![0 as u8; args.buffer_size as usize];
+            let mut unencrypted_data = vec![0_u8; args.buffer_size as usize];
             if let Some(ref mut r) = reader {
-                let mut buf = [0 as u8; 8];            
+                let mut buf = [0_u8; 8];            
                 r.read_exact(&mut buf).unwrap();
                 let encrypted_len = usize::from_le_bytes(buf);
 
-                let mut buf = vec![0 as u8; encrypted_len];
+                let mut buf = vec![0_u8; encrypted_len];
                 r.read_exact(&mut buf).unwrap();
                 unencrypted_data = cipher.decrypt(nonce, buf.as_ref()).unwrap();
             }
@@ -98,8 +97,8 @@ fn main() {
             if let Some(ref mut w) = writer {
                 let ciphertext = cipher.encrypt(nonce, unencrypted_data.as_ref()).unwrap();
 
-                w.write(&ciphertext.len().to_le_bytes()).unwrap();
-                w.write(&ciphertext).unwrap();
+                w.write_all(&ciphertext.len().to_le_bytes()).unwrap();
+                w.write_all(&ciphertext).unwrap();
             }
     
             // Getting time is slow, so only do this once we've copied a certain number of bytes.
@@ -115,7 +114,7 @@ fn main() {
                 if elapsed > 2.0 {
                     measure_granularity = std::cmp::max(measure_granularity / 2, 1);
                 } else if elapsed < 0.5 {
-                    measure_granularity = measure_granularity * 2;
+                    measure_granularity *= 2;
                 }
             }
         }
