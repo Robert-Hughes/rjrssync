@@ -85,7 +85,6 @@ TODO:
 * Additional SSH options as command-line arguments (separate for source and dest?)
 * Investigate if parallelising some stages would speed it up, e.g. walking the dir structure on multiple threads, or sending data across network on multiple threads
 * Investigate if pipelining some stages would speed it up, e.g. sending file list while also sending it
-* Remote launching on windows (temp folder path is unix-style!)
 * SSH host key verification prompt doesn't echo the user's typing, but it does seem to work anyway
 * Probably better to batch together File() Responses, to avoid overhead from sending loads of messages
 * Perf comparison with regular rsync (for cases where there are zero or few changes, and for cases with more changes)
@@ -101,8 +100,6 @@ TODO:
 * Format total bytes and total files etc. with commas, or GB, MB etc.
 * Create destination root if it doesn't exist?
 * Only show histograms based on an argument, to avoid cluttering the output?
-* Logging seems to be slowing things down by adding extra bandwidth, especially for the remote side?
-Even when it's disabled, it might still be evaluating ths log arguments (including the full contents of files!)
 
 Idea for filters, with re-usable "functions":
 ===============
