@@ -1,6 +1,6 @@
 use aes_gcm::aead::generic_array::GenericArray;
 use aes_gcm::{Aes128Gcm, KeyInit};
-use aes_gcm::aead::{OsRng, Nonce, Aead};
+use aes_gcm::aead::{Nonce, Aead};
 use clap::Parser;
 use env_logger::Env;
 use log::{debug, error};
@@ -8,7 +8,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::{
     fmt::{self, Display},
-    io::{BufReader, BufWriter, Stdin, Stdout, Write, Read},
+    io::{Write, Read},
     path::{Path, PathBuf},
     sync::mpsc::{Receiver, Sender},
     time::{Instant, SystemTime}, net::{TcpListener, TcpStream},
@@ -122,7 +122,7 @@ pub enum Response {
 }
 
 /// Abstraction of two-way communication channel between this doer and the boss, which might be
-/// remote (communicating over a TCP connection) or local (communicating via a channel to the main thread).
+/// remote (communicating over an encrypted TCP connection) or local (communicating via a channel to the main thread).
 enum Comms {
     Local {
         sender: Sender<Response>,
@@ -130,85 +130,45 @@ enum Comms {
     },
     Remote {
         tcp_connection: TcpStream,
-
         cipher: Aes128Gcm,
         sending_nonce_counter: u64,
         receiving_nonce_counter: u64,
     },
 }
 impl Comms {
-    fn send_response_impl(&mut self, c: Response) -> Result<(), String> {
-        match self {
-            Comms::Local { sender, .. } => {
-                sender.send(c).map_err(|e| "Error sending on channel: ".to_string() + &e.to_string())
-            }
-            Comms::Remote { tcp_connection, cipher, sending_nonce_counter, .. } => {
-                let unencrypted_data = bincode::serialize(&c).map_err(|e| "Error serializing response: ".to_string() + &e.to_string())?;
-
-                assert!(*sending_nonce_counter % 2 == 1);
-                let mut nonce_bytes = sending_nonce_counter.to_le_bytes().to_vec();
-                nonce_bytes.resize(12, 0); // pad it
-                let nonce = Nonce::<Aes128Gcm>::from_slice(&nonce_bytes);
-                *sending_nonce_counter += 2; // Increment by two so that it never overlaps with the nonce used by the doer
-                // This could overflow, but it would take so many messages that we consider this out of scope
-                let ciphertext = cipher.encrypt(&nonce, unencrypted_data.as_ref()).unwrap();
-
-                tcp_connection.write_all(&ciphertext.len().to_le_bytes()).map_err(|e| "Error sending length: ".to_string() + &e.to_string())?;
-                tcp_connection.write_all(&ciphertext).map_err(|e| "Error sending length: ".to_string() + &e.to_string())?;
-
-                tcp_connection.flush().map_err(|e| "Error flushing: ".to_string() + &e.to_string())?;
-
-                Ok(())
-            }
+    pub fn send_response(&mut self, r: Response) -> Result<(), String> {
+        debug!("Sending response {:?} to {}", r, &self);
+        let res = 
+            match self {
+                Comms::Local { sender, .. } => {
+                    sender.send(r).map_err(|e| "Error sending on channel: ".to_string() + &e.to_string())
+                }
+                Comms::Remote { tcp_connection, cipher, sending_nonce_counter, .. } => {
+                    encrypted_comms::send(r, tcp_connection, cipher, sending_nonce_counter, 1)
+                }
+            };
+        if let Err(ref e) = &res {
+            error!("Error sending response: {:?}", e);
         }
-    }
-
-    pub fn send_response(&mut self, c: Response) -> Result<(), String> {
-        debug!("Sending response {:?} to {}", c, &self);
-        let r = self.send_response_impl(c);
-        if let Err(ref e) = &r {
-            error!("{}", e);
-        }
-        r
-    }
-
-    fn receive_command_impl(&mut self) -> Result<Command, String> {
-        match self {
-            Comms::Local { receiver, .. } => receiver.recv().map_err(|e| "Error receiving from channel: ".to_string() + &e.to_string()),
-            Comms::Remote { tcp_connection, cipher, receiving_nonce_counter, .. } => {
-                let mut buf = [0 as u8; 8];            
-                tcp_connection.read_exact(&mut buf).map_err(|e| "Error reading len: ".to_string() + &e.to_string())?;
-                let encrypted_len = usize::from_le_bytes(buf);
-
-                let mut encrypted_data = vec![0 as u8; encrypted_len];
-                tcp_connection.read_exact(&mut encrypted_data).map_err(|e| "Error reading data: ".to_string() + &e.to_string())?;
- 
-                assert!(*receiving_nonce_counter % 2 == 0);
-                let mut nonce_bytes = receiving_nonce_counter.to_le_bytes().to_vec();
-                nonce_bytes.resize(12, 0); // pad it
-                let nonce = Nonce::<Aes128Gcm>::from_slice(&nonce_bytes);
-                *receiving_nonce_counter += 2; // Increment by two so that it never overlaps with the nonce used by the boss
-                // This could overflow, but it would take so many messages that we consider this out of scope
-
-                let unencrypted_data = cipher.decrypt(nonce, encrypted_data.as_ref()).map_err(|e| "Error decrypting")?;
-
-                let resp = bincode::deserialize(&unencrypted_data).map_err(|e| "Error deserializing: ".to_string() + &e.to_string())?;
-
-                Ok(resp)
-            }
-        }
+        res
     }
 
     pub fn receive_command(&mut self) -> Result<Command, String> {
         debug!("Waiting for command from {}", &self);
-        let r = self.receive_command_impl();
-        match &r {
+        let res = match self {
+            Comms::Local { receiver, .. } => {
+                receiver.recv().map_err(|e| "Error receiving from channel: ".to_string() + &e.to_string())
+            }
+            Comms::Remote { tcp_connection, cipher, receiving_nonce_counter, .. } => {
+                encrypted_comms::receive(tcp_connection, cipher, receiving_nonce_counter, 0)
+            }
+        };
+        match &res {
             Err(ref e) => error!("{}", e),
             Ok(ref r) => debug!("Received command {:?} from {}", r, &self),
         }
-        r
+        res
     }
-
 }
 impl Display for Comms {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -270,22 +230,28 @@ pub fn doer_main() -> ExitCode {
     };
     let secret_key = GenericArray::from_slice(&secret_bytes);
 
-    // Wait for a connection from the boss
-    let listener = match TcpListener::bind("127.0.0.1:".to_string() + &args.port.to_string()) {
-        Ok(l) => l,
+    // Start listening on the requested port
+    let addr = ("127.0.0.1", args.port); //TODO: listen on all interfaces? Otherwise this won't work over a real network
+    let listener = match TcpListener::bind(addr) {
+        Ok(l) => {
+            debug!("Listening on {:?}", addr);
+            l
+        }
         Err(e) => {
-            error!("Failed to bind: {}", e);
+            error!("Failed to bind to {:?}: {}", addr, e);
             return ExitCode::from(24);
         }
     };
 
     // Let the boss know that we are ready for the network connection
+    // We need to do this on both stdout and stderr, because both those streams need to be synchronised on the receiving end.
     println!("{}", HANDSHAKE_COMPLETED_MSG);
     eprintln!("{}", HANDSHAKE_COMPLETED_MSG);
    
+    // Wait for a connection from the boss
     let tcp_connection = match listener.accept() {
         Ok((socket, addr)) => {
-            debug!("new client: {socket:?} {addr:?}");
+            debug!("Client connected: {socket:?} {addr:?}");
             socket
         }
         Err(e) => {
@@ -294,8 +260,8 @@ pub fn doer_main() -> ExitCode {
         }
     };
 
-    // Now that we know the boss that connected to our network port is the one who launched us,
-    // we can process commands they send us.
+    // Start command processing loop, receiving commands and sending responses over the TCP connection, with encryption
+    // so that we know it's the boss.
     let comms = Comms::Remote {
         tcp_connection,
         cipher: Aes128Gcm::new(&secret_key),

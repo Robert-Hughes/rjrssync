@@ -24,7 +24,7 @@ impl Display for FileSizeHistogram {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f)?;
         let h = 5;
-        let max = *self.buckets.iter().max().unwrap();
+        let max = *self.buckets.iter().max().unwrap(); //TODO: could be empty! (everything filtered)
         for y in 0..h {
             let mut l = "".to_string();
             for x in 0..self.buckets.len() {

@@ -19,9 +19,7 @@ security though, as anybody can connect to the tunnel.
 
 The best for performance is a direct TCP connection (without ssh), which peaks at around 2GB/s
 locally on Windows. We can use ssh for the initial setup, sharing some kind of secret key 
-so that each side of the connection knows that the other end is authentic. If we want to add
-encryption to the data being transferred, we would need to do this separately, but it isn't
-a big concern at the moment.
+so that each side of the connection is secure.
 
 All readings from home PC (MANTA)
 

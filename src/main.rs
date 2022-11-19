@@ -3,14 +3,16 @@ use std::process::ExitCode;
 mod boss;
 mod boss_sync;
 mod doer;
+mod encrypted_comms;
 
 use boss::*;
 use doer::*;
 
-pub const VERSION: i32 = 40;
+pub const VERSION: i32 = 45;
 
 // Message printed by a doer copy of the program to indicate that it has loaded and is ready
-// to receive commands over its stdin. Also identifies its version, so the boss side can decide
+// to receive data over its stdin. Once the boss receives this, it knows that ssh has connected
+// correctly etc. It also identifies its version, so the boss side can decide
 // if it can continue to communicate or needs to copy over an updated copy of the doer program.
 // Note that this format needs to always be backwards-compatible, so is very basic.
 pub const HANDSHAKE_STARTED_MSG: &str = "rjrssync doer v"; // Version number will be appended
