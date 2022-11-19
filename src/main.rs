@@ -8,7 +8,7 @@ mod encrypted_comms;
 use boss::*;
 use doer::*;
 
-pub const VERSION: i32 = 45;
+pub const VERSION: i32 = 47;
 
 // Message printed by a doer copy of the program to indicate that it has loaded and is ready
 // to receive data over its stdin. Once the boss receives this, it knows that ssh has connected
@@ -21,7 +21,8 @@ pub const HANDSHAKE_STARTED_MSG: &str = "rjrssync doer v"; // Version number wil
 // is listening on a network port for a connection,
 pub const HANDSHAKE_COMPLETED_MSG: &str = "Waiting for incoming network connection"; 
 
-pub const REMOTE_TEMP_FOLDER: &str = "/tmp/rjrssync/";
+pub const REMOTE_TEMP_FOLDER_UNIX: &str = "/tmp/rjrssync/";
+pub const REMOTE_TEMP_FOLDER_WINDOWS: &str = r"%TEMP%\rjrssync\";
 
 fn main() -> ExitCode {
     // The process can run as either a CLI which takes input from command line arguments, performs

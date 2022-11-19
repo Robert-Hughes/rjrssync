@@ -25,6 +25,9 @@ struct DoerCliArgs {
     /// The network port to listen on for a connection from the boss.
     #[arg(long)]
     port: u16,
+    /// Logging configuration.
+    #[arg(long, default_value_t=("info".to_string()))]
+    log_filter: String,
 }
 
 /// Converts a platform-specific relative path (inside the source or dest root)
@@ -180,12 +183,17 @@ impl Display for Comms {
 }
 
 pub fn doer_main() -> ExitCode {
+    let args = DoerCliArgs::parse();
+
     // Configure logging.
+    // Because the doer is launched via SSH, and on Windows there isn't an easy way of setting the 
+    // RUST_LOG environment variable, we support configuring logging via a command-line arg, passed
+    // from the boss.
     // Note that we can't use stdout as that is our communication channel with the boss.
     // We use stderr instead, which the boss will read from and echo for easier debugging.
     // TODO: We could additionally log to a file, which might be useful for cases where the logs don't
     // make it back to the boss (e.g. communication errors)
-    let mut builder = env_logger::Builder::from_env(Env::default().default_filter_or("info"));
+    let mut builder = env_logger::Builder::from_env(Env::default().default_filter_or(args.log_filter));
     builder.target(env_logger::Target::Stderr);
     // Configure format so that the boss can parse and re-log it
     builder.format(|buf, record| {
@@ -197,8 +205,6 @@ pub fn doer_main() -> ExitCode {
         )
     });
     builder.init();
-
-    let args = DoerCliArgs::parse();
 
     // The first thing we send is a special handshake message that the Boss will recognise,
     // to know that we've started up correctly and to make sure we are running compatible versions.
@@ -230,8 +236,8 @@ pub fn doer_main() -> ExitCode {
     };
     let secret_key = GenericArray::from_slice(&secret_bytes);
 
-    // Start listening on the requested port
-    let addr = ("127.0.0.1", args.port); //TODO: listen on all interfaces? Otherwise this won't work over a real network
+    // Start listening on the requested port. Listen on all interfaces as we don't know which one is needed.
+    let addr = ("0.0.0.0", args.port);
     let listener = match TcpListener::bind(addr) {
         Ok(l) => {
             debug!("Listening on {:?}", addr);

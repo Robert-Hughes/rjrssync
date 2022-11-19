@@ -526,11 +526,20 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str, remote_port_for
     };
     // Note we don't cd, so that relative paths for the folder specified by the user on the remote
     // will be correct
-    let remote_command = format!("{}{}target/release/rjrssync --doer --port {}",
-        // Forward the RUST_LOG env var, so that our logging levels are in sync
-        std::env::var("RUST_LOG").map_or("".to_string(), |e| format!("RUST_LOG={} ", e)),
-        REMOTE_TEMP_FOLDER,
-        remote_port_for_comms);
+    let doer_args = format!("--doer {} --port {}",
+        // Forward the RUST_LOG env var to the command-line arg, so that our logging levels are in sync.
+        // Note that forwarding it as an env var is more complicated on Windows (no "ENV=VALUE cmd" syntax), so
+        // we use a command-line arg instead
+        std::env::var("RUST_LOG").map_or("".to_string(), |e| format!(" --log-filter {} ", e)),
+        remote_port_for_comms
+    );
+    // Try launching using both Unix and Windows paths, as we don't know what the remote system is
+    // uname and ver are used to check the OS before attempting to run using that path.
+    let remote_command = format!("(uname && {}target/release/rjrssync {}) || (ver && {}target\\release\\rjrssync.exe {})",
+        REMOTE_TEMP_FOLDER_UNIX,
+        doer_args,
+        REMOTE_TEMP_FOLDER_WINDOWS,
+        doer_args);
     debug!("Running remote command: {}", remote_command);
     // Note we use the user's existing ssh tool so that their config/settings will be used for
     // logging in to the remote system (as opposed to using an ssh library called from our code).
@@ -594,7 +603,8 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str, remote_port_for
             Ok((stream_type, OutputReaderThreadMsg::Line(l))) => {
                 // Show ssh output to the user, as this might be useful/necessary
                 info!("ssh {}: {}", stream_type, l);
-                if l.contains("No such file or directory") {
+                // Check for both the Linux (bash) and Windows (cmd) errors
+                if l.contains("No such file or directory") || l.contains("The system cannot find the path specified") {
                     warn!("rjrssync not present on remote computer");
                     // Note the stdin of the ssh will be dropped and this will tidy everything up nicely
                     return SshDoerLaunchResult::NotPresentOnRemote;
@@ -680,6 +690,12 @@ struct EmbeddedSource;
 fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> {
     debug!("Deploying onto '{}'", &remote_hostname);
 
+    let user_prefix = if remote_user.is_empty() {
+        "".to_string()
+    } else {
+        remote_user.to_string() + "@"
+    };
+
     // Copy our embedded source tree to the remote, so we can build it there.
     // (we can't simply copy the binary as it might not be compatible with the remote platform)
     // We use the user's existing ssh/scp tool so that their config/settings will be used for
@@ -724,15 +740,46 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> 
         }
     }
 
+    // Determine if the target system is Windows or Linux, so that we know where to copy our files to
+    // Note that we run "cmd /C scp ..." rather than just "scp", otherwise the line endings get messed up and subsequent log messages are broken.
+    let remote_command = "uname || ver"; // uname for Linux, ver for Windows
+    debug!("Running remote command: {}", remote_command);
+    let os_test_output = match std::process::Command::new("cmd")
+        .arg("/C")
+        .arg("ssh")
+        .arg(user_prefix.clone() + remote_hostname)
+        .arg(remote_command)
+        .output()
+    {
+        Err(e) => {
+            error!("Error launching ssh: {}", e);
+            return Err(());
+        }
+        Ok(output) if output.status.success() => {
+            String::from_utf8_lossy(&output.stdout).to_string()
+        }
+        Ok(output) => {
+            error!("Error checking remote OS. Exit status from ssh: {}", output.status);
+            return Err(());
+        }
+    };
+    // We could check for "linux" in the string, but there are other Unix systems we might want to supoprt e.g. Mac,
+    // so we fall back to Linux as a default
+    let is_windows = os_test_output.contains("Windows");
+    let remote_temp_folder = if is_windows {
+        PathBuf::from(REMOTE_TEMP_FOLDER_WINDOWS)
+    } else {
+        PathBuf::from(REMOTE_TEMP_FOLDER_UNIX)
+    };
+    let cd_command = if is_windows {
+        "cd /d"
+    } else {
+        "cd"
+    };
+
     // Deploy to remote target using scp
     // Note we need to deal with the case where the the remote folder doesn't exist, and the case where it does, so
     // we copy into /tmp (which should always exist), rather than directly to /tmp/rjrssync which may or may not
-    let remote_temp_folder = PathBuf::from(REMOTE_TEMP_FOLDER);
-    let user_prefix = if remote_user.is_empty() {
-        "".to_string()
-    } else {
-        remote_user.to_string() + "@"
-    };
     let source_spec = local_temp_dir.path().join("rjrssync");
     let remote_spec = user_prefix.clone()
         + remote_hostname
@@ -766,7 +813,8 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> 
     // but this would make error reporting slightly more difficult as the command in launch_doer_via_ssh is more tricky as
     // we are parsing the stdout, but for the command here we can wait for it to finish easily.
     let remote_command = format!(
-        "cd {} && cargo build --release",
+        "{} {} && cargo build --release",
+        cd_command,
         remote_temp_folder.display()
     );
     debug!("Running remote command: {}", remote_command);
