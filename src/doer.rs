@@ -26,7 +26,7 @@ struct DoerCliArgs {
     #[arg(long)]
     port: u16,
     /// Logging configuration.
-    #[arg(long, default_value_t=("info".to_string()))]
+    #[arg(long, default_value="info")]
     log_filter: String,
 }
 
