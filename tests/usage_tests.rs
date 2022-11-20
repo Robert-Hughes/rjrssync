@@ -1,7 +1,8 @@
-use std::path::Path;
+use std::{path::Path, time::SystemTime};
 
 use tempdir::TempDir;
 
+/// Simple in-memory representation of a tree of files and folders, to use for testing.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 enum FilesystemNode {
     Folder {
@@ -11,6 +12,7 @@ enum FilesystemNode {
     File {
         name: String,  
         contents: Vec<u8>,     
+        modified: SystemTime,
     }
 }
 impl FilesystemNode {
@@ -22,6 +24,7 @@ impl FilesystemNode {
     }
 }
 
+/// Mirrors the given tree of files/folders onto disk in the given folder.
 fn save_filesystem_tree_to_disk(tree: &[FilesystemNode], folder: &Path) { 
     for n in tree {
         match n {
@@ -36,6 +39,7 @@ fn save_filesystem_tree_to_disk(tree: &[FilesystemNode], folder: &Path) {
     }
 }
 
+/// Creates an in-memory representation of the tree of files/folders in the given folder.
 fn load_filesystem_tree_from_disk(folder: &Path) -> Vec<FilesystemNode> {
     let mut result : Vec<FilesystemNode> = vec![];
     for entry in std::fs::read_dir(folder).unwrap() {
@@ -58,6 +62,27 @@ fn load_filesystem_tree_from_disk(folder: &Path) -> Vec<FilesystemNode> {
     result
 }
 
+/// Checks that running rjrssync with src and dest folders containing the specified files/folders
+/// is successful and the dest folder ends up looking identical to the src folder.
+fn run_usage_test(src_tree: &[FilesystemNode], dest_tree: &[FilesystemNode]) {
+    let src_dir = TempDir::new("rjrssync-test").unwrap();
+    save_filesystem_tree_to_disk(src_tree, &src_dir.path());
+
+    let dest_dir = TempDir::new("rjrssync-test").unwrap();
+    save_filesystem_tree_to_disk(dest_tree, &dest_dir.path());
+
+    let rjrssync_path = env!("CARGO_BIN_EXE_rjrssync");
+    std::process::Command::new(rjrssync_path)
+        .arg(src_dir.path())
+        .arg(dest_dir.path())
+        .status().expect("rjrssync failed");
+
+    let new_dest_tree = load_filesystem_tree_from_disk(&dest_dir.path());
+
+    assert_eq!(src_tree.to_vec(), new_dest_tree);
+}
+
+/// A simple copying of a few files and a folder.
 #[test]
 fn test_simple_sync() {
     let src_tree = &[
@@ -67,19 +92,37 @@ fn test_simple_sync() {
             FilesystemNode::file("sc", "contents3"),
         ])
     ];
+    run_usage_test(src_tree, &[]);
+}
 
-    let src_dir = TempDir::new("rjrssync-test").unwrap();
-    save_filesystem_tree_to_disk(src_tree, &src_dir.path());
+/// Some files and a folder in the destination need deleting.
+#[test]
+fn test_remove_dest_stuff() {
+    let src_tree = &[
+        FilesystemNode::file("c1", "contents1"),
+        FilesystemNode::file("c2", "contents2"),
+        FilesystemNode::folder("c3", &[
+            FilesystemNode::file("sc", "contents3"),
+        ])
+    ];
+    let dest_tree = &[
+        FilesystemNode::file("remove me", "contents1"),
+        FilesystemNode::file("remove me too", "contents2"),
+        FilesystemNode::folder("remove this whole folder", &[
+            FilesystemNode::file("sc", "contents3"),
+        ])
+    ];
+    run_usage_test(src_tree, dest_tree);
+}
 
-    let dest_dir = TempDir::new("rjrssync-test").unwrap();
-
-    let rjrssync_path = env!("CARGO_BIN_EXE_rjrssync");
-    std::process::Command::new(rjrssync_path)
-        .arg(src_dir.path())
-        .arg(dest_dir.path())
-        .status().expect("rjrssync failed");
-
-    let dest_tree = load_filesystem_tree_from_disk(&dest_dir.path());
-
-    assert_eq!(src_tree.to_vec(), dest_tree);
+/// A file exists but has an old timestamp so needs updating.
+#[test]
+fn test_update_file() {
+    let src_tree = &[
+        FilesystemNode::file("file", "contents1"),
+    ];
+    let dest_tree = &[
+        FilesystemNode::file("file", "contents2"),
+    ];
+    run_usage_test(src_tree, dest_tree);
 }

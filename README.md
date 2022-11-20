@@ -101,6 +101,7 @@ TODO:
 * Create destination root if it doesn't exist?
 * Only show histograms based on an argument, to avoid cluttering the output?
 * Sometimes remote processes are left orphaned, preventing new ones from listening on the same port
+* Set up github actions to run tests
 
 Idea for filters, with re-usable "functions":
 ===============
