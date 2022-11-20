@@ -100,6 +100,7 @@ TODO:
 * Format total bytes and total files etc. with commas, or GB, MB etc.
 * Create destination root if it doesn't exist?
 * Only show histograms based on an argument, to avoid cluttering the output?
+* Sometimes remote processes are left orphaned, preventing new ones from listening on the same port
 
 Idea for filters, with re-usable "functions":
 ===============
