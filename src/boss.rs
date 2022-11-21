@@ -2,7 +2,7 @@ use aes_gcm::aead::{OsRng};
 use aes_gcm::{Aes128Gcm, KeyInit, Key};
 use clap::Parser;
 use env_logger::{fmt::Color, Env};
-use log::{debug, error, info, warn, log};
+use log::{debug, error, info, warn, log, trace};
 use rust_embed::RustEmbed;
 use std::io::LineWriter;
 use std::net::{TcpStream};
@@ -41,6 +41,11 @@ struct BossCliArgs {
     /// Override the port used to connect to hostnames specified in src or dest.
     #[arg(long, default_value_t = 40129)]
     remote_port: u16,
+    #[arg(short, long, group="verbosity")]
+    quiet: bool,
+    #[arg(short, long, group="verbosity")]
+    verbose: bool,
+
     /// [Internal] Launches as a doer process, rather than a boss process.
     /// This shouldn't be needed for regular operation.
     #[arg(long)]
@@ -102,8 +107,17 @@ impl std::str::FromStr for RemoteFolderDesc {
 }
 
 pub fn boss_main() -> ExitCode {
-    // Configure logging
-    let mut builder = env_logger::Builder::from_env(Env::default().default_filter_or("info"));
+    let args = BossCliArgs::parse();
+
+    // Configure logging, based on the user's --quiet/--verbose flag.
+    // If the RUST_LOG env var is set though then this overrides everything, as this is useful for developers
+    let args_level = match (args.quiet, args.verbose) {
+        (true, false) => "warn",
+        (false, true) => "debug",
+        (false, false) => "info",
+        (true, true) => panic!("Shouldn't be allowed by cmd args parser"),
+    };
+    let mut builder = env_logger::Builder::from_env(Env::default().default_filter_or(args_level));
     builder.format(|buf, record| {
         let target_color = match record.target() {
             "rjrssync::boss" => Color::Rgb(255, 64, 255),
@@ -120,19 +134,26 @@ pub fn boss_main() -> ExitCode {
         };
         let level_style = buf.style().set_color(level_color).clone();
 
-        writeln!(
-            buf,
-            "{:5} | {}: {}",
-            level_style.value(record.level()),
-            target_style.value(record.target()),
-            record.args()
-        )
+        if record.level() == log::Level::Info {
+            // Info messages are intended for the average user, so format them plainly
+            writeln!(
+                buf,
+                "{}",
+                record.args()
+            )
+        } else {
+            writeln!(
+                buf,
+                "{:5} | {}: {}",
+                level_style.value(record.level()),
+                target_style.value(record.target()),
+                record.args()
+            )
+        }
     });
     builder.init();
 
     debug!("Running as boss");
-
-    let args = BossCliArgs::parse();
 
     // The src and/or dest may be on another computer. We need to run a copy of rjrssync on the remote
     // computer(s) and set up network commmunication.
@@ -206,7 +227,7 @@ pub enum Comms {
 }
 impl Comms {
     pub fn send_command(&mut self, c: Command) -> Result<(), String> {
-        debug!("Sending command {:?} to {}", c, &self);
+        trace!("Sending command {:?} to {}", c, &self);
         let res = 
             match self {
                 Comms::Local { sender, .. } => {
@@ -223,7 +244,7 @@ impl Comms {
         }
 
     pub fn receive_response(&mut self) -> Result<Response, String> {
-        debug!("Waiting for response from {}", &self);
+        trace!("Waiting for response from {}", &self);
         let res = match self {
             Comms::Local { receiver, .. } => {
                 receiver.recv().map_err(|e| "Error receiving from channel: ".to_string() + &e.to_string())
@@ -234,7 +255,7 @@ impl Comms {
         };
         match &res {
             Err(ref e) => error!("{}", e),
-            Ok(ref r) => debug!("Received response {:?} from {}", r, &self),
+            Ok(ref r) => trace!("Received response {:?} from {}", r, &self),
         }
         res
     }
@@ -530,6 +551,8 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str, remote_port_for
         // Forward the RUST_LOG env var to the command-line arg, so that our logging levels are in sync.
         // Note that forwarding it as an env var is more complicated on Windows (no "ENV=VALUE cmd" syntax), so
         // we use a command-line arg instead
+        //TODO: also forward the --quiet/--verbose flags or equivalent. Ideally we reconstruct a string from 
+        // the current config of our local logger?
         std::env::var("RUST_LOG").map_or("".to_string(), |e| format!(" --log-filter {} ", e)),
         remote_port_for_comms
     );

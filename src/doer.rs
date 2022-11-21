@@ -2,7 +2,7 @@ use aes_gcm::aead::generic_array::GenericArray;
 use aes_gcm::{Aes128Gcm, KeyInit};
 use clap::Parser;
 use env_logger::Env;
-use log::{debug, error};
+use log::{debug, error, trace};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -140,7 +140,7 @@ enum Comms {
 }
 impl Comms {
     pub fn send_response(&mut self, r: Response) -> Result<(), String> {
-        debug!("Sending response {:?} to {}", r, &self);
+        trace!("Sending response {:?} to {}", r, &self);
         let res = 
             match self {
                 Comms::Local { sender, .. } => {
@@ -157,7 +157,7 @@ impl Comms {
     }
 
     pub fn receive_command(&mut self) -> Result<Command, String> {
-        debug!("Waiting for command from {}", &self);
+        trace!("Waiting for command from {}", &self);
         let res = match self {
             Comms::Local { receiver, .. } => {
                 receiver.recv().map_err(|e| "Error receiving from channel: ".to_string() + &e.to_string())
@@ -168,7 +168,7 @@ impl Comms {
         };
         match &res {
             Err(ref e) => error!("{}", e),
-            Ok(ref r) => debug!("Received command {:?} from {}", r, &self),
+            Ok(ref r) => trace!("Received command {:?} from {}", r, &self),
         }
         res
     }
@@ -435,7 +435,7 @@ fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, root: &str, 
                 };
 
                 if exclude_regexes.iter().any(|r| r.find(&path).is_some()) {
-                    debug!("Skipping {} due to filter", path);
+                    trace!("Skipping {} due to filter", path);
                     if e.file_type().is_dir() {
                         // Filtering a folder prevents iterating into child files/folders, so this is efficient.
                         walker_it.skip_current_dir();

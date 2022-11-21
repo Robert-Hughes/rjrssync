@@ -3,7 +3,7 @@ use std::{
     fmt::{Display, Write}, time::Instant,
 };
 
-use log::{debug, error, info};
+use log::{debug, error, info, trace};
 
 use crate::*;
 
@@ -99,7 +99,7 @@ pub fn sync(
     loop {
         match src_comms.receive_response() {
             Ok(Response::Entry(d)) => {
-                debug!("{:?}", d);
+                trace!("{:?}", d);
                 match d.entry_type {
                     EntryType::File => {
                         stats.num_src_files += 1;
@@ -121,7 +121,7 @@ pub fn sync(
     loop {
         match dest_comms.receive_response() {
             Ok(Response::Entry(d)) => {
-                debug!("{:?}", d);
+                trace!("{:?}", d);
                 match d.entry_type {
                     EntryType::File => {
                         stats.num_dest_files += 1;
@@ -197,7 +197,7 @@ pub fn sync(
                         return Err(());
                     }
                     Ordering::Equal => {
-                        debug!("{}: Same modified time - skipping", src_entry.path);
+                        trace!("{}: Same modified time - skipping", src_entry.path);
                     }
                     Ordering::Greater => {
                         debug!("{}: source file newer - copying", src_entry.path);
@@ -205,7 +205,7 @@ pub fn sync(
                     }
                 },
                 EntryType::Folder => {
-                    debug!("{}: folder already exists - nothing to do", src_entry.path)
+                    trace!("{}: folder already exists - nothing to do", src_entry.path)
                 }
             },
             None => match src_entry.entry_type {
@@ -269,7 +269,7 @@ fn copy_file(
     dest_comms: &mut Comms,
     stats: &mut Stats,
 ) -> Result<(), ()> {
-    debug!("Fetching {}", src_file.path);
+    trace!("Fetching {}", src_file.path);
     src_comms
         .send_command(Command::GetFileContent {
             path: src_file.path.to_string(),
@@ -282,7 +282,7 @@ fn copy_file(
             return Err(());
         }
     };
-    debug!("Writing {}", src_file.path);
+    trace!("Writing {}", src_file.path);
     dest_comms
         .send_command(Command::CreateOrUpdateFile {
             path: src_file.path.to_string(),
