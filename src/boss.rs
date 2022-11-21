@@ -545,17 +545,22 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str, remote_port_for
     } else {
         remote_user.to_string() + "@"
     };
+
+    // Forward our logging configuration to the remote doer, so that our logging levels are in sync.
+    // Note that forwarding it as an env var is more complicated on Windows (no "ENV=VALUE cmd" syntax), so
+    // we use a command-line arg instead.
+    // We need to forward both RUST_LOG and also any command-line setting (--quiet/--verbose flags).
+    // Unfortunately there isn't a way to reconstruct a log filter string from the current config,
+    // so we have to do it manually.
+    let log_arg = if let Ok(l) = std::env::var("RUST_LOG") {
+        format!(" --log-filter {} ", l)
+    } else {
+        format!(" --log-filter {} ", log::max_level()) // max_level will be affected by --quiet/--verbose
+    };
+
     // Note we don't cd, so that relative paths for the folder specified by the user on the remote
-    // will be correct
-    let doer_args = format!("--doer {} --port {}",
-        // Forward the RUST_LOG env var to the command-line arg, so that our logging levels are in sync.
-        // Note that forwarding it as an env var is more complicated on Windows (no "ENV=VALUE cmd" syntax), so
-        // we use a command-line arg instead
-        //TODO: also forward the --quiet/--verbose flags or equivalent. Ideally we reconstruct a string from 
-        // the current config of our local logger?
-        std::env::var("RUST_LOG").map_or("".to_string(), |e| format!(" --log-filter {} ", e)),
-        remote_port_for_comms
-    );
+    // will be correct (relative to their ssh default dir, e.g. home dir)
+    let doer_args = format!("--doer {} --port {}", log_arg, remote_port_for_comms);
     // Try launching using both Unix and Windows paths, as we don't know what the remote system is
     // uname and ver are used to check the OS before attempting to run using that path.
     let remote_command = format!("(uname && {}target/release/rjrssync {}) || (ver && {}target\\release\\rjrssync.exe {})",
