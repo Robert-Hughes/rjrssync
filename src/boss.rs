@@ -44,8 +44,13 @@ struct BossCliArgs {
     #[arg(long)]
     dry_run: bool,
 
+    /// Outputs some additional statistics about the data copied.
+    #[arg(long)]
+    stats: bool, // This is a separate flag to --verbose, because that is more for debugging, but this is useful for normal users
+    /// Hides all output except warnings and errors. 
     #[arg(short, long, group="verbosity")]
     quiet: bool,
+    /// Shows additional output.
     #[arg(short, long, group="verbosity")]
     verbose: bool,
 
@@ -190,7 +195,7 @@ pub fn boss_main() -> ExitCode {
     };
 
     // Perform the actual file sync
-    let sync_result = sync(args.src.folder, args.dest.folder, args.exclude_filters, args.dry_run, src_comms, dest_comms);
+    let sync_result = sync(args.src.folder, args.dest.folder, args.exclude_filters, args.dry_run, args.stats, src_comms, dest_comms);
 
     match sync_result {
         Ok(()) => ExitCode::SUCCESS,

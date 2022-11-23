@@ -73,6 +73,7 @@ struct Stats {
     pub num_bytes_copied: u64,
     pub num_folders_created: u32,
     pub num_files_deleted: u32,
+    pub num_bytes_deleted: u64,
     pub num_folders_deleted: u32,
     pub copied_file_size_hist: FileSizeHistogram,
 }
@@ -82,6 +83,7 @@ pub fn sync(
     dest_folder: String,
     exclude_filters: Vec<String>,
     dry_run: bool,
+    show_stats: bool,
     mut src_comms: Comms,
     mut dest_comms: Comms,
 ) -> Result<(), ()> {
@@ -139,11 +141,13 @@ pub fn sync(
             }
         }
     }
-    info!("Source: {} file(s) totalling {} bytes and {} folder(s) => Dest: {} file(s) totalling {} bytes and {} folder(s)",
-        stats.num_src_files, stats.src_total_bytes, stats.num_src_folders,
-        stats.num_dest_files, stats.dest_total_bytes, stats.num_dest_folders);
-    info!("Source file size distribution:");
-    info!("{}", stats.src_file_size_hist);
+    if show_stats {
+        info!("Source: {} file(s) totalling {} bytes and {} folder(s) => Dest: {} file(s) totalling {} bytes and {} folder(s)",
+            stats.num_src_files, stats.src_total_bytes, stats.num_src_folders,
+            stats.num_dest_files, stats.dest_total_bytes, stats.num_dest_folders);
+        info!("Source file size distribution:");
+        info!("{}", stats.src_file_size_hist);
+    }
 
     // Delete dest entries that don't exist on the source. This needs to be done first in case there
     // are entries with the same name but different type (files vs folders).
@@ -159,6 +163,7 @@ pub fn sync(
             let c = match dest_entry.entry_type {
                 EntryType::File => {
                     stats.num_files_deleted += 1;
+                    stats.num_bytes_deleted += dest_entry.size;
                     Command::DeleteFile {
                         path: dest_entry.path.to_string(),
                     }
@@ -246,29 +251,37 @@ pub fn sync(
 
     let elapsed = start.elapsed().as_secs_f32();
 
+    // Note that we print all the stats at the end (even though we could print the delete stats earlier),
+    // so that they are together in the output (e.g. for dry run or --verbose, they could be a lot of other
+    // messages between them)    
     if stats.num_files_deleted + stats.num_folders_deleted > 0 {
         info!(
-            "{} {} file(s) and {} folder(s)",
+            "{} {} file(s){} and {} folder(s)",
             if !dry_run { "Deleted" } else { "Would delete" },
-            stats.num_files_deleted, stats.num_folders_deleted
+            stats.num_files_deleted, 
+            if show_stats { format!(" totalling {} bytes", stats.num_bytes_deleted) } else { "".to_string() },
+            stats.num_folders_deleted
         );
     }
     if stats.num_files_copied + stats.num_folders_created > 0 {
         info!(
-            "{} {} file(s) totalling {} bytes and {} {} folder(s){}",
+            "{} {} file(s){} and {} {} folder(s){}",
             if !dry_run { "Copied" } else { "Would copy" },           
-            stats.num_files_copied, stats.num_bytes_copied, 
+            stats.num_files_copied,
+            if show_stats { format!(" totalling {} bytes", stats.num_bytes_copied) } else { "".to_string() },
             if !dry_run { "created" } else { "would create" },
             stats.num_folders_created,
-            if !dry_run { 
+            if !dry_run && show_stats { 
                 format!(", in {:.1} seconds ({} bytes/s)", 
                     elapsed, stats.num_bytes_copied as f32 / elapsed as f32)
             } else { "".to_string() },                      
         );
-        info!("{} file size distribution:",
-            if !dry_run { "Copied" } else { "Would copy" },           
-        );
-        info!("{}", stats.copied_file_size_hist);
+        if show_stats {
+            info!("{} file size distribution:",
+                if !dry_run { "Copied" } else { "Would copy" },           
+            );
+            info!("{}", stats.copied_file_size_hist);
+        }
     }
     if stats.num_files_deleted
         + stats.num_folders_deleted
