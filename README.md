@@ -74,7 +74,6 @@ WSL -> WSL: 900-1000MB/s
 TODO:
 
 * Review/tidy up sync code in boss_sync.rs and also the command handling code in doer.rs
-* Dry run flag
 * Config file containing src/dest, ignore/allow list etc. Use serde_json?
     * List of folders to sync, with src and dest spec (computer and absolute path)
     * Each folder to be synced has list of include/exclude filters, applied in order (can mix and match include/exclude however you want)
@@ -96,12 +95,15 @@ TODO:
 * Testing for ssh launching/copying/deploying stuff
 * Testing for sync logic, including between different combinations of windows and linux, remote and local etc. 
    - Exclude filters
+* Test for --dry-run
 * Progress bar
 * Format total bytes and total files etc. with commas, or GB, MB etc.
 * Create destination root if it doesn't exist?
 * Only show histograms based on an argument, to avoid cluttering the output?
 * Sometimes remote processes are left orphaned, preventing new ones from listening on the same port
 * Set up github actions to run tests
+* How to handle when the user specifies a file rather than folder on one or both sides (or a symlink?)
+* --no-encryption option, might be faster?
 
 Idea for filters, with re-usable "functions":
 ===============
