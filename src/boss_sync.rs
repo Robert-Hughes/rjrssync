@@ -81,6 +81,7 @@ pub fn sync(
     src_folder: String,
     dest_folder: String,
     exclude_filters: Vec<String>,
+    dry_run: bool,
     mut src_comms: Comms,
     mut dest_comms: Comms,
 ) -> Result<(), ()> {
@@ -169,14 +170,19 @@ pub fn sync(
                     }
                 }
             };
-            dest_comms.send_command(c).unwrap();
-            match dest_comms.receive_response() {
-                Ok(doer::Response::Ack) => (),
-                _ => {
-                    error!("Wrong response");
-                    return Err(());
-                }
-            };
+            if !dry_run {
+                dest_comms.send_command(c).unwrap();
+                match dest_comms.receive_response() {
+                    Ok(doer::Response::Ack) => (),
+                    _ => {
+                        error!("Wrong response");
+                        return Err(());
+                    }
+                };
+            } else {
+                // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be copied
+                info!("Would delete {}", dest_entry.path);
+            }
         }
     }
 
@@ -201,7 +207,7 @@ pub fn sync(
                     }
                     Ordering::Greater => {
                         debug!("{}: source file newer - copying", src_entry.path);
-                        copy_file(&src_entry, &mut src_comms, &mut dest_comms, &mut stats)?
+                        copy_file(&src_entry, &mut src_comms, &mut dest_comms, &mut stats, dry_run)?
                     }
                 },
                 EntryType::Folder => {
@@ -211,23 +217,28 @@ pub fn sync(
             None => match src_entry.entry_type {
                 EntryType::File => {
                     debug!("{}: Dest file doesn't exist - copying", src_entry.path);
-                    copy_file(&src_entry, &mut src_comms, &mut dest_comms, &mut stats)?
+                    copy_file(&src_entry, &mut src_comms, &mut dest_comms, &mut stats, dry_run)?
                 }
                 EntryType::Folder => {
                     debug!("{}: dest folder doesn't exists - creating", src_entry.path);
-                    dest_comms
-                        .send_command(Command::CreateFolder {
-                            path: src_entry.path.to_string(),
-                        })
-                        .unwrap();
-                    match dest_comms.receive_response() {
-                        Ok(doer::Response::Ack) => (),
-                        _ => {
-                            error!("Wrong response");
-                            return Err(());
-                        }
-                    };
                     stats.num_folders_created += 1;
+                    if !dry_run {
+                        dest_comms
+                            .send_command(Command::CreateFolder {
+                                path: src_entry.path.to_string(),
+                            })
+                            .unwrap();
+                        match dest_comms.receive_response() {
+                            Ok(doer::Response::Ack) => (),
+                            _ => {
+                                error!("Wrong response");
+                                return Err(());
+                            }
+                        };
+                    } else {
+                        // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be copied
+                        info!("Would create {}", src_entry.path);
+                    }
                 }
             },
         }
@@ -237,18 +248,26 @@ pub fn sync(
 
     if stats.num_files_deleted + stats.num_folders_deleted > 0 {
         info!(
-            "Deleted {} file(s) and {} folder(s)",
+            "{} {} file(s) and {} folder(s)",
+            if !dry_run { "Deleted" } else { "Would delete" },
             stats.num_files_deleted, stats.num_folders_deleted
         );
     }
     if stats.num_files_copied + stats.num_folders_created > 0 {
         info!(
-            "Copied {} file(s) totalling {} bytes and created {} folder(s)",
-            stats.num_files_copied, stats.num_bytes_copied, stats.num_folders_created
+            "{} {} file(s) totalling {} bytes and {} {} folder(s){}",
+            if !dry_run { "Copied" } else { "Would copy" },           
+            stats.num_files_copied, stats.num_bytes_copied, 
+            if !dry_run { "created" } else { "would create" },
+            stats.num_folders_created,
+            if !dry_run { 
+                format!(", in {:.1} seconds ({} bytes/s)", 
+                    elapsed, stats.num_bytes_copied as f32 / elapsed as f32)
+            } else { "".to_string() },                      
         );
-        info!("Copied {} bytes in {} seconds ({} bytes/s)", stats.num_bytes_copied, elapsed,
-            stats.num_bytes_copied as f32 / elapsed as f32);
-        info!("Copied file size distribution:");
+        info!("{} file size distribution:",
+            if !dry_run { "Copied" } else { "Would copy" },           
+        );
         info!("{}", stats.copied_file_size_hist);
     }
     if stats.num_files_deleted
@@ -268,35 +287,41 @@ fn copy_file(
     src_comms: &mut Comms,
     dest_comms: &mut Comms,
     stats: &mut Stats,
+    dry_run: bool,
 ) -> Result<(), ()> {
-    trace!("Fetching {}", src_file.path);
-    src_comms
-        .send_command(Command::GetFileContent {
-            path: src_file.path.to_string(),
-        })
-        .unwrap();
-    let data = match src_comms.receive_response() {
-        Ok(Response::FileContent { data }) => data,
-        _ => {
-            error!("Wrong response");
-            return Err(());
-        }
-    };
-    trace!("Writing {}", src_file.path);
-    dest_comms
-        .send_command(Command::CreateOrUpdateFile {
-            path: src_file.path.to_string(),
-            data,
-            set_modified_time: Some(src_file.modified_time),
-        })
-        .unwrap();
-    match dest_comms.receive_response() {
-        Ok(doer::Response::Ack) => (),
-        _ => {
-            error!("Wrong response");
-            return Err(());
-        }
-    };
+    if !dry_run {
+        trace!("Fetching {}", src_file.path);
+        src_comms
+            .send_command(Command::GetFileContent {
+                path: src_file.path.to_string(),
+            })
+            .unwrap();
+        let data = match src_comms.receive_response() {
+            Ok(Response::FileContent { data }) => data,
+            _ => {
+                error!("Wrong response");
+                return Err(());
+            }
+        };
+        trace!("Writing {}", src_file.path);
+        dest_comms
+            .send_command(Command::CreateOrUpdateFile {
+                path: src_file.path.to_string(),
+                data,
+                set_modified_time: Some(src_file.modified_time),
+            })
+            .unwrap();
+        match dest_comms.receive_response() {
+            Ok(doer::Response::Ack) => (),
+            _ => {
+                error!("Wrong response");
+                return Err(());
+            }
+        };
+    } else {
+        // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be copied
+        info!("Would copy {}", src_file.path);
+    }
 
     stats.num_files_copied += 1;
     stats.num_bytes_copied += src_file.size;

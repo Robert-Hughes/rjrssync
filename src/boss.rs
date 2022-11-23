@@ -41,6 +41,10 @@ struct BossCliArgs {
     /// Override the port used to connect to hostnames specified in src or dest.
     #[arg(long, default_value_t = 40129)]
     remote_port: u16,
+    
+    #[arg(long)]
+    dry_run: bool,
+
     #[arg(short, long, group="verbosity")]
     quiet: bool,
     #[arg(short, long, group="verbosity")]
@@ -192,7 +196,7 @@ pub fn boss_main() -> ExitCode {
     };
 
     // Perform the actual file sync
-    let sync_result = sync(args.src.folder, args.dest.folder, args.exclude_filters, src_comms, dest_comms);
+    let sync_result = sync(args.src.folder, args.dest.folder, args.exclude_filters, args.dry_run, src_comms, dest_comms);
 
     match sync_result {
         Ok(()) => ExitCode::SUCCESS,
