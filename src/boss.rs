@@ -562,12 +562,14 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str, remote_port_for
     // will be correct (relative to their ssh default dir, e.g. home dir)
     let doer_args = format!("--doer {} --port {}", log_arg, remote_port_for_comms);
     // Try launching using both Unix and Windows paths, as we don't know what the remote system is
-    // uname and ver are used to check the OS before attempting to run using that path.
-    let remote_command = format!("(uname && {}target/release/rjrssync {}) || (ver && {}target\\release\\rjrssync.exe {})",
-        REMOTE_TEMP_FOLDER_UNIX,
-        doer_args,
-        REMOTE_TEMP_FOLDER_WINDOWS,
-        doer_args);
+    // uname and ver are used to check the OS before attempting to run using that path, but we pipe 
+    // their result to /dev/null (or equivalent) so they don't appear in the output.
+    // We run a command that doesn't print out anything on both Windows and Linux, so we don't pollute the output
+    // (we show all output from ssh, in case it contains prompts etc. that are useful/required for the user to see).
+    // Note the \n to send a two-line command - it seems Windows ignores this, but Linux runs it.
+    let windows_command = format!("{}target\\release\\rjrssync.exe {}", REMOTE_TEMP_FOLDER_WINDOWS, doer_args);
+    let unix_command = format!("{}target/release/rjrssync {}", REMOTE_TEMP_FOLDER_UNIX, doer_args);
+    let remote_command = format!("echo >/dev/null # >nul & {windows_command}\n{unix_command}");
     debug!("Running remote command: {}", remote_command);
     // Note we use the user's existing ssh tool so that their config/settings will be used for
     // logging in to the remote system (as opposed to using an ssh library called from our code).
