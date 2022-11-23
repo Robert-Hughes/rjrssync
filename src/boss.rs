@@ -748,6 +748,8 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> 
         local_temp_dir.path().display()
     );
     for file in EmbeddedSource::iter() {
+        //TODO: on v6.5+, this contains folders too, so need to deal with those
+
         // Add an extra "rjrssync" folder with a fixed name (as opposed to the temp dir, whose name varies), to work around SCP weirdness below.
         let local_temp_path = local_temp_dir.path().join("rjrssync").join(&*file);
 
@@ -776,6 +778,7 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> 
 
     // Determine if the target system is Windows or Linux, so that we know where to copy our files to
     // Note that we run "cmd /C scp ..." rather than just "scp", otherwise the line endings get messed up and subsequent log messages are broken.
+    //TODO: cmd doesn't exist on linux!!!!
     let remote_command = "uname || ver"; // uname for Linux, ver for Windows
     debug!("Running remote command: {}", remote_command);
     let os_test_output = match std::process::Command::new("cmd")
@@ -821,6 +824,7 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> 
         + remote_temp_folder.parent().unwrap().to_str().unwrap();
     debug!("Copying {} to {}", source_spec.display(), remote_spec);
     // Note that we run "cmd /C scp ..." rather than just "scp", otherwise the line endings get messed up and subsequent log messages are broken.
+    //TODO: cmd doesn't exist on linux!!!!
     match std::process::Command::new("cmd")
         .arg("/C")
         .arg("scp")
@@ -853,6 +857,7 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> 
     );
     debug!("Running remote command: {}", remote_command);
     // Note that we run "cmd /C ssh ..." rather than just "ssh", otherwise the line endings get messed up and subsequent log messages are broken.
+    //TODO: cmd doesn't exist on linux!!!!
     match std::process::Command::new("cmd")
         .arg("/C")
         .arg("ssh")
