@@ -130,12 +130,7 @@ pub fn boss_main() -> ExitCode {
         };
         let target_style = buf.style().set_color(target_color).clone();
 
-        let level_color = match record.level() {
-            log::Level::Error => Color::Red,
-            log::Level::Warn => Color::Yellow,
-            _ => Color::Black, //TODO: doesn't work on black background! (Windows Terminal!)
-        };
-        let level_style = buf.style().set_color(level_color).clone();
+        let level_style = buf.default_level_style(record.level());
 
         if record.level() == log::Level::Info {
             // Info messages are intended for the average user, so format them plainly
