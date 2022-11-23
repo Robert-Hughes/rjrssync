@@ -748,8 +748,6 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> 
         local_temp_dir.path().display()
     );
     for file in EmbeddedSource::iter() {
-        //TODO: on v6.5+, this contains folders too, so need to deal with those
-
         // Add an extra "rjrssync" folder with a fixed name (as opposed to the temp dir, whose name varies), to work around SCP weirdness below.
         let local_temp_path = local_temp_dir.path().join("rjrssync").join(&*file);
 

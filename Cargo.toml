@@ -8,7 +8,7 @@ default-run = "rjrssync"
 clap = { version = "4.0", features = ["derive"] }
 env_logger = "*"
 log="*"
-rust-embed = { version = "6.4.2", features = [ "debug-embed", "include-exclude" ] } # debug-embed Otherwise the behaviour is different in debug vs release builds
+rust-embed = { version = "=6.4.2", features = [ "debug-embed", "include-exclude" ] } # debug-embed Otherwise the behaviour is different in debug vs release builds
 tempdir="*"
 walkdir="*"
 serde = { version = "1.0", features = ["derive"] }
