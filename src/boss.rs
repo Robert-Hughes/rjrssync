@@ -779,6 +779,7 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> 
     // Determine if the target system is Windows or Linux, so that we know where to copy our files to
     // Note that we run "cmd /C scp ..." rather than just "scp", otherwise the line endings get messed up and subsequent log messages are broken.
     //TODO: cmd doesn't exist on linux!!!!
+    //TODO: cmd is expanding %TEMP% locally!! Causing problem on remote end where TEMP might be different
     let remote_command = "uname || ver"; // uname for Linux, ver for Windows
     debug!("Running remote command: {}", remote_command);
     let os_test_output = match std::process::Command::new("cmd")
@@ -825,6 +826,7 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> 
     debug!("Copying {} to {}", source_spec.display(), remote_spec);
     // Note that we run "cmd /C scp ..." rather than just "scp", otherwise the line endings get messed up and subsequent log messages are broken.
     //TODO: cmd doesn't exist on linux!!!!
+    //TODO: cmd is expanding %TEMP% locally!! Causing problem on remote end where TEMP might be different
     match std::process::Command::new("cmd")
         .arg("/C")
         .arg("scp")
@@ -858,6 +860,7 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> 
     debug!("Running remote command: {}", remote_command);
     // Note that we run "cmd /C ssh ..." rather than just "ssh", otherwise the line endings get messed up and subsequent log messages are broken.
     //TODO: cmd doesn't exist on linux!!!!
+    //TODO: cmd is expanding %TEMP% locally!! Causing problem on remote end where TEMP might be different
     match std::process::Command::new("cmd")
         .arg("/C")
         .arg("ssh")
