@@ -96,6 +96,7 @@ TODO:
 * Testing for sync logic, including between different combinations of windows and linux, remote and local etc. 
    - Exclude filters
 * Test for --dry-run
+* Test for windows/linux deploying onto windows/linux (4 combinations!)
 * Progress bar
 * Format total bytes and total files etc. with commas, or GB, MB etc.
 * Create destination root if it doesn't exist?

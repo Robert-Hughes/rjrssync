@@ -21,8 +21,8 @@ pub const HANDSHAKE_STARTED_MSG: &str = "rjrssync doer v"; // Version number wil
 // is listening on a network port for a connection,
 pub const HANDSHAKE_COMPLETED_MSG: &str = "Waiting for incoming network connection"; 
 
-pub const REMOTE_TEMP_FOLDER_UNIX: &str = "/tmp/rjrssync/";
-pub const REMOTE_TEMP_FOLDER_WINDOWS: &str = r"%TEMP%\rjrssync\";
+pub const REMOTE_TEMP_UNIX: &str = "/tmp/";
+pub const REMOTE_TEMP_WINDOWS: &str = r"%TEMP%\";
 
 fn main() -> ExitCode {
     // The process can run as either a CLI which takes input from command line arguments, performs

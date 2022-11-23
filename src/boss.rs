@@ -12,7 +12,6 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::{
     fmt::{self, Display},
     io::{BufRead, BufReader, Write},
-    path::PathBuf,
     process::{ChildStderr, ChildStdin, ChildStdout, ExitCode, Stdio},
     sync::mpsc::{RecvError, SendError},
     thread::JoinHandle,
@@ -134,7 +133,7 @@ pub fn boss_main() -> ExitCode {
         let level_color = match record.level() {
             log::Level::Error => Color::Red,
             log::Level::Warn => Color::Yellow,
-            _ => Color::Black,
+            _ => Color::Black, //TODO: doesn't work on black background! (Windows Terminal!)
         };
         let level_style = buf.style().set_color(level_color).clone();
 
@@ -571,8 +570,8 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str, remote_port_for
     // We run a command that doesn't print out anything on both Windows and Linux, so we don't pollute the output
     // (we show all output from ssh, in case it contains prompts etc. that are useful/required for the user to see).
     // Note the \n to send a two-line command - it seems Windows ignores this, but Linux runs it.
-    let windows_command = format!("{}target\\release\\rjrssync.exe {}", REMOTE_TEMP_FOLDER_WINDOWS, doer_args);
-    let unix_command = format!("{}target/release/rjrssync {}", REMOTE_TEMP_FOLDER_UNIX, doer_args);
+    let windows_command = format!("{}rjrssync\\target\\release\\rjrssync.exe {}", REMOTE_TEMP_WINDOWS, doer_args);
+    let unix_command = format!("{}rjrssync/target/release/rjrssync {}", REMOTE_TEMP_UNIX, doer_args);
     let remote_command = format!("echo >/dev/null # >nul & {windows_command}\n{unix_command}");
     debug!("Running remote command: {}", remote_command);
     // Note we use the user's existing ssh tool so that their config/settings will be used for
@@ -777,14 +776,9 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> 
     }
 
     // Determine if the target system is Windows or Linux, so that we know where to copy our files to
-    // Note that we run "cmd /C scp ..." rather than just "scp", otherwise the line endings get messed up and subsequent log messages are broken.
-    //TODO: cmd doesn't exist on linux!!!!
-    //TODO: cmd is expanding %TEMP% locally!! Causing problem on remote end where TEMP might be different
     let remote_command = "uname || ver"; // uname for Linux, ver for Windows
     debug!("Running remote command: {}", remote_command);
-    let os_test_output = match std::process::Command::new("cmd")
-        .arg("/C")
-        .arg("ssh")
+    let os_test_output = match std::process::Command::new("ssh")
         .arg(user_prefix.clone() + remote_hostname)
         .arg(remote_command)
         .output()
@@ -804,32 +798,20 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> 
     // We could check for "linux" in the string, but there are other Unix systems we might want to supoprt e.g. Mac,
     // so we fall back to Linux as a default
     let is_windows = os_test_output.contains("Windows");
-    let remote_temp_folder = if is_windows {
-        PathBuf::from(REMOTE_TEMP_FOLDER_WINDOWS)
+    let (remote_temp, cd_command) = if is_windows {
+        (REMOTE_TEMP_WINDOWS, format!("cd /d {REMOTE_TEMP_WINDOWS}\\rjrssync"))
     } else {
-        PathBuf::from(REMOTE_TEMP_FOLDER_UNIX)
-    };
-    let cd_command = if is_windows {
-        "cd /d"
-    } else {
-        "cd"
+        (REMOTE_TEMP_UNIX, format!("cd {REMOTE_TEMP_UNIX}/rjrssync"))
     };
 
     // Deploy to remote target using scp
     // Note we need to deal with the case where the the remote folder doesn't exist, and the case where it does, so
     // we copy into /tmp (which should always exist), rather than directly to /tmp/rjrssync which may or may not
+    // We leave stdout and stderr to inherit, so the user can see what's happening and if there are any errors
     let source_spec = local_temp_dir.path().join("rjrssync");
-    let remote_spec = user_prefix.clone()
-        + remote_hostname
-        + ":"
-        + remote_temp_folder.parent().unwrap().to_str().unwrap();
+    let remote_spec = format!("{user_prefix}{remote_hostname}:{remote_temp}");
     debug!("Copying {} to {}", source_spec.display(), remote_spec);
-    // Note that we run "cmd /C scp ..." rather than just "scp", otherwise the line endings get messed up and subsequent log messages are broken.
-    //TODO: cmd doesn't exist on linux!!!!
-    //TODO: cmd is expanding %TEMP% locally!! Causing problem on remote end where TEMP might be different
-    match std::process::Command::new("cmd")
-        .arg("/C")
-        .arg("scp")
+    match std::process::Command::new("scp")
         .arg("-r")
         .arg(source_spec)
         .arg(remote_spec)
@@ -852,18 +834,11 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> 
     // Note that we could merge this ssh command with the one to run the program once it's built (in launch_doer_via_ssh),
     // but this would make error reporting slightly more difficult as the command in launch_doer_via_ssh is more tricky as
     // we are parsing the stdout, but for the command here we can wait for it to finish easily.
-    let remote_command = format!(
-        "{} {} && cargo build --release",
-        cd_command,
-        remote_temp_folder.display()
-    );
+    // We leave stdout and stderr to inherit, so the user can see what's happening and if there are any errors
+    let remote_command = format!("{} && cargo build --release", cd_command);
     debug!("Running remote command: {}", remote_command);
-    // Note that we run "cmd /C ssh ..." rather than just "ssh", otherwise the line endings get messed up and subsequent log messages are broken.
-    //TODO: cmd doesn't exist on linux!!!!
-    //TODO: cmd is expanding %TEMP% locally!! Causing problem on remote end where TEMP might be different
-    match std::process::Command::new("cmd")
-        .arg("/C")
-        .arg("ssh")
+    match std::process::Command::new("ssh")
+        .arg("-t") // This fixes issues with line endings getting messed up after ssh exits
         .arg(user_prefix + remote_hostname)
         .arg(remote_command)
         .status()
