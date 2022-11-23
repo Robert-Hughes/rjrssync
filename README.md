@@ -100,7 +100,6 @@ TODO:
 * Progress bar
 * Format total bytes and total files etc. with commas, or GB, MB etc.
 * Create destination root if it doesn't exist?
-* Only show histograms based on an argument, to avoid cluttering the output?
 * Sometimes remote processes are left orphaned, preventing new ones from listening on the same port
 * Set up github actions to run tests
 * How to handle when the user specifies a file rather than folder on one or both sides (or a symlink?)
