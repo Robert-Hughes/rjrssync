@@ -4,6 +4,7 @@ use std::{
 };
 
 use log::{debug, error, info, trace};
+use thousands::Separable;
 
 use crate::*;
 
@@ -94,8 +95,6 @@ pub fn sync(
         .send_command(Command::GetEntries { root: dest_folder, exclude_filters })
         .unwrap();
 
-    //TODO: what about symlinks
-
     let mut stats = Stats::default();
 
     let mut src_entries = Vec::new();
@@ -143,8 +142,12 @@ pub fn sync(
     }
     if show_stats {
         info!("Source: {} file(s) totalling {} bytes and {} folder(s) => Dest: {} file(s) totalling {} bytes and {} folder(s)",
-            stats.num_src_files, stats.src_total_bytes, stats.num_src_folders,
-            stats.num_dest_files, stats.dest_total_bytes, stats.num_dest_folders);
+            stats.num_src_files.separate_with_commas(), 
+            stats.src_total_bytes.separate_with_commas(), 
+            stats.num_src_folders.separate_with_commas(),
+            stats.num_dest_files.separate_with_commas(), 
+            stats.dest_total_bytes.separate_with_commas(), 
+            stats.num_dest_folders.separate_with_commas());
         info!("Source file size distribution:");
         info!("{}", stats.src_file_size_hist);
     }
@@ -258,22 +261,22 @@ pub fn sync(
         info!(
             "{} {} file(s){} and {} folder(s)",
             if !dry_run { "Deleted" } else { "Would delete" },
-            stats.num_files_deleted, 
-            if show_stats { format!(" totalling {} bytes", stats.num_bytes_deleted) } else { "".to_string() },
-            stats.num_folders_deleted
+            stats.num_files_deleted.separate_with_commas(), 
+            if show_stats { format!(" totalling {} bytes", stats.num_bytes_deleted.separate_with_commas()) } else { "".to_string() },
+            stats.num_folders_deleted.separate_with_commas()
         );
     }
     if stats.num_files_copied + stats.num_folders_created > 0 {
         info!(
             "{} {} file(s){} and {} {} folder(s){}",
             if !dry_run { "Copied" } else { "Would copy" },           
-            stats.num_files_copied,
-            if show_stats { format!(" totalling {} bytes", stats.num_bytes_copied) } else { "".to_string() },
+            stats.num_files_copied.separate_with_commas(),
+            if show_stats { format!(" totalling {} bytes", stats.num_bytes_copied.separate_with_commas()) } else { "".to_string() },
             if !dry_run { "created" } else { "would create" },
-            stats.num_folders_created,
+            stats.num_folders_created.separate_with_commas(),
             if !dry_run && show_stats { 
                 format!(", in {:.1} seconds ({} bytes/s)", 
-                    elapsed, stats.num_bytes_copied as f32 / elapsed as f32)
+                    elapsed, (stats.num_bytes_copied as f32 / elapsed as f32).round().separate_with_commas())
             } else { "".to_string() },                      
         );
         if show_stats {
