@@ -57,9 +57,11 @@ fn load_filesystem_tree_from_disk(folder: &Path) -> Vec<FilesystemNode> {
                 modified: entry.metadata().unwrap().modified().unwrap()
             });
         } else if entry.file_type().unwrap().is_dir() {
+            let mut children = load_filesystem_tree_from_disk(&folder.join(entry.file_name()));
+            children.sort(); // Sort children so that comparison of FilesystemNodes doesn't depend on order of children.
             result.push(FilesystemNode::Folder {
                 name: entry.file_name().to_string_lossy().to_string(),
-                children: load_filesystem_tree_from_disk(&folder.join(entry.file_name())),
+                children,
             });
            
         } else {
