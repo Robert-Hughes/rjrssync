@@ -106,6 +106,7 @@ TODO:
 * Test behaviour when user specifies files/symlinks/non-existent instead of folders on one or both sides
 * --no-encryption option, might be faster?
 * Handle syncing of symlinks (just sync the link, don't follow it)
+* Multiple root folders in the same command, e.g. two repos you want synced.
 
 
 
@@ -125,4 +126,20 @@ Idea for filters, with re-usable "functions":
    ".*" : exclude,
    "artifacts/.*\.bin": include,
    "other/artifacts/.*\.bin" : include,
+]
+
+Idea for multi sync
+===========
+
+[
+    {
+        "source": "rob-ssh@213123.123.12312:repo1",
+        "dest:" "repo1",
+        "excludes": []
+    },
+    {
+        "source": "rob-ssh@213123.123.12312:repo2",
+        "dest:" "repo2",
+        "excludes": []
+    }
 ]
