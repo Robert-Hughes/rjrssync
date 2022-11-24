@@ -470,8 +470,8 @@ fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, root: &str, 
                     entry_type = EntryType::File;
                 } else {
                     comms
-                        .send_response(Response::Error("Unknown file type".to_string()))
-                        .unwrap();
+                    .send_response(Response::Error(format!("Unknown file type for {}: {:?}", path, e.file_type())))
+                    .unwrap();
                     return;
                 }
 
