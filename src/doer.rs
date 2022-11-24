@@ -393,6 +393,26 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) 
 }
 
 fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, root: &str, exclude_filters: &[String]) {
+    match std::fs::metadata(root) {
+        Ok(m) if m.is_dir() => (), // Good
+        Ok(m) => {
+            comms
+                .send_response(Response::Error(format!(
+                    "root {} is not a folder: {:?}", root, m
+                )))
+            .unwrap();
+            return;
+        }
+        Err(e) => {
+            comms
+                .send_response(Response::Error(format!(
+                    "root {} can't be read: {}", root, e
+                )))
+            .unwrap();
+            return;
+        }
+    }
+
     // Store the root folder for future operations
     context.root = PathBuf::from(root);
 

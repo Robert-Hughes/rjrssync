@@ -99,10 +99,11 @@ TODO:
 * Test for windows/linux deploying onto windows/linux (4 combinations!)
 * Test for --stats (maybe just all the command-line options...)
 * Progress bar
-* Create destination root if it doesn't exist?
 * Sometimes remote processes are left orphaned, preventing new ones from listening on the same port
 * Set up github actions to run tests (tried adding, but RustEmbed doesn't seem to work properly on the GitHub build server)
-* How to handle when the user specifies a file rather than folder on one or both sides (or a symlink?)
+* Create destination root if it doesn't exist?
+* Support the user specifying a file rather than folder on one or both sides (or a symlink?)
+* Test behaviour when user specifies files/symlinks/non-existent instead of folders on one or both sides
 * --no-encryption option, might be faster?
 * Handle syncing of symlinks (just sync the link, don't follow it)
 

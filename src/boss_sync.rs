@@ -31,7 +31,7 @@ impl Display for FileSizeHistogram {
         }
 
         let h = 5;
-        let max = *self.buckets.iter().max().unwrap(); //TODO: could be empty! (everything filtered)
+        let max = *self.buckets.iter().max().unwrap();
         for y in 0..h {
             let mut l = "".to_string();
             for x in 0..self.buckets.len() {
