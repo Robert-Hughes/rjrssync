@@ -17,7 +17,9 @@ enum FilesystemNode {
 }
 impl FilesystemNode {
     fn folder(name: &str, children: &[FilesystemNode]) -> FilesystemNode {
-        FilesystemNode::Folder{name: name.to_string(), children: children.into() }
+        let mut children = children.to_vec();
+        children.sort(); // Sort children so that comparison of FilesystemNodes doesn't depend on order of children.
+        FilesystemNode::Folder{name: name.to_string(), children }
     }
     fn file(name: &str, contents: &str) -> FilesystemNode {
         FilesystemNode::File{name: name.to_string(), contents: contents.as_bytes().to_vec(), modified: SystemTime::now() }       
