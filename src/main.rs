@@ -1,6 +1,7 @@
 use std::process::ExitCode;
 
 mod boss;
+mod boss_frontend;
 mod boss_sync;
 mod doer;
 mod encrypted_comms;
