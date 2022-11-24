@@ -17,7 +17,16 @@ enum FilesystemNode {
     }
 }
 
+/// Macro to ergonomically create a folder.
+macro_rules! folder {
+    ($($tts:tt)*) => {
+        folder(map! { $($tts)* })
+    }
+}
+
 fn folder(children: HashMap<&str, FilesystemNode>) -> FilesystemNode {
+    // Convert to a map with owned Strings (rather than &str). We take &strs in the param
+    // to make the test code simpler.
     let children : HashMap<String, FilesystemNode> = children.into_iter().map(|(n, c)| (n.to_string(), c)).collect();
     FilesystemNode::Folder{ children }
 }
@@ -144,62 +153,61 @@ fn run_usage_test_impl(src_node: Option<FilesystemNode>, dest_node: Option<Files
 /// A simple copying of a few files and a folder.
 #[test]
 fn test_folder_to_folder() {
-    //TODO: could make "folder!" macro that forwards to "folder (map! { ... })"
-    let src_folder = folder(map! {
+    let src_folder = folder! {
         "c1" => file("contents1"),
         "c2" => file("contents2"),
-        "c3" => folder(map! {
+        "c3" => folder! {
             "sc" => file("contents3"),
-        })
-    });
+        }
+    };
     run_usage_test(src_folder, empty_folder(), Some(3));
 }
 
 /// Some files and a folder in the destination need deleting.
 #[test]
 fn test_remove_dest_stuff() {
-    let src_folder = folder(map! {
+    let src_folder = folder! {
         "c1" => file("contents1"),
         "c2" => file("contents2"),
-        "c3" => folder(map! {
+        "c3" => folder! {
             "sc" => file("contents3"),
-        })
-    });
-    let dest_folder = folder(map! {
+        }
+    };
+    let dest_folder = folder! {
         "remove me" => file("contents1"),
         "remove me too" => file("contents2"),
-        "remove this whole folder" => folder(map! {
+        "remove this whole folder" => folder! {
             "sc" => file("contents3"),
-        })
-    });
+        }
+    };
     run_usage_test(src_folder, dest_folder, Some(3));
 }
 
 /// A file exists but has an old timestamp so needs updating.
 #[test]
 fn test_update_file() {
-    let src_folder = folder(map! {
+    let src_folder = folder! {
         "file" => file_with_modified("contents1", SystemTime::UNIX_EPOCH + Duration::from_secs(1)),
-    });
-    let dest_folder = folder(map! {
+    };
+    let dest_folder = folder! {
         "file" => file_with_modified("contents2", SystemTime::UNIX_EPOCH),
-    });
+    };
     run_usage_test(src_folder, dest_folder, Some(1));
 }
 
 /// Most files have the same timestamp so don't need updating, but one does.
 #[test]
 fn test_skip_unchanged() {
-    let src_folder = folder(map! {
+    let src_folder = folder! {
         "file1" => file_with_modified("contentsNEW", SystemTime::UNIX_EPOCH + Duration::from_secs(1)),
         "file2" => file_with_modified("contents2", SystemTime::UNIX_EPOCH),
         "file3" => file_with_modified("contents3", SystemTime::UNIX_EPOCH),
-    });
-    let dest_folder = folder(map! {
+    };
+    let dest_folder = folder! {
         "file1" => file_with_modified("contentsOLD", SystemTime::UNIX_EPOCH),
         "file2" => file_with_modified("contents2", SystemTime::UNIX_EPOCH),
         "file3" => file_with_modified("contents3", SystemTime::UNIX_EPOCH),
-    });
+    };
     // Check that exactly one file was copied (the other two should have been skipped)
     run_usage_test(src_folder, dest_folder, Some(1)); 
 }
@@ -213,9 +221,9 @@ fn test_file_to_folder() {
 /// Tries syncing a folder to a file
 #[test]
 fn test_folder_to_file() {
-    let src_folder = folder(map! {
+    let src_folder = folder! {
         "file1" => file("contents"),
-    });
+    };
     run_usage_test_expect_failure(src_folder, file("contents2"), 12); 
 }
 
@@ -234,9 +242,9 @@ fn test_file_to_nothing() {
 /// Tries syncing a folder to a non-existent path
 #[test]
 fn test_folder_to_nothing() {
-    let src_folder = folder(map! {
+    let src_folder = folder! {
         "file1" => file("contents"),
-    });
+    };
     run_usage_test_impl(Some(src_folder), None, 12, None); 
 }
 
@@ -249,9 +257,9 @@ fn test_nothing_to_file() {
 /// Tries syncing a non-existent path to a folder
 #[test]
 fn test_nothing_to_folder() {
-    let dest_folder = folder(map! {
+    let dest_folder = folder! {
         "file1" => file("contents"),
-    });
+    };
     run_usage_test_impl(None, Some(dest_folder), 12, None); 
 }
 

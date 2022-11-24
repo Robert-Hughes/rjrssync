@@ -1,4 +1,7 @@
-Fast rsync-like tool for incrementally copying files. Runs natively on both Windows and Linux and uses network for communication, to maximise speed when syncing between Windows and WSL filesystems (accessing WSL filesytem from Windows or vice-versa is slow).
+Fast rsync-like tool for incrementally copying files. Runs natively on both Windows and Linux and uses network for communication, to maximise speed when syncing between Windows and WSL filesystems.
+
+Notes on performance & security
+===============================
 
 Some perf results of walking directories on each OS:
 
@@ -7,8 +10,7 @@ Filesystem:
   Windows        100k        9k
    Linux          1k         500k
 
-Notes on performance & security
-===============================
+Conclusion => accessing WSL filesytem from Windows or vice-versa is slow, so we use native access.
 
 Transferring data through the stdin/stdout of ssh is pretty slow (on Windows at least),
 at most about 20MB/s. It's nice and secure though (we get authentication and encryption).
@@ -82,6 +84,7 @@ consistent view on the matter. This means that the program makes the destination
 be the same as the source object, and that doesn't mean they need to have the same name.
 
 TODO:
+=====
 
 * Review/tidy up sync code in boss_sync.rs and also the command handling code in doer.rs
 * Config file containing src/dest, ignore/allow list etc. Use serde_json?
@@ -118,7 +121,7 @@ TODO:
    - What about the presence or lack of trailing slashes?
 * --no-encryption option, might be faster?
 * Handle syncing of symlinks (just sync the link, don't follow it)
-* Multiple root folders in the same command, e.g. two repos you want synced.
+* Multiple root folders in the same command, e.g. two repos you want synced (see idea at bottom)
 
 
 
@@ -155,3 +158,5 @@ Idea for multi sync
         "excludes": []
     }
 ]
+
+Or maybe use TOML or something simpler - JSON seems a bit verbose?
