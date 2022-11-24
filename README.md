@@ -71,6 +71,16 @@ WSL -> Windows: 700-800MB/s
 WSL -> WSL: 900-1000MB/s
 
 
+Tree representation
+===================
+
+There are some interesting design questions that arise about how to handle trees of files and folders,
+for example whether two files should be considered equal if they have the same contents but different names.
+If the answer is yes then it seems that the name shouldn't be part of the file itself, but is instead
+used as an identifier _for_ the file. The same thing applies to folders. This seems to be the most
+consistent view on the matter. This means that the program makes the destination object (file, folder etc.)
+be the same as the source object, and that doesn't mean they need to have the same name.
+
 TODO:
 
 * Review/tidy up sync code in boss_sync.rs and also the command handling code in doer.rs
@@ -104,6 +114,7 @@ TODO:
 * Create destination root if it doesn't exist?
 * Support the user specifying a file rather than folder on one or both sides (or a symlink?)
 * Test behaviour when user specifies files/symlinks/non-existent instead of folders on one or both sides
+    - What about source and dest pointing to the same file/folder/symlink/etc.?
 * --no-encryption option, might be faster?
 * Handle syncing of symlinks (just sync the link, don't follow it)
 * Multiple root folders in the same command, e.g. two repos you want synced.
