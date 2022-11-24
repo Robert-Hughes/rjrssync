@@ -17,7 +17,9 @@ enum FilesystemNode {
     }
 }
 
-/// Macro to ergonomically create a folder.
+/// Macro to ergonomically create a folder with a list of children.
+/// Works by forwarding to the map! macro (see map-macro crate) to get the HashMap of children,
+/// then forwarding that the `folder` function (below) which creates the actual FilesystemNode::Folder.
 macro_rules! folder {
     ($($tts:tt)*) => {
         folder(map! { $($tts)* })
