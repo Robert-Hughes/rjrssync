@@ -77,7 +77,7 @@ pub fn boss_main() -> ExitCode {
     //          then this may be the same copy as the Boss. If it's remote then it will be a remote doer process.
     //          If Source and Dest are the same computer, they are still separate copies for simplicity.
     //          (It might be more efficient to just have one remote copy, but remember that there could be different users specified
-    //           on the Source and Dest, with separate permissions to the folders being synced, so they can't access each others' folders,
+    //           on the Source and Dest, with separate permissions to the paths being synced, so they can't access each others' paths,
     //           in which case we couldn't share a copy. Also might need to make it multithreaded on the other end to handle
     //           doing one command at the same time for each Source and Dest, which might be more complicated.)
 
@@ -104,7 +104,7 @@ pub fn boss_main() -> ExitCode {
     };
 
     // Perform the actual file sync
-    let sync_result = sync(args.src.folder, args.dest.folder, args.exclude_filters, args.dry_run, args.stats, src_comms, dest_comms);
+    let sync_result = sync(args.src.path, args.dest.path, args.exclude_filters, args.dry_run, args.stats, src_comms, dest_comms);
 
     match sync_result {
         Ok(()) => ExitCode::SUCCESS,
@@ -470,7 +470,7 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str, remote_port_for
         format!(" --log-filter {} ", log::max_level()) // max_level will be affected by --quiet/--verbose
     };
 
-    // Note we don't cd, so that relative paths for the folder specified by the user on the remote
+    // Note we don't cd, so that relative paths for the path specified by the user on the remote
     // will be correct (relative to their ssh default dir, e.g. home dir)
     let doer_args = format!("--doer {} --port {}", log_arg, remote_port_for_comms);
     // Try launching using both Unix and Windows paths, as we don't know what the remote system is

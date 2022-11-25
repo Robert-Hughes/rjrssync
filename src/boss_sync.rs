@@ -80,8 +80,8 @@ struct Stats {
 }
 
 pub fn sync(
-    src_folder: String,
-    dest_folder: String,
+    src_path: String,
+    dest_path: String,
     exclude_filters: Vec<String>,
     dry_run: bool,
     show_stats: bool,
@@ -89,10 +89,10 @@ pub fn sync(
     mut dest_comms: Comms,
 ) -> Result<(), ()> {
     src_comms
-        .send_command(Command::GetEntries { root: src_folder, exclude_filters: exclude_filters.clone() })
+        .send_command(Command::GetEntries { root: src_path, exclude_filters: exclude_filters.clone() })
         .unwrap();
     dest_comms
-        .send_command(Command::GetEntries { root: dest_folder, exclude_filters })
+        .send_command(Command::GetEntries { root: dest_path, exclude_filters })
         .unwrap();
 
     let mut stats = Stats::default();
