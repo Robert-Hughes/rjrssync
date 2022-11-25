@@ -497,7 +497,7 @@ fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, root: &str, 
                 //                      }
             }
             Some(Err(e)) => {
-                comms.send_response(Response::Error(e.to_string())).unwrap();
+                comms.send_response(Response::Error(format!("Error walking root: {}", e))).unwrap();
                 break;
             }
         }
