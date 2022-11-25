@@ -83,6 +83,61 @@ used as an identifier _for_ the file. The same thing applies to folders. This se
 consistent view on the matter. This means that the program makes the destination object (file, folder etc.)
 be the same as the source object, and that doesn't mean they need to have the same name.
 
+There are several ambiguities about how to sync depending on whether the paths given exist, if they have a trailing
+slash, etc or if they are a file or a folder. The goal is that the program should be intuitive and easy to use and
+easy to reason about its behaviour. The current plan is to behave as follows:
+
+Each row is for a different type of source that the source path points to (something that doesn't exist, an
+existing file or an existing folder). Each column is for a different type of dest that the dest path points to.
+Each row/col is further broken down into versions that include or do not include a trailing slash on the path.
+The cell contents describe the behaviour given those inputs:
+   - 'X' means this is an error
+   - 'b' means that the source is copied over to the path b, creating, updating or replacing whatever might be there.
+   - 'b/a' means that the source is copied over to the path b/a, creating, updating or replacing whatever might be there.
+   - '*' indicates that the behaviour might be surprising/destructive because it deletes an existing file or folder and replaces it
+        with a folder/file. We should probably warn for this.
+
+|---------------------------------------------------------------------|
+|          Dest ->    |  Non-existent |      File     |    Folder     |
+|                     |---------------|---------------|---------------|
+|  Source v           |   b   |  b/   |   b   |  b/   |   b   |  b/   |
+|---------------------|-------|-------|-------|-------|-------|-------|
+|              src/a  |               |               |               |
+| Non-existent        |       X       |       X       |       X       |
+|              src/a/ |               |               |               |
+|-------------- ------|-------|-------|-------|-------|-------|-------|
+|              src/a  |   b   |  b/a  |   b   |   X   |   b*  |  b/a  |
+| File                |-------|-------|-------|-------|-------|-------|
+|              src/a/ |   X   |   X   |   X   |   X   |   X   |   X   |
+|-------------- ------|-------|-------|-------|-------|-------|-------|
+|              src/a  |   b   |   b   |   b*  |   X   |   b   |   b   |
+| Folder              |-------|-------|-------|-------|-------|-------|
+|              src/a/ |   b   |   b   |   b*  |   X   |   b   |   b   |
+|-------------- ------|-------|-------|-------|-------|-------|-------|
+
+The behaviour can be summarised as a "golden rule" which is that after the sync, the object pointed to by the destination
+path will be identical to the object pointed to by the source path, i.e. `tree $SRC == tree $DEST`.
+
+There is one exception, which is that if the dest path has a trailing slash, and source is an (existing) file, then
+the dest path is first modified to have the final part of the source path appended to it. e.g.:
+
+`rjrssync folder/file.txt backup/` => `backup/file.txt`
+
+This makes it more ergonomic to copy individual files. Unfortunately it makes the behaviour of files and folder inconsistent,
+but this this is fine because files and folders are indeed different, and it's worth the sacrifice.
+
+It has the property that non-existent dest files/folders are treated the same as if they did exist, which means that
+you get a consistent final state no matter the starting state (behaviour is idempotent).
+
+It also prevents unintended creation of nested folders with the same name which can be annoying, e.g.
+
+`rjrssync src/folder dest/folder` => `dest/folder/...` (rather than `dest/folder/folder/...`)
+
+
+
+
+
+
 TODO:
 =====
 

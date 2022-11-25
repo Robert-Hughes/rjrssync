@@ -88,14 +88,14 @@ fn load_filesystem_node_from_disk(path: &Path) -> Option<FilesystemNode> {
     }
 }
 
-fn run_usage_test(src_node: FilesystemNode, dest_node: FilesystemNode, 
+fn run_usage_test(src_node: &FilesystemNode, dest_node: &FilesystemNode, 
     expected_num_copies: Option<u32>) {
-        run_usage_test_impl(Some(src_node), Some(dest_node), 0, expected_num_copies);
+        run_usage_test_impl(Some(src_node), "src", Some(dest_node), "dest", "dest", 0, expected_num_copies);
 }
 
-fn run_usage_test_expect_failure(src_node: FilesystemNode, dest_node: FilesystemNode, 
+fn run_usage_test_expect_failure(src_node: &FilesystemNode, dest_node: &FilesystemNode, 
     expected_exit_code: i32) {
-        run_usage_test_impl(Some(src_node), Some(dest_node), expected_exit_code, None);
+        run_usage_test_impl(Some(src_node), "src", Some(dest_node), "dest", "dest", expected_exit_code, None);
 }
 
 /// Checks that running rjrssync with src and dest arguments pointing to the specified files/folders
@@ -103,7 +103,8 @@ fn run_usage_test_expect_failure(src_node: FilesystemNode, dest_node: Filesystem
 /// If successful, it checks that dest ends up identical to the src (including any children),
 /// otherwise it checks that the dest is unchanged (this probably won't be true for all tests...).
 /// Optionally also tests that the expected number of files were copied.
-fn run_usage_test_impl(src_node: Option<FilesystemNode>, dest_node: Option<FilesystemNode>, 
+fn run_usage_test_impl(src_node: Option<&FilesystemNode>, src_path: &str, dest_node: Option<&FilesystemNode>, 
+    dest_path: &str, expected_dest_path: &str,
     expected_exit_code: i32, expected_num_copies: Option<u32>) {
     // Create temporary folders to store the src and dest nodes,
     // then place the src and dest files/folders into these holder folders.
@@ -111,13 +112,13 @@ fn run_usage_test_impl(src_node: Option<FilesystemNode>, dest_node: Option<Files
     // so we can choose anything here.
 
     let src_holder = TempDir::new("rjrssync-test").unwrap();
-    let src = src_holder.path().join("src");
+    let src = src_holder.path().join(src_path);
     if let Some(t) = &src_node {
         save_filesystem_node_to_disk(&t, &src);
     }
 
     let dest_holder = TempDir::new("rjrssync-test").unwrap();
-    let dest = dest_holder.path().join("dest");
+    let dest = dest_holder.path().join(dest_path);
     if let Some(t) = &dest_node {
         save_filesystem_node_to_disk(&t, &dest);
     }
@@ -131,7 +132,7 @@ fn run_usage_test_impl(src_node: Option<FilesystemNode>, dest_node: Option<Files
 
     // Source should always be unchanged
     let new_src_node = load_filesystem_node_from_disk(&src);
-    assert_eq!(src_node, new_src_node);
+    assert_eq!(src_node, new_src_node.as_ref());
 
     if expected_exit_code == 0 {
         if let Some(expected_num_copies) = expected_num_copies {
@@ -141,28 +142,15 @@ fn run_usage_test_impl(src_node: Option<FilesystemNode>, dest_node: Option<Files
         }
 
         // Dest should be identical to source
-        let new_dest_node = load_filesystem_node_from_disk(&dest);
+        let new_dest_node = load_filesystem_node_from_disk(&dest_holder.path().join(expected_dest_path));
 
-        assert_eq!(src_node, new_dest_node);
+        assert_eq!(src_node, new_dest_node.as_ref());
     } else {
         // Dest should be unchanged
         let new_dest_node = load_filesystem_node_from_disk(&dest);
 
-        assert_eq!(dest_node, new_dest_node);
+        assert_eq!(dest_node, new_dest_node.as_ref());
     }
-}
-
-/// A simple copying of a few files and a folder.
-#[test]
-fn test_folder_to_folder() {
-    let src_folder = folder! {
-        "c1" => file("contents1"),
-        "c2" => file("contents2"),
-        "c3" => folder! {
-            "sc" => file("contents3"),
-        }
-    };
-    run_usage_test(src_folder, empty_folder(), Some(3));
 }
 
 /// Some files and a folder in the destination need deleting.
@@ -182,7 +170,7 @@ fn test_remove_dest_stuff() {
             "sc" => file("contents3"),
         }
     };
-    run_usage_test(src_folder, dest_folder, Some(3));
+    run_usage_test(&src_folder, &dest_folder, Some(3));
 }
 
 /// A file exists but has an old timestamp so needs updating.
@@ -194,7 +182,7 @@ fn test_update_file() {
     let dest_folder = folder! {
         "file" => file_with_modified("contents2", SystemTime::UNIX_EPOCH),
     };
-    run_usage_test(src_folder, dest_folder, Some(1));
+    run_usage_test(&src_folder, &dest_folder, Some(1));
 }
 
 /// Most files have the same timestamp so don't need updating, but one does.
@@ -211,13 +199,36 @@ fn test_skip_unchanged() {
         "file3" => file_with_modified("contents3", SystemTime::UNIX_EPOCH),
     };
     // Check that exactly one file was copied (the other two should have been skipped)
-    run_usage_test(src_folder, dest_folder, Some(1)); 
+    run_usage_test(&src_folder, &dest_folder, Some(1)); 
+}
+
+/// Tries syncing a folder to a folder
+#[test]
+fn test_folder_to_folder() {
+    let src_folder = folder! {
+        "c1" => file("contents1"),
+        "c2" => file("contents2"),
+        "c3" => folder! {
+            "sc" => file("contents3"),
+        }
+    };
+
+    // Trailing slash variants. Trailing slashes make no difference for folder -> folder sync, so all expected
+    // results are the same and successful.
+    run_usage_test_impl(Some(&src_folder), "src", Some(&empty_folder()), "dest", "dest", 0, Some(3));
+    run_usage_test_impl(Some(&src_folder), "src/", Some(&empty_folder()), "dest", "dest", 0, Some(3));
+    run_usage_test_impl(Some(&src_folder), "src", Some(&empty_folder()), "dest/", "dest", 0, Some(3));
+    run_usage_test_impl(Some(&src_folder), "src/", Some(&empty_folder()), "dest/","dest", 0, Some(3));
 }
 
 /// Tries syncing a file to a folder
 #[test]
 fn test_file_to_folder() {
-    run_usage_test_expect_failure(file("contents1"), empty_folder(), 12); 
+    // Trailing slash variants
+    run_usage_test_impl(Some(&file("contents1")), "src", Some(&empty_folder()), "dest", "dest", 0, Some(1)); // dest should be replaced with src
+    run_usage_test_impl(Some(&file("contents1")), "src/", Some(&empty_folder()), "dest", "???", 12, None); // Can't have a trailing slash on a file
+    run_usage_test_impl(Some(&file("contents1")), "src", Some(&empty_folder()), "dest/", "dest/src", 0, Some(1)); // src should be placed inside dest
+    run_usage_test_impl(Some(&file("contents1")), "src/", Some(&empty_folder()), "dest/", "???", 12, None); // Can't have a trailing slash on a file
 }
 
 /// Tries syncing a folder to a file
@@ -226,19 +237,31 @@ fn test_folder_to_file() {
     let src_folder = folder! {
         "file1" => file("contents"),
     };
-    run_usage_test_expect_failure(src_folder, file("contents2"), 12); 
+    // Trailing slash variants
+    run_usage_test_impl(Some(&src_folder), "src", Some(&file("contents2")), "dest", "dest", 0, Some(1)); // dest should be replaced with src
+    run_usage_test_impl(Some(&src_folder), "src/", Some(&file("contents2")), "dest", "dest", 0, Some(1)); // dest should be replaced with src
+    run_usage_test_impl(Some(&src_folder), "src", Some(&file("contents2")), "dest/", "???", 12, None); // Can't have a trailing slash on a file
+    run_usage_test_impl(Some(&src_folder), "src/", Some(&file("contents2")), "dest/", "???", 12, None); // Can't have a trailing slash on a file
 }
 
 /// Tries syncing a file to a file
 #[test]
 fn test_file_to_file() {
-    run_usage_test_expect_failure(file("contents1"), file("contents2"), 12); 
+    // Trailing slash variants
+    run_usage_test_impl(Some(&file("contents1")), "src", Some(&file("contents2")), "dest", "dest", 0, Some(1)); // dest should be replaced with src
+    run_usage_test_impl(Some(&file("contents1")), "src/", Some(&file("contents2")), "dest", "???", 12, None); // Can't have a trailing slash on a file
+    run_usage_test_impl(Some(&file("contents1")), "src", Some(&file("contents2")), "dest/", "???", 12, None); // Can't have a trailing slash on a file
+    run_usage_test_impl(Some(&file("contents1")), "src/", Some(&file("contents2")), "dest/", "???", 12, None); // Can't have a trailing slash on a file 
 }
 
 /// Tries syncing a file to a non-existent path
 #[test]
 fn test_file_to_nothing() {
-    run_usage_test_impl(Some(file("contents1")), None, 12, None); 
+    // Trailing slash variants
+    run_usage_test_impl(Some(&file("contents1")), "src", None, "dest", "dest", 0, Some(1));
+    run_usage_test_impl(Some(&file("contents1")), "src/", None, "dest", "???", 12, None); // Can't have a trailing slash on a file
+    run_usage_test_impl(Some(&file("contents1")), "src", None, "dest/", "dest/src", 0, Some(1));
+    run_usage_test_impl(Some(&file("contents1")), "src/", None, "dest/", "???", 12, None); // Can't have a trailing slash on a file
 }
 
 /// Tries syncing a folder to a non-existent path
@@ -247,13 +270,21 @@ fn test_folder_to_nothing() {
     let src_folder = folder! {
         "file1" => file("contents"),
     };
-    run_usage_test_impl(Some(src_folder), None, 12, None); 
+    // Trailing slash variants - irrelevant
+    run_usage_test_impl(Some(&src_folder), "src", None, "dest", "dest", 0, Some(1));
+    run_usage_test_impl(Some(&src_folder), "src/", None, "dest", "dest", 0, Some(1));
+    run_usage_test_impl(Some(&src_folder), "src", None, "dest/", "dest", 0, Some(1));
+    run_usage_test_impl(Some(&src_folder), "src/", None, "dest/", "dest", 0, Some(1));
 }
 
 /// Tries syncing a non-existent path to a file
 #[test]
 fn test_nothing_to_file() {
-    run_usage_test_impl(None, Some(file("contents")), 12, None); 
+    // Trailing slash variants. Doesn't matter, source doesn't exist so is failure.
+    run_usage_test_impl(None, "src", Some(&file("contents")), "dest", "???", 12, None);
+    run_usage_test_impl(None, "src/", Some(&file("contents")), "dest", "???", 12, None);
+    run_usage_test_impl(None, "src", Some(&file("contents")), "dest/", "???", 12, None);
+    run_usage_test_impl(None, "src/", Some(&file("contents")), "dest/", "???", 12, None);
 }
 
 /// Tries syncing a non-existent path to a folder
@@ -262,11 +293,20 @@ fn test_nothing_to_folder() {
     let dest_folder = folder! {
         "file1" => file("contents"),
     };
-    run_usage_test_impl(None, Some(dest_folder), 12, None); 
+
+    // Trailing slash variants. Doesn't matter, source doesn't exist so is failure.
+    run_usage_test_impl(None, "src", Some(&dest_folder), "dest", "???", 12, None);
+    run_usage_test_impl(None, "src/", Some(&dest_folder), "dest", "???", 12, None);
+    run_usage_test_impl(None, "src", Some(&dest_folder), "dest/", "???", 12, None);
+    run_usage_test_impl(None, "src/", Some(&dest_folder), "dest/", "???", 12, None);
 }
 
 /// Tries syncing a non-existent path to a non-existent path
 #[test]
 fn test_nothing_to_nothing() {
-    run_usage_test_impl(None, None, 12, None); 
+    // Trailing slash variants. Doesn't matter, source doesn't exist so is failure.
+    run_usage_test_impl(None, "src", None, "dest", "???", 12, None);
+    run_usage_test_impl(None, "src/", None, "dest", "???", 12, None);
+    run_usage_test_impl(None, "src", None, "dest/", "???", 12, None);
+    run_usage_test_impl(None, "src/", None, "dest/", "???", 12, None);
 }
