@@ -86,7 +86,9 @@ be the same as the source object, and that doesn't mean they need to have the sa
 TODO:
 =====
 
-* Review/tidy up sync code in boss_sync.rs and also the command handling code in doer.rs
+Interface
+----------
+
 * Config file containing src/dest, ignore/allow list etc. Use serde_json?
     * List of folders to sync, with src and dest spec (computer and absolute path)
     * Each folder to be synced has list of include/exclude filters, applied in order (can mix and match include/exclude however you want)
@@ -94,34 +96,56 @@ TODO:
     * Perhaps could have hard/soft includes/excludes - soft would keep evaluating other filters which may change the decision, hard would stop evaluating and keep that as the final decision.
     * Filters could be regexes on the path relative to the root (folder being synced)
     * If a dir is excluded by the filters (after resolving all filters), then we don't walk inside that dir, so stuff inside it will be excluded *even if the filters would have matched them*
+* Multiple root folders in the same command, e.g. two repos you want synced (see idea at bottom)
+
+
+Remote launching
+----------------
+
 * Additional SSH options as command-line arguments (separate for source and dest?)
-* Investigate if parallelising some stages would speed it up, e.g. walking the dir structure on multiple threads, or sending data across network on multiple threads
-* Investigate if pipelining some stages would speed it up, e.g. sending file list while also sending it
 * SSH host key verification prompt doesn't echo the user's typing, but it does seem to work anyway
-* Probably better to batch together File() Responses, to avoid overhead from sending loads of messages
-* Perf comparison with regular rsync (for cases where there are zero or few changes, and for cases with more changes)
+* Testing for ssh launching/copying/deploying stuff
+* Test for windows/linux deploying onto windows/linux (4 combinations!)
+* Sometimes remote processes are left orphaned, preventing new ones from listening on the same port
+
+
+Syncing logic
+-------------
+
+* Review/tidy up sync code in boss_sync.rs and also the command handling code in doer.rs
 * Compare and sync file permissions?
 * Modified time:
     - need to account for time zone differences etc. between source and dest when updating the timestamp
     - would this play nicely with other tools (e.g. build systems) that check timestamps - it might think that it doesn't need to rebuild anything, as the new timestamp for this file is still really old?
     - Maybe instead we could store something else, like a hash or our own marker to indicate when this file was synced, so that the timestamp is "correct", but we know not to sync it again next time.
-* Testing for ssh launching/copying/deploying stuff
 * Testing for sync logic, including between different combinations of windows and linux, remote and local etc. 
    - Exclude filters
 * Test for --dry-run
-* Test for windows/linux deploying onto windows/linux (4 combinations!)
 * Test for --stats (maybe just all the command-line options...)
 * Progress bar
-* Sometimes remote processes are left orphaned, preventing new ones from listening on the same port
-* Set up github actions to run tests (tried adding, but RustEmbed doesn't seem to work properly on the GitHub build server)
 * Create destination root if it doesn't exist?
 * Support the user specifying a file rather than folder on one or both sides (or a symlink?)
 * Test behaviour when user specifies files/symlinks/non-existent instead of folders on one or both sides
    - What about source and dest pointing to the same file/folder/symlink/etc.?
    - What about the presence or lack of trailing slashes?
+   - For symlinks, do we care about the target? It could be a file, a folder, non-existent, or another symlink (of any of these types...)
 * --no-encryption option, might be faster?
 * Handle syncing of symlinks (just sync the link, don't follow it)
-* Multiple root folders in the same command, e.g. two repos you want synced (see idea at bottom)
+
+
+Performance
+------------
+
+* Investigate if parallelising some stages would speed it up, e.g. walking the dir structure on multiple threads, or sending data across network on multiple threads
+* Investigate if pipelining some stages would speed it up, e.g. sending file list while also sending it
+* Probably better to batch together File() Responses, to avoid overhead from sending loads of messages
+* Perf comparison with regular rsync (for cases where there are zero or few changes, and for cases with more changes)
+
+
+Misc
+-----
+
+* Fix intermittent github actions failing because of RustEmbed
 
 
 
@@ -146,17 +170,23 @@ Idea for filters, with re-usable "functions":
 Idea for multi sync
 ===========
 
-[
+{
+   "source-hostname": "127.0.0.1",
+   "source-username": "rob",
+   "dest-hostname": "",
+   "dest-username": "",
+   "sync-specs": [
     {
-        "source": "rob-ssh@213123.123.12312:repo1",
-        "dest:" "repo1",
+        "source-folder": "projects/repo1",
+        "dest-folder:" "backup/repo1",
         "excludes": []
     },
     {
-        "source": "rob-ssh@213123.123.12312:repo2",
-        "dest:" "repo2",
+        "source-folder": "projects/repo2",
+        "dest-folder:" "backup/repo2",
         "excludes": []
     }
-]
+   ]
+}
 
-Or maybe use TOML or something simpler - JSON seems a bit verbose?
+Or maybe use TOML or something simpler - JSON seems a bit verbose? YAML?
