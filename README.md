@@ -105,15 +105,15 @@ The cell contents describe the behaviour given those inputs:
 |              src/a  |               |               |               |
 | Non-existent        |       X       |       X       |       X       |
 |              src/a/ |               |               |               |
-|-------------- ------|-------|-------|-------|-------|-------|-------|
+|---------------------|-------|-------|-------|-------|-------|-------|
 |              src/a  |   b   |  b/a  |   b   |   X   |   b*  |  b/a  |
 | File                |-------|-------|-------|-------|-------|-------|
 |              src/a/ |   X   |   X   |   X   |   X   |   X   |   X   |
-|-------------- ------|-------|-------|-------|-------|-------|-------|
+|---------------------|-------|-------|-------|-------|-------|-------|
 |              src/a  |   b   |   b   |   b*  |   X   |   b   |   b   |
 | Folder              |-------|-------|-------|-------|-------|-------|
 |              src/a/ |   b   |   b   |   b*  |   X   |   b   |   b   |
-|-------------- ------|-------|-------|-------|-------|-------|-------|
+|---------------------|-------|-------|-------|-------|-------|-------|
 
 The behaviour can be summarised as a "golden rule" which is that after the sync, the object pointed to by the destination
 path will be identical to the object pointed to by the source path, i.e. `tree $SRC == tree $DEST`.
@@ -133,6 +133,8 @@ It also prevents unintended creation of nested folders with the same name which 
 
 `rjrssync src/folder dest/folder` => `dest/folder/...` (rather than `dest/folder/folder/...`)
 
+Trailing slashes on files are always invalid, because this gives the impression that the file is actually a folder,
+and so could lead to unexpected behaviour.
 
 
 
