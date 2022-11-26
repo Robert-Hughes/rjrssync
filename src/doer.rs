@@ -5,6 +5,7 @@ use env_logger::Env;
 use log::{debug, error, trace};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use std::io::ErrorKind;
 use std::{
     fmt::{self, Display},
     io::{Write},
@@ -112,6 +113,7 @@ pub struct EntryDetails {
 /// the result of a Command.
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Response {
+    RootDoesntExist,
     // The result of GetEntries is split into lots of individual messages (rather than one big list)
     // so that the boss can start doing stuff before receiving the full list.
     Entry(EntryDetails),
@@ -336,7 +338,7 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) 
             let full_path = context.root.join(&path);
             match std::fs::read(full_path) {
                 Ok(data) => comms.send_response(Response::FileContent { data }).unwrap(),
-                Err(e) => comms.send_response(Response::Error(e.to_string())).unwrap(),
+                Err(e) => comms.send_response(Response::Error(format!("Error getting file content: {e}"))).unwrap(),
             }
         }
         Command::CreateOrUpdateFile {
@@ -347,7 +349,7 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) 
             let full_path = context.root.join(&path);
             let r = std::fs::write(&full_path, data);
             if let Err(e) = r {
-                comms.send_response(Response::Error(e.to_string())).unwrap();
+                comms.send_response(Response::Error(format!("Error writing file contents: {e}"))).unwrap();
                 return true;
             }
 
@@ -357,7 +359,7 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) 
                 let r =
                     filetime::set_file_mtime(&full_path, filetime::FileTime::from_system_time(t));
                 if let Err(e) = r {
-                    comms.send_response(Response::Error(e.to_string())).unwrap();
+                    comms.send_response(Response::Error(format!("Error setting modified time: {e}"))).unwrap();
                     return true;
                 }
             }
@@ -368,21 +370,21 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) 
             let full_path = context.root.join(&path);
             match std::fs::create_dir(full_path) {
                 Ok(()) => comms.send_response(Response::Ack).unwrap(),
-                Err(e) => comms.send_response(Response::Error(e.to_string())).unwrap(),
+                Err(e) => comms.send_response(Response::Error(format!("Error creating folder: {e}"))).unwrap(),
             }
         }
         Command::DeleteFile { path } => {
             let full_path = context.root.join(&path);
             match std::fs::remove_file(full_path) {
                 Ok(()) => comms.send_response(Response::Ack).unwrap(),
-                Err(e) => comms.send_response(Response::Error(e.to_string())).unwrap(),
+                Err(e) => comms.send_response(Response::Error(format!("Error deleting file: {e}"))).unwrap(),
             }
         }
         Command::DeleteFolder { path } => {
             let full_path = context.root.join(&path);
             match std::fs::remove_dir(full_path) {
                 Ok(()) => comms.send_response(Response::Ack).unwrap(),
-                Err(e) => comms.send_response(Response::Error(e.to_string())).unwrap(),
+                Err(e) => comms.send_response(Response::Error(format!("Error deleting folder: {e}"))).unwrap(),
             }
         }
         Command::Shutdown => {
@@ -413,6 +415,19 @@ fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, root: &str, 
     loop {
         match walker_it.next() {
             None => break,
+            Some(Err(e)) => {
+                if count == 0 {
+                    if let Some(e) = e.io_error() {
+                        if e.kind() == ErrorKind::NotFound {
+                            // The first entry (the root), can't be found - report this as a special error
+                            comms.send_response(Response::RootDoesntExist).unwrap();
+                            return;
+                        }
+                    }
+                }
+                comms.send_response(Response::Error(format!("Error walking root: {e}"))).unwrap();
+                break;
+            },
             Some(Ok(e)) => {
                 // Check if we should filter this entry.
                 // First normalize the path to our platform-independent representation, so that the filters
@@ -425,11 +440,8 @@ fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, root: &str, 
                     Ok(p) => p,
                     Err(e) => {
                         comms
-                            .send_response(Response::Error(format!(
-                                "normalize_path failed: {}",
-                                e
-                            )))
-                            .unwrap();
+                            .send_response(Response::Error(
+                                format!("normalize_path failed: {e}"))).unwrap();
                         return;
                     }
                 };
@@ -459,11 +471,8 @@ fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, root: &str, 
                     Ok(m) => m,
                     Err(e) => {
                         comms
-                            .send_response(Response::Error(format!(
-                                "Unable to get metadata: {}",
-                                e
-                            )))
-                            .unwrap();
+                            .send_response(Response::Error(
+                                format!("Unable to get metadata: {e}"))).unwrap();
                         return;
                     }
                 };
@@ -472,11 +481,8 @@ fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, root: &str, 
                     Ok(m) => m,
                     Err(e) => {
                         comms
-                            .send_response(Response::Error(format!(
-                                "Unknown modified time: {}",
-                                e
-                            )))
-                            .unwrap();
+                            .send_response(Response::Error(
+                                format!("Unknown modified time: {e}"))).unwrap();
                         return;
                     }
                 };
@@ -495,10 +501,6 @@ fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, root: &str, 
                 //                         hash_sum += hash.into_iter().sum::<u8>();
                 //                         count += 1;
                 //                      }
-            }
-            Some(Err(e)) => {
-                comms.send_response(Response::Error(format!("Error walking root: {}", e))).unwrap();
-                break;
             }
         }
         count += 1;

@@ -113,7 +113,7 @@ pub fn sync(
                 src_entries.push(d);
             }
             Ok(Response::EndOfEntries) => break,
-            r => {
+            r => { 
                 error!("Unexpected response: {:?}", r);
                 return Err(());
             }
@@ -134,7 +134,12 @@ pub fn sync(
                 dest_entries.push(d);
             }
             Ok(Response::EndOfEntries) => break,
-            r => {
+            Ok(Response::RootDoesntExist) => {
+                // Continue anyway with an empty dest_entries - we'll create what we need
+                assert!(dest_entries.is_empty());
+                break;
+            }
+            r => { 
                 error!("Unexpected response: {:?}", r);
                 return Err(());
             }
@@ -238,8 +243,8 @@ pub fn sync(
                             .unwrap();
                         match dest_comms.receive_response() {
                             Ok(doer::Response::Ack) => (),
-                            _ => {
-                                error!("Wrong response");
+                            x => {
+                                error!("Wrong response: {:?}", x);
                                 return Err(());
                             }
                         };
@@ -314,8 +319,8 @@ fn copy_file(
             .unwrap();
         let data = match src_comms.receive_response() {
             Ok(Response::FileContent { data }) => data,
-            _ => {
-                error!("Wrong response");
+            x => {
+                error!("Wrong response: {:?}", x);
                 return Err(());
             }
         };
@@ -329,8 +334,8 @@ fn copy_file(
             .unwrap();
         match dest_comms.receive_response() {
             Ok(doer::Response::Ack) => (),
-            _ => {
-                error!("Wrong response");
+            x => {
+                error!("Wrong response: {:?}", x);
                 return Err(());
             }
         };
