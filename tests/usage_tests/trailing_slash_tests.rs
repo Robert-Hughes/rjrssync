@@ -29,8 +29,10 @@ fn run_trailing_slashes_test_expect_success_override_dest(src_node: Option<&File
     }
     run(TestDesc {
         setup_filesystem_nodes,
-        src: &("$TEMP/src".to_string() + src_trailing_slash),
-        dest: &("$TEMP/dest".to_string() + dest_trailing_slash),
+        args: vec![
+            "$TEMP/src".to_string() + src_trailing_slash,
+            "$TEMP/dest".to_string() + dest_trailing_slash,
+        ],
         expected_exit_code: 0,
         expected_output_messages: vec![
              format!("Copied {} file(s)", expected_num_copies),
@@ -58,8 +60,10 @@ fn run_trailing_slashes_test_expected_failure(src_node: Option<&FilesystemNode>,
     }
     run(TestDesc {
         setup_filesystem_nodes,
-        src: &("$TEMP/src".to_string() + src_trailing_slash),
-        dest: &("$TEMP/dest".to_string() + dest_trailing_slash),
+        args: vec![
+            "$TEMP/src".to_string() + src_trailing_slash,
+            "$TEMP/dest".to_string() + dest_trailing_slash,
+        ],
         expected_exit_code: 12,
         expected_output_messages: vec![
             expected_error.to_string(),

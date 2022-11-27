@@ -18,7 +18,7 @@ fn test_simple_folder_sync() {
     run_expect_success(&src_folder, &empty_folder(), 3);
 }
 
-/// Some files and a folder in the destination need deleting.
+/// Some files and a folder (with contents) in the destination need deleting.
 #[test]
 fn test_remove_dest_stuff() {
     let src_folder = folder! {
@@ -32,7 +32,11 @@ fn test_remove_dest_stuff() {
         "remove me" => file("contents1"),
         "remove me too" => file("contents2"),
         "remove this whole folder" => folder! {
-            "sc" => file("contents3"),
+            "sc" => file("contents3"),        
+            "sc2" => file("contents3"),        
+            "remove this whole folder" => folder! {
+                "sc" => file("contents3"),
+            }
         }
     };
     run_expect_success(&src_folder, &dest_folder, 3);
@@ -75,8 +79,10 @@ fn test_dest_ancestors_dont_exist() {
         setup_filesystem_nodes: vec![
             ("$TEMP/src.txt", &src),
         ],
-        src: "$TEMP/src.txt",
-        dest: "$TEMP/dest1/dest2/dest3/dest.txt",
+        args: vec![
+            "$TEMP/src.txt".to_string(),
+            "$TEMP/dest1/dest2/dest3/dest.txt".to_string(),
+        ],
         expected_exit_code: 0,
         expected_output_messages: vec![
             "Copied 1 file(s)".to_string(),
@@ -88,4 +94,35 @@ fn test_dest_ancestors_dont_exist() {
     });
 }
 
-
+/// A folder that needs deleting on the destination has files which have been excluded, and so the folder can't be deleted.
+#[test]
+fn test_remove_dest_folder_with_excluded_files() {
+    let src_folder = folder! {
+        "c1" => file("contents1"),
+    };
+    let dest_folder = folder! {
+        "This folder would be removed" => folder! {
+            "But it can't because this file has been excluded from the sync" => file("contents3"),        
+        }
+    };
+    run(TestDesc {
+        setup_filesystem_nodes: vec![
+            ("$TEMP/src", &src_folder),
+            ("$TEMP/dest", &dest_folder),
+        ],
+        args: vec![
+            "$TEMP/src".to_string(),
+            "$TEMP/dest".to_string(),
+            "--exclude".to_string(),
+            "this file has been excluded".to_string(),
+        ],
+        expected_exit_code: 12,
+        expected_output_messages: vec![
+            "The directory is not empty".to_string(),
+        ],
+        expected_filesystem_nodes: vec![
+            ("$TEMP/src", Some(&src_folder)), // Source should always be unchanged
+            ("$TEMP/dest", Some(&dest_folder)), // Dest should be unchanged too as it failed
+        ]
+    });
+}

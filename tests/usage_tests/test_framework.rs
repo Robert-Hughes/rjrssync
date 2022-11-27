@@ -99,12 +99,9 @@ pub struct TestDesc<'a> {
     /// The given FilesystemNodes are saved to the given paths before running rjrssync 
     /// (e.g. to set up src and dest).
     pub setup_filesystem_nodes: Vec<(&'a str, &'a FilesystemNode)>,
-    /// The value provided to rjrssync as its source path.
-    /// (probably the same as a path in setup_filesystem_nodes, but may have different trailing slash for example).
-    pub src: &'a str,
-    /// The value provided to rjrssync as its dest path.
-    /// (probably the same as a path in setup_filesystem_nodes, but may have different trailing slash for example).
-    pub dest: &'a str, 
+    /// Arguments provided to rjrssync, most likely the source and dest paths.
+    /// (probably the same as paths in setup_filesystem_nodes, but may have different trailing slash for example).
+    pub args: Vec<String>,
     /// The expected exit code of rjrssync (e.g. 0 for success).
     pub expected_exit_code: i32,
     /// Messages that are expected to be present in rjrssync's stdout/stderr
@@ -130,8 +127,7 @@ pub fn run(desc: TestDesc) {
     // Run rjrssync with the specified paths
     let rjrssync_path = env!("CARGO_BIN_EXE_rjrssync");
     let output = std::process::Command::new(rjrssync_path)
-        .arg(substitute_temp(desc.src))
-        .arg(substitute_temp(desc.dest))
+        .args(desc.args.iter().map(|a| substitute_temp(a)))
         .output().expect("Failed to launch rjrssync");
 
     // Print output for test debugging
@@ -163,8 +159,10 @@ pub fn run_expect_success(src_node: &FilesystemNode, dest_node: &FilesystemNode,
             ("$TEMP/src", src_node),
             ("$TEMP/dest", dest_node),
         ],
-        src: "$TEMP/src",
-        dest: "$TEMP/dest",
+        args: vec![
+            "$TEMP/src".to_string(),
+            "$TEMP/dest".to_string()
+        ],
         expected_exit_code: 0,
         expected_output_messages: vec![
             format!("Copied {} file(s)", expected_num_copies),

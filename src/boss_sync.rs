@@ -88,9 +88,11 @@ pub fn sync(
     mut src_comms: Comms,
     mut dest_comms: Comms,
 ) -> Result<(), String> {
+    let mut stats = Stats::default();
     
     // First get details of the root file/folder etc. of each side, as this might affect the sync
     // before we start it (e.g. errors, or changing the dest root)
+    // Source SetRoot
     src_comms.send_command(Command::SetRoot { root: src_path.clone() })?;
     let src_root_type = match src_comms.receive_response() {
         Ok(Response::RootDetails(t)) => {
@@ -113,6 +115,7 @@ pub fn sync(
         r => return Err(format!("Unexpected response getting root details from src: {:?}", r)),
     };
     
+    // Dest SetRoot
     dest_comms.send_command(Command::SetRoot { root: dest_path.clone() })?;
     let mut dest_root_type = match dest_comms.receive_response() {
         Ok(Response::RootDetails(t)) => {
@@ -157,7 +160,7 @@ pub fn sync(
     }
 
     // If the dest doesn't yet exist, make sure that all its ancestors are created, so that
-    // when we come to create itself, it can succeed
+    // when we come to create the dest path itself, it can succeed
     if dest_root_type.is_none() {
         dest_comms.send_command(Command::CreateRootAncestors)?;              
         match dest_comms.receive_response() {
@@ -166,14 +169,9 @@ pub fn sync(
         }
     }
 
-
-    src_comms
-        .send_command(Command::GetEntries { exclude_filters: exclude_filters.clone() })
-        ?;
-
-    let mut stats = Stats::default();
-
+    // Fetch all the entries for the source path
     let mut src_entries = Vec::new();
+    src_comms.send_command(Command::GetEntries { exclude_filters: exclude_filters.clone() })?;
     loop {
         match src_comms.receive_response() {
             Ok(Response::Entry(d)) => {
@@ -189,16 +187,16 @@ pub fn sync(
                 src_entries.push(d);
             }
             Ok(Response::EndOfEntries) => break,
-            r => return Err(format!("Unexpected response: {:?}", r)),
+            r => return Err(format!("Unexpected response from src GetEnties: {:?}", r)),
         }
     }
 
+    // Fetch all the entries for the dest path
     let mut dest_entries = Vec::new();
-    if dest_root_type.is_some() { // Dest might not exist yet. Continue anyway with an empty dest_entries - we'll create what we need
-        dest_comms
-            .send_command(Command::GetEntries { exclude_filters })
-            ?;
-
+    // The dest might not exist yet, which is fine - continue anyway with an empty array of dest entries
+    // and we will create the dest as part of the sync.
+    if dest_root_type.is_some() { 
+        dest_comms.send_command(Command::GetEntries { exclude_filters })?;
         loop {
             match dest_comms.receive_response() {
                 Ok(Response::Entry(d)) => {
@@ -213,7 +211,7 @@ pub fn sync(
                     dest_entries.push(d);
                 }
                 Ok(Response::EndOfEntries) => break,
-                r => return Err(format!("Unexpected response: {:?}", r)),
+                r => return Err(format!("Unexpected response from dest GetEntries: {:?}", r)),
             }
         }
     }
@@ -233,8 +231,8 @@ pub fn sync(
     // Delete dest entries that don't exist on the source. This needs to be done first in case there
     // are entries with the same name but different type (files vs folders).
     // We do this in reverse to make sure that files are deleted before their parent folder
-    // (otherwise deleting the parent is harder/more risky - possibly also problems with files being filtered
-    // so the folder is needed still as there are filtered-out files in there?)
+    // (otherwise deleting the parent is harder/more risky - possibly would also have problems with 
+    // files being filtered so the folder is needed still as there are filtered-out files in there?)
     for dest_entry in dest_entries.iter().rev() {
         if !src_entries
             .iter()
