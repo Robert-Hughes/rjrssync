@@ -95,10 +95,10 @@ fn test_file_no_trailing_slash_to_folder_no_trailing_slash() {
     run_trailing_slashes_test(Some(&file("contents1")), "", Some(&empty_folder()), "", 1);
 }
 
-/// Tries syncing a file to a folder/. This should replace the folder with the file.
+/// Tries syncing a file to a folder/. This should place the file inside the folder 
 #[test]
 fn test_file_no_trailing_slash_to_folder_trailing_slash() {
-    run_trailing_slashes_test(Some(&file("contents1")), "", Some(&empty_folder()), "/", 1);
+    run_trailing_slashes_test(Some(&file("contents1")), "", Some(&empty_folder()), "/", 17); //TODO: check in new folder!
 }
 
 /// Tries syncing a file/ to a folder. This should fail because trailing slashes on files are not allowed.
@@ -185,67 +185,93 @@ fn test_file_trailing_slash_to_file_trailing_slash() {
 // File => Non-existent with variations of trailing slashes
 // ====================================================================================
 
-// /// Tries syncing a file to a non-existent path
-// #[test]
-// fn test_file_to_nothing() {
-//     // Trailing slash variants
-//     run_usage_test_impl(Some(&file("contents1")), "src", None, "dest", "dest", 0, Some(1));
-//     run_usage_test_impl(Some(&file("contents1")), "src/", None, "dest", "???", 12, None); // Can't have a trailing slash on a file
-//     run_usage_test_impl(Some(&file("contents1")), "src", None, "dest/", "dest/src", 0, Some(1));
-//     run_usage_test_impl(Some(&file("contents1")), "src/", None, "dest/", "???", 12, None); // Can't have a trailing slash on a file
-// }
+/// Tries syncing a file to a non-existent path. Should create a new file.
+#[test]
+fn test_file_no_trailing_slash_to_non_existent_no_trailing_slash() {
+    run_trailing_slashes_test(Some(&file("contents1")), "", None, "", 1);
+}
+
+/// Tries syncing a file to a non-existent path/. This should create a new folder to put the file in.
+#[test]
+fn test_file_no_trailing_slash_to_non_existent_trailing_slash() {
+    run_trailing_slashes_test(Some(&file("contents1")), "", None, "/", 17); //TODO: check in new folder!
+}
+
+/// Tries syncing a file/ to a non-existent path. This should fail because trailing slashes on files are not allowed.
+#[test]
+fn test_file_trailing_slash_to_non_existent_no_trailing_slash() {
+    run_trailing_slashes_test(Some(&file("contents1")), "/", None, "", 0);
+}
+
+/// Tries syncing a file/ to a non-existent path/. This should fail because trailing slashes on files are not allowed.
+#[test]
+fn test_file_trailing_slash_to_non_existent_trailing_slash() {
+    run_trailing_slashes_test(Some(&file("contents1")), "/", None, "/", 0);
+}
 
 // ====================================================================================
 // Folder => Non-existent with variations of trailing slashes
 // ====================================================================================
 
-// /// Tries syncing a folder to a non-existent path
-// #[test]
-// fn test_folder_to_nothing() {
-//     let src_folder = folder! {
-//         "file1" => file("contents"),
-//     };
-//     // Trailing slash variants - irrelevant
-//     run_usage_test_impl(Some(&src_folder), "src", None, "dest", "dest", 0, Some(1));
-//     run_usage_test_impl(Some(&src_folder), "src/", None, "dest", "dest", 0, Some(1));
-//     run_usage_test_impl(Some(&src_folder), "src", None, "dest/", "dest", 0, Some(1));
-//     run_usage_test_impl(Some(&src_folder), "src/", None, "dest/", "dest", 0, Some(1));
-// }
+/// Tries syncing a folder to a folder. This should work fine.
+#[test]
+fn test_folder_no_trailing_slash_to_non_existent_no_trailing_slash() {
+    let src_folder = folder! {
+        "c1" => file("contents1"),
+    };
+    run_trailing_slashes_test(Some(&src_folder), "", None, "", 1);
+}
+
+/// Tries syncing a folder to a folder/. This should work fine.
+#[test]
+fn test_folder_no_trailing_slash_to_non_existent_trailing_slash() {
+    let src_folder = folder! {
+        "c1" => file("contents1"),
+    };
+    run_trailing_slashes_test(Some(&src_folder), "", None, "/", 1);
+}
+
+/// Tries syncing a folder/ to a folder. This should work fine.
+#[test]
+fn test_folder_trailing_slash_to_non_existent_no_trailing_slash() {
+    let src_folder = folder! {
+        "c1" => file("contents1"),
+    };
+    run_trailing_slashes_test(Some(&src_folder), "/", None, "", 1);
+}
+
+/// Tries syncing a folder/ to a folder/. This should work fine.
+#[test]
+fn test_folder_trailing_slash_to_non_existent_trailing_slash() {
+    let src_folder = folder! {
+        "c1" => file("contents1"),
+    };
+    run_trailing_slashes_test(Some(&src_folder), "/", None, "/", 1);
+}
 
 // ====================================================================================
 // Non-existent => File/Folder/Non-existent with variations of trailing slashes
 // ====================================================================================
 
-// /// Tries syncing a non-existent path to a file
-// #[test]
-// fn test_nothing_to_file() {
-//     // Trailing slash variants. Doesn't matter, source doesn't exist so is failure.
-//     run_usage_test_impl(None, "src", Some(&file("contents")), "dest", "???", 12, None);
-//     run_usage_test_impl(None, "src/", Some(&file("contents")), "dest", "???", 12, None);
-//     run_usage_test_impl(None, "src", Some(&file("contents")), "dest/", "???", 12, None);
-//     run_usage_test_impl(None, "src/", Some(&file("contents")), "dest/", "???", 12, None);
-// }
+/// Tries syncing a non-existent path (with/without a trailing slash) to a variety of destinations.
+/// These should all fail as can't copy something that doesn't exist.
+#[test]
+fn test_non_existent_to_others() {
+    // => File
+    run_trailing_slashes_test(None, "", Some(&file("contents")), "", 0);
+    run_trailing_slashes_test(None, "", Some(&file("contents")), "/", 0);
+    run_trailing_slashes_test(None, "/", Some(&file("contents")), "", 0);
+    run_trailing_slashes_test(None, "/", Some(&file("contents")), "/", 0);
 
-// /// Tries syncing a non-existent path to a folder
-// #[test]
-// fn test_nothing_to_folder() {
-//     let dest_folder = folder! {
-//         "file1" => file("contents"),
-//     };
+    // => Folder
+    run_trailing_slashes_test(None, "", Some(&empty_folder()), "", 0);
+    run_trailing_slashes_test(None, "", Some(&empty_folder()), "/", 0);
+    run_trailing_slashes_test(None, "/", Some(&empty_folder()), "", 0);
+    run_trailing_slashes_test(None, "/", Some(&empty_folder()), "/", 0);
 
-//     // Trailing slash variants. Doesn't matter, source doesn't exist so is failure.
-//     run_usage_test_impl(None, "src", Some(&dest_folder), "dest", "???", 12, None);
-//     run_usage_test_impl(None, "src/", Some(&dest_folder), "dest", "???", 12, None);
-//     run_usage_test_impl(None, "src", Some(&dest_folder), "dest/", "???", 12, None);
-//     run_usage_test_impl(None, "src/", Some(&dest_folder), "dest/", "???", 12, None);
-// }
-
-// /// Tries syncing a non-existent path to a non-existent path
-// #[test]
-// fn test_nothing_to_nothing() {
-//     // Trailing slash variants. Doesn't matter, source doesn't exist so is failure.
-//     run_usage_test_impl(None, "src", None, "dest", "???", 12, None);
-//     run_usage_test_impl(None, "src/", None, "dest", "???", 12, None);
-//     run_usage_test_impl(None, "src", None, "dest/", "???", 12, None);
-//     run_usage_test_impl(None, "src/", None, "dest/", "???", 12, None);
-// }
+    // => Non-existent
+    run_trailing_slashes_test(None, "", None, "", 0);
+    run_trailing_slashes_test(None, "", None, "/", 0);
+    run_trailing_slashes_test(None, "/", None, "", 0);
+    run_trailing_slashes_test(None, "/", None, "/", 0);
+}
