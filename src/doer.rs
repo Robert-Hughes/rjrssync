@@ -374,7 +374,11 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) 
                 }
             }
         }
-        Command::GetEntries { exclude_filters } => handle_get_entries(comms, context, &exclude_filters),      
+        Command::GetEntries { exclude_filters } => {
+            if let Err(e) = handle_get_entries(comms, context, &exclude_filters) {
+                comms.send_response(Response::Error(e)).unwrap();
+            }
+        }
         Command::CreateRootAncestors => {
             let path_to_create = context.root.parent();
             if let Some(p) = path_to_create {
@@ -444,7 +448,7 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) 
     true
 }
 
-fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, exclude_filters: &[String]) {
+fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, exclude_filters: &[String]) -> Result<(), String> {
     // Compile filter regexes up-front
     //TODO: ideally we do this on the boss, not on both doers?
     //TODO: handle regex errors
@@ -462,10 +466,7 @@ fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, exclude_filt
     loop {
         match walker_it.next() {
             None => break,
-            Some(Err(e)) => {
-                comms.send_response(Response::Error(format!("Error walking root: {e}"))).unwrap();
-                break;
-            },
+            Some(Err(e)) => return Err(format!("Error walking root: {e}")),
             Some(Ok(e)) => {
                 // Check if we should filter this entry.
                 // First normalize the path to our platform-independent representation, so that the filters
@@ -476,12 +477,7 @@ fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, exclude_filt
                 // Convert to platform-agnostic representation
                 let path = match normalize_path(path) {
                     Ok(p) => p,
-                    Err(e) => {
-                        comms
-                            .send_response(Response::Error(
-                                format!("normalize_path failed: {e}"))).unwrap();
-                        return;
-                    }
+                    Err(e) => return Err(format!("normalize_path failed: {e}")),
                 };
 
                 if exclude_regexes.iter().any(|r| r.find(&path).is_some()) {
@@ -499,30 +495,17 @@ fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, exclude_filt
                 } else if e.file_type().is_file() {
                     entry_type = EntryType::File;
                 } else {
-                    comms
-                    .send_response(Response::Error(format!("Unknown file type for {}: {:?}", path, e.file_type())))
-                    .unwrap();
-                    return;
+                    return Err(format!("Unknown file type for {}: {:?}", path, e.file_type()));
                 }
 
                 let metadata = match e.metadata() {
                     Ok(m) => m,
-                    Err(e) => {
-                        comms
-                            .send_response(Response::Error(
-                                format!("Unable to get metadata: {e}"))).unwrap();
-                        return;
-                    }
+                    Err(e) => return Err(format!("Unable to get metadata: {e}")),
                 };
 
                 let modified_time = match metadata.modified() {
                     Ok(m) => m,
-                    Err(e) => {
-                        comms
-                            .send_response(Response::Error(
-                                format!("Unknown modified time: {e}"))).unwrap();
-                        return;
-                    }
+                    Err(e) => return Err(format!("Unknown modified time: {e}")),
                 };
 
                 let d = EntryDetails {
@@ -551,4 +534,6 @@ fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, exclude_filt
         elapsed,
         1000.0 * count as f32 / elapsed as f32
     );
+
+    Ok(())
 }

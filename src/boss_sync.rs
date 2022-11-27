@@ -3,7 +3,7 @@ use std::{
     fmt::{Display, Write}, time::Instant,
 };
 
-use log::{debug, error, info, trace};
+use log::{debug, info, trace};
 use thousands::Separable;
 
 use crate::*;
@@ -87,19 +87,16 @@ pub fn sync(
     show_stats: bool,
     mut src_comms: Comms,
     mut dest_comms: Comms,
-) -> Result<(), ()> {
+) -> Result<(), String> {
     
-    // First get details of the root file/folder etc. of each side, as this might affect the transfer etc.
-    src_comms
-        .send_command(Command::SetRoot { root: src_path.clone() }).unwrap();
+    // First get details of the root file/folder etc. of each side, as this might affect the sync
+    // before we start it (e.g. errors, or changing the dest root)
+    src_comms.send_command(Command::SetRoot { root: src_path.clone() })?;
     let src_root_type;
     match src_comms.receive_response() {
         Ok(Response::RootDetails(t)) => {
             match t {
-                None => {
-                    error!("Specified root doesn't exist!");
-                    return Err(());                        
-                },
+                None => return Err(format!("Specified root doesn't exist!")),
                 Some(t) => {
                     src_root_type = Some(t);
                     if src_root_type == Some(EntryType::File) {
@@ -108,21 +105,17 @@ pub fn sync(
                         // Note that we can't use std::path::is_separator because this might be a remote path, so the current platform
                         // is irrelevant
                         if src_path.chars().last().unwrap() == '/' || src_path.chars().last().unwrap() == '\\' {
-                            error!("root {} is a file but is referred to with a trailing slash.", src_path);
-                            return Err(());       
+                            return Err(format!("root {} is a file but is referred to with a trailing slash.", src_path));       
                         }
                     }
                 }
             }                
         }
-        r => { 
-            error!("Unexpected response: {:?}", r);
-            return Err(());
-        }
+        r => return Err(format!("Unexpected response: {:?}", r)),
     }
     
     dest_comms
-        .send_command(Command::SetRoot { root: dest_path.clone() }).unwrap();
+        .send_command(Command::SetRoot { root: dest_path.clone() })?;
     let mut dest_root_type;
     match dest_comms.receive_response() {
         Ok(Response::RootDetails(t)) => {
@@ -137,17 +130,13 @@ pub fn sync(
                     // Note that we can't use std::path::is_separator because this might be a remote path, so the current platform
                     // is irrelevant
                     if dest_path.chars().last().unwrap() == '/' || dest_path.chars().last().unwrap() == '\\' {
-                        error!("root {} is a file but is referred to with a trailing slash.", dest_path);
-                        return Err(());       
+                        return Err(format!("root {} is a file but is referred to with a trailing slash.", dest_path));       
                     }
                 }
                 Some(EntryType::Folder) => (), // Nothing special to do
             }                
         }
-        r => { 
-            error!("Unexpected response: {:?}", r);
-            return Err(());
-        }
+        r => return Err(format!("Unexpected response: {:?}", r)),
     }
 
     // If src is a file, and dest root ends in a slash, append the last part of src to dest
@@ -164,15 +153,12 @@ pub fn sync(
             debug!("Modified dest path to {}", dest_path_modified);
 
             dest_comms
-                .send_command(Command::SetRoot { root: dest_path_modified }).unwrap();              
+                .send_command(Command::SetRoot { root: dest_path_modified })?;              
             match dest_comms.receive_response() {
                 Ok(Response::RootDetails(t)) => {
                     dest_root_type = t;
                 },
-                r => { 
-                    error!("Unexpected response: {:?}", r);
-                    return Err(());
-                }
+                r => return Err(format!("Unexpected response: {:?}", r)),
             }
         }
     }
@@ -180,20 +166,17 @@ pub fn sync(
     // If the dest doesn't yet exist, make sure that all its ancestors are created, so that
     // when we come to create itself, it can succeed
     if dest_root_type.is_none() {
-        dest_comms.send_command(Command::CreateRootAncestors).unwrap();              
+        dest_comms.send_command(Command::CreateRootAncestors)?;              
         match dest_comms.receive_response() {
             Ok(Response::Ack) => (),
-            r => { 
-                error!("Unexpected response: {:?}", r);
-                return Err(());
-            }
+            r => return Err(format!("Unexpected response: {:?}", r)),
         }
     }
 
 
     src_comms
         .send_command(Command::GetEntries { exclude_filters: exclude_filters.clone() })
-        .unwrap();
+        ?;
 
     let mut stats = Stats::default();
 
@@ -213,10 +196,7 @@ pub fn sync(
                 src_entries.push(d);
             }
             Ok(Response::EndOfEntries) => break,
-            r => { 
-                error!("Unexpected response: {:?}", r);
-                return Err(());
-            }
+            r => return Err(format!("Unexpected response: {:?}", r)),
         }
     }
 
@@ -224,7 +204,7 @@ pub fn sync(
     if dest_root_type.is_some() { // Dest might not exist yet
         dest_comms
             .send_command(Command::GetEntries { exclude_filters })
-            .unwrap();
+            ?;
 
         loop {
             match dest_comms.receive_response() {
@@ -240,10 +220,7 @@ pub fn sync(
                     dest_entries.push(d);
                 }
                 Ok(Response::EndOfEntries) => break,
-                r => { 
-                    error!("Unexpected response: {:?}", r);
-                    return Err(());
-                }
+                r => return Err(format!("Unexpected response: {:?}", r)),
             }
         }
     }
@@ -287,13 +264,10 @@ pub fn sync(
                 }
             };
             if !dry_run {
-                dest_comms.send_command(c).unwrap();
+                dest_comms.send_command(c)?;
                 match dest_comms.receive_response() {
                     Ok(doer::Response::Ack) => (),
-                    _ => {
-                        error!("Wrong response");
-                        return Err(());
-                    }
+                    r => return Err(format!("Unexpected response: {:?}", r)),
                 };
             } else {
                 // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be copied
@@ -312,11 +286,10 @@ pub fn sync(
             Some(dest_entry) => match src_entry.entry_type {
                 EntryType::File => match src_entry.modified_time.cmp(&dest_entry.modified_time) {
                     Ordering::Less => {
-                        error!(
+                        return Err(format!(
                             "{}: Dest file is newer - how did this happen!",
                             src_entry.path //TODO: if path is empty, this is confusing
-                        );
-                        return Err(());
+                        ));
                     }
                     Ordering::Equal => {
                         trace!("{}: Same modified time - skipping", src_entry.path); //TODO: if path is empty, this is confusing
@@ -343,13 +316,10 @@ pub fn sync(
                             .send_command(Command::CreateFolder {
                                 path: src_entry.path.to_string(),
                             })
-                            .unwrap();
+                            ?;
                         match dest_comms.receive_response() {
                             Ok(doer::Response::Ack) => (),
-                            x => {
-                                error!("Wrong response: {:?}", x);
-                                return Err(());
-                            }
+                            x => return Err(format!("Wrong response: {:?}", x)),
                         };
                     } else {
                         // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be copied
@@ -412,20 +382,16 @@ fn copy_file(
     dest_comms: &mut Comms,
     stats: &mut Stats,
     dry_run: bool,
-) -> Result<(), ()> {
+) -> Result<(), String> {
     if !dry_run {
         trace!("Fetching {}", src_file.path); //TODO: if path is empty, this is confusing
         src_comms
             .send_command(Command::GetFileContent {
                 path: src_file.path.to_string(),
-            })
-            .unwrap();
+            })?;
         let data = match src_comms.receive_response() {
             Ok(Response::FileContent { data }) => data,
-            x => {
-                error!("Wrong response: {:?}", x);
-                return Err(());
-            }
+            x => return Err(format!("Wrong response: {:?}", x)),
         };
         trace!("Writing {}", src_file.path);
         dest_comms
@@ -433,14 +399,10 @@ fn copy_file(
                 path: src_file.path.to_string(),
                 data,
                 set_modified_time: Some(src_file.modified_time),
-            })
-            .unwrap();
+            })?;
         match dest_comms.receive_response() {
             Ok(doer::Response::Ack) => (),
-            x => {
-                error!("Wrong response: {:?}", x);
-                return Err(());
-            }
+            x => return Err(format!("Wrong response: {:?}", x)),
         };
     } else {
         // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be copied

@@ -108,7 +108,10 @@ pub fn boss_main() -> ExitCode {
 
     match sync_result {
         Ok(()) => ExitCode::SUCCESS,
-        Err(()) => ExitCode::from(12),
+        Err(e) => {
+            error!("Sync error: {}", e);
+            ExitCode::from(12)
+        }
     }
 }
 
@@ -149,11 +152,11 @@ impl Comms {
                     encrypted_comms::send(c, tcp_connection, cipher, sending_nonce_counter, 0)
                 }
             };
-            if let Err(ref e) = &res {
-                error!("Error sending command: {:?}", e);
-            }
-            res
+        if let Err(ref e) = &res {
+            error!("Error sending command: {:?}", e);
         }
+        res
+    }
 
     pub fn receive_response(&mut self) -> Result<Response, String> {
         trace!("Waiting for response from {}", &self);
