@@ -349,7 +349,7 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) 
             let full_path = context.root.join(&path);
             let r = std::fs::write(&full_path, data);
             if let Err(e) = r {
-                comms.send_response(Response::Error(format!("Error writing file contents: {e}"))).unwrap();
+                comms.send_response(Response::Error(format!("Error writing file contents to {}: {e}", full_path.display()))).unwrap();
                 return true;
             }
 
@@ -395,6 +395,9 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) 
 }
 
 fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, root: &str, exclude_filters: &[String]) {
+    // Store the root path for future operations
+    context.root = PathBuf::from(root);
+
     // Check the root file/folder and send back information about it,
     // as the boss may need to do something before we send it all the rest of the entries
     match std::fs::metadata(root) {
@@ -427,9 +430,6 @@ fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, root: &str, 
             return;
         }
     }
-
-    // Store the root path for future operations
-    context.root = PathBuf::from(root);
 
     // Compile filter regexes up-front
     //TODO: ideally we do this on the boss, not on both doers?

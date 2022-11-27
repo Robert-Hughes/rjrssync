@@ -191,7 +191,7 @@ Syncing logic
 * Test for --dry-run
 * Test for --stats (maybe just all the command-line options...)
 * Progress bar
-* Create destination root if it doesn't exist?
+* Create destination root if it doesn't exist? Including any ancestors?
 * Support the user specifying a file rather than folder on one or both sides (or a symlink?)
 * Test behaviour when user specifies files/symlinks/non-existent instead of folders on one or both sides
    - What about source and dest pointing to the same file/folder/symlink/etc.?
