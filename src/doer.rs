@@ -113,7 +113,7 @@ pub struct EntryDetails {
 /// the result of a Command.
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Response {
-    RootDoesntExist,
+    RootDetails(Option<EntryType>),
     // The result of GetEntries is split into lots of individual messages (rather than one big list)
     // so that the boss can start doing stuff before receiving the full list.
     Entry(EntryDetails),
@@ -395,22 +395,27 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) 
 }
 
 fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, root: &str, exclude_filters: &[String]) {
-    // Validate the root
+    // Check the root file/folder and send back information about it,
+    // as the boss may need to do something before we send it all the rest of the entries
     match std::fs::metadata(root) {
         Ok(m) => {
-            if m.is_file() && std::path::is_separator(root.chars().last().unwrap()) {
-                // Referring to an existing file with a trailing slash is an error, because it implies
-                // that the user thinks it is a folder, and so could lead to unwanted behaviour
+            let root_type = if m.file_type().is_dir() {
+                EntryType::Folder
+            } else if m.file_type().is_file() {
+                EntryType::File
+            } else {
                 comms.send_response(Response::Error(format!(
-                    "root {} is a file but is referred to with a trailing slash.", root
-                )))
+                        "root has unknown type: {:?}", m
+                    )))
                 .unwrap();
                 return;
-            }
+            };
+
+            comms.send_response(Response::RootDetails(Some(root_type))).unwrap();
         },
         Err(e) if e.kind() == ErrorKind::NotFound => {
             // Report this as a special error, as we handle it differently on the boss side
-            comms.send_response(Response::RootDoesntExist).unwrap();
+            comms.send_response(Response::RootDetails(None)).unwrap();
             return;
         }
         Err(e) => {

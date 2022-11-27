@@ -89,15 +89,13 @@ pub fn sync(
     mut dest_comms: Comms,
 ) -> Result<(), ()> {
     src_comms
-        .send_command(Command::GetEntries { root: src_path, exclude_filters: exclude_filters.clone() })
-        .unwrap();
-    dest_comms
-        .send_command(Command::GetEntries { root: dest_path, exclude_filters })
+        .send_command(Command::GetEntries { root: src_path.clone(), exclude_filters: exclude_filters.clone() })
         .unwrap();
 
     let mut stats = Stats::default();
 
     let mut src_entries = Vec::new();
+    let mut src_root_type = None;
     loop {
         match src_comms.receive_response() {
             Ok(Response::Entry(d)) => {
@@ -113,9 +111,26 @@ pub fn sync(
                 src_entries.push(d);
             }
             Ok(Response::EndOfEntries) => break,
-            Ok(Response::RootDoesntExist) => {
-                error!("Specified root doesn't exist!");
-                return Err(());
+            Ok(Response::RootDetails(t)) => {
+                match t {
+                    None => {
+                        error!("Specified root doesn't exist!");
+                        return Err(());                        
+                    },
+                    Some(t) => {
+                        src_root_type = Some(t);
+                        if src_root_type == Some(EntryType::File) {
+                            // Referring to an existing file with a trailing slash is an error, because it implies
+                            // that the user thinks it is a folder, and so could lead to unwanted behaviour
+                            // Note that we can't use std::path::is_separator because this might be a remote path, so the current platform
+                            // is irrelevant
+                            if src_path.chars().last().unwrap() == '/' || src_path.chars().last().unwrap() == '\\' {
+                                error!("root {} is a file but is referred to with a trailing slash.", src_path);
+                                return Err(());       
+                            }
+                        }
+                    }
+                }                
             }
             r => { 
                 error!("Unexpected response: {:?}", r);
@@ -123,6 +138,26 @@ pub fn sync(
             }
         }
     }
+
+    // If src is a file, and dest root ends in a slash, append the last part of src to dest
+    // so that it places the src "inside" the dest, rather than replacing it
+    let last_dest_char = dest_path.chars().last();
+    // Note that we can't use std::path::is_separator (or similar) because this might be a remote path, so the current platform
+    // is irrelevant
+    let dest_trailing_slash = last_dest_char == Some('/') || last_dest_char == Some('\\');
+    let mut dest_path_modified = dest_path;
+    if src_root_type == Some(EntryType::File) && dest_trailing_slash {
+        let src_last_component = src_path.split(|c| c == '/' || c == '\\').last();
+        if let Some(c) = src_last_component {
+            dest_path_modified += c;
+            debug!("Modified dest path to {}", dest_path_modified);
+        }
+    }
+
+    dest_comms
+        .send_command(Command::GetEntries { root: dest_path_modified.clone(), exclude_filters })
+        .unwrap();
+
     let mut dest_entries = Vec::new();
     loop {
         match dest_comms.receive_response() {
@@ -138,10 +173,24 @@ pub fn sync(
                 dest_entries.push(d);
             }
             Ok(Response::EndOfEntries) => break,
-            Ok(Response::RootDoesntExist) => {
-                // Continue anyway with an empty dest_entries - we'll create what we need
-                assert!(dest_entries.is_empty());
-                break;
+            Ok(Response::RootDetails(t)) => {
+                match t {
+                    None => {
+                        // Continue anyway with an empty dest_entries - we'll create what we need
+                        break;
+                    },
+                    Some(EntryType::File) => {
+                        // Referring to an existing file with a trailing slash is an error, because it implies
+                        // that the user thinks it is a folder, and so could lead to unwanted behaviour
+                        // Note that we can't use std::path::is_separator because this might be a remote path, so the current platform
+                        // is irrelevant
+                        if dest_path_modified.chars().last().unwrap() == '/' || dest_path_modified.chars().last().unwrap() == '\\' {
+                            error!("root {} is a file but is referred to with a trailing slash.", dest_path_modified);
+                            return Err(());       
+                        }
+                    }
+                    Some(EntryType::Folder) => (), // Nothing special to do
+                }                
             }
             r => { 
                 error!("Unexpected response: {:?}", r);
@@ -198,7 +247,7 @@ pub fn sync(
                 };
             } else {
                 // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be copied
-                info!("Would delete {}", dest_entry.path);
+                info!("Would delete {}", dest_entry.path); //TODO: if path is empty, this is confusing
             }
         }
     }
@@ -215,29 +264,29 @@ pub fn sync(
                     Ordering::Less => {
                         error!(
                             "{}: Dest file is newer - how did this happen!",
-                            src_entry.path
+                            src_entry.path //TODO: if path is empty, this is confusing
                         );
                         return Err(());
                     }
                     Ordering::Equal => {
-                        trace!("{}: Same modified time - skipping", src_entry.path);
+                        trace!("{}: Same modified time - skipping", src_entry.path); //TODO: if path is empty, this is confusing
                     }
                     Ordering::Greater => {
-                        debug!("{}: source file newer - copying", src_entry.path);
+                        debug!("{}: source file newer - copying", src_entry.path); //TODO: if path is empty, this is confusing
                         copy_file(&src_entry, &mut src_comms, &mut dest_comms, &mut stats, dry_run)?
                     }
                 },
                 EntryType::Folder => {
-                    trace!("{}: folder already exists - nothing to do", src_entry.path)
+                    trace!("{}: folder already exists - nothing to do", src_entry.path) //TODO: if path is empty, this is confusing
                 }
             },
             None => match src_entry.entry_type {
                 EntryType::File => {
-                    debug!("{}: Dest file doesn't exist - copying", src_entry.path);
+                    debug!("{}: Dest file doesn't exist - copying", src_entry.path); //TODO: if path is empty, this is confusing
                     copy_file(&src_entry, &mut src_comms, &mut dest_comms, &mut stats, dry_run)?
                 }
                 EntryType::Folder => {
-                    debug!("{}: dest folder doesn't exists - creating", src_entry.path);
+                    debug!("{}: dest folder doesn't exists - creating", src_entry.path); //TODO: if path is empty, this is confusing
                     stats.num_folders_created += 1;
                     if !dry_run {
                         dest_comms
@@ -254,7 +303,7 @@ pub fn sync(
                         };
                     } else {
                         // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be copied
-                        info!("Would create {}", src_entry.path);
+                        info!("Would create {}", src_entry.path); //TODO: if path is empty, this is confusing
                     }
                 }
             },
@@ -315,7 +364,7 @@ fn copy_file(
     dry_run: bool,
 ) -> Result<(), ()> {
     if !dry_run {
-        trace!("Fetching {}", src_file.path);
+        trace!("Fetching {}", src_file.path); //TODO: if path is empty, this is confusing
         src_comms
             .send_command(Command::GetFileContent {
                 path: src_file.path.to_string(),
@@ -345,7 +394,7 @@ fn copy_file(
         };
     } else {
         // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be copied
-        info!("Would copy {}", src_file.path);
+        info!("Would copy {}", src_file.path); //TODO: if path is empty, this is confusing
     }
 
     stats.num_files_copied += 1;
