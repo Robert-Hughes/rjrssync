@@ -1,7 +1,5 @@
-use clap::Parser;
 use aes_gcm::aead::{OsRng};
 use aes_gcm::{Aes128Gcm, KeyInit, Key};
-use env_logger::{fmt::Color, Env};
 use log::{debug, error, info, warn, log, trace};
 use rust_embed::RustEmbed;
 use std::io::LineWriter;
@@ -12,111 +10,13 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::{
     fmt::{self, Display},
     io::{BufRead, BufReader, Write},
-    process::{ChildStderr, ChildStdin, ChildStdout, ExitCode, Stdio},
+    process::{ChildStderr, ChildStdin, ChildStdout, Stdio},
     sync::mpsc::{RecvError, SendError},
     thread::JoinHandle,
 };
 use tempdir::TempDir;
 
-use crate::boss_sync::*;
 use crate::*;
-use crate::boss_frontend::*;
-
-pub fn boss_main() -> ExitCode {
-    let args = BossCliArgs::parse();
-
-    // Configure logging, based on the user's --quiet/--verbose flag.
-    // If the RUST_LOG env var is set though then this overrides everything, as this is useful for developers
-    let args_level = match (args.quiet, args.verbose) {
-        (true, false) => "warn",
-        (false, true) => "debug",
-        (false, false) => "info",
-        (true, true) => panic!("Shouldn't be allowed by cmd args parser"),
-    };
-    let mut builder = env_logger::Builder::from_env(Env::default().default_filter_or(args_level));
-    builder.format(|buf, record| {
-        let target_color = match record.target() {
-            "rjrssync::boss" => Color::Rgb(255, 64, 255),
-            "rjrssync::doer" => Color::Cyan,
-            "remote doer" => Color::Yellow,
-            _ => Color::Green,
-        };
-        let target_style = buf.style().set_color(target_color).clone();
-
-        let level_style = buf.default_level_style(record.level());
-
-        if record.level() == log::Level::Info {
-            // Info messages are intended for the average user, so format them plainly
-            //TODO: they should probably also be on stdout, not stderr as they are at the moment
-            writeln!(
-                buf,
-                "{}",
-                record.args()
-            )
-        } else {
-            writeln!(
-                buf,
-                "{:5} | {}: {}",
-                level_style.value(record.level()),
-                target_style.value(record.target()),
-                record.args()
-            )
-        }
-    });
-    builder.init();
-
-    debug!("Running as boss");
-
-    // The src and/or dest may be on another computer. We need to run a copy of rjrssync on the remote
-    // computer(s) and set up network commmunication.
-    // There are therefore up to three copies of our program involved (although some may actually be the same as each other)
-    //   Boss - this copy, which received the command line from the user
-    //   Source - runs on the computer specified by the `src` command-line arg, and so if this is the local computer
-    //            then this may be the same copy as the Boss. If it's remote then it will be a remote doer process.
-    //   Dest - the computer specified by the `dest` command-line arg, and so if this is the local computer
-    //          then this may be the same copy as the Boss. If it's remote then it will be a remote doer process.
-    //          If Source and Dest are the same computer, they are still separate copies for simplicity.
-    //          (It might be more efficient to just have one remote copy, but remember that there could be different users specified
-    //           on the Source and Dest, with separate permissions to the paths being synced, so they can't access each others' paths,
-    //           in which case we couldn't share a copy. Also might need to make it multithreaded on the other end to handle
-    //           doing one command at the same time for each Source and Dest, which might be more complicated.)
-
-    let src = args.src.unwrap(); //TODO: use .spec if specified instead
-    let dest = args.dest.unwrap();
-
-    // Launch doers on remote hosts or threads on local targets and estabilish communication (check version etc.)
-    let src_comms = match setup_comms(
-        &src.hostname,
-        &src.username,
-        args.remote_port,
-        "src".to_string(),
-        args.force_redeploy,
-    ) {
-        Some(c) => c,
-        None => return ExitCode::from(10),
-    };
-    let dest_comms = match setup_comms(
-        &dest.hostname,
-        &dest.username,
-        args.remote_port,
-        "dest".to_string(),
-        args.force_redeploy,
-    ) {
-        Some(c) => c,
-        None => return ExitCode::from(11),
-    };
-
-    // Perform the actual file sync
-    let sync_result = sync(src.path, dest.path, args.exclude_filters, args.dry_run, args.stats, src_comms, dest_comms);
-
-    match sync_result {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(e) => {
-            error!("Sync error: {}", e);
-            ExitCode::from(12)
-        }
-    }
-}
 
 /// Abstraction of two-way communication channel between this boss and a doer, which might be
 /// remote (communicating over an encrypted TCP connection) or local (communicating via a channel to a background thread).
@@ -197,7 +97,7 @@ impl Drop for Comms {
 }
 
 // Sets up communications with the given computer, which may be either remote or local (if remote_hostname is empty).
-fn setup_comms(
+pub fn setup_comms(
     remote_hostname: &str,
     remote_user: &str,
     remote_port_for_comms: u16,

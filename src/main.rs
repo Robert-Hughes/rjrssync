@@ -7,6 +7,7 @@ mod doer;
 mod encrypted_comms;
 
 use boss::*;
+use boss_frontend::*;
 use doer::*;
 
 pub const VERSION: i32 = 49;
