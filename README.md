@@ -136,8 +136,19 @@ It also prevents unintended creation of nested folders with the same name which 
 Trailing slashes on files are always invalid, because this gives the impression that the file is actually a folder,
 and so could lead to unexpected behaviour.
 
+Notes on symlinks
+==================
 
+Symlinks could be present as ancestors in the path(s) being synced (`a/b/symlink/c`),
+the path being synced itself (`a/b/symlink`), or as one of the items inside a folder being synced.
 
+Symlinks can point to either a file, a folder, nothing (broken), or another symlink, which itself could point to
+any of those.
+
+Symlinks can cause cycles.
+
+On Windows, a symlink is either a "file symlink" or "directory symlink" (specified on creation),
+whereas on Linux it is simply a symlink.
 
 
 TODO:
