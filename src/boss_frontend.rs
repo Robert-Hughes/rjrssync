@@ -3,11 +3,18 @@ pub struct BossCliArgs {
     /// The source path, which will be synced to the destination path.
     /// Optionally contains a username and hostname for specifying remote paths.
     /// Format: [[username@]hostname:]path
-    pub src: RemotePathDesc,
+    #[arg(required_unless_present="spec", conflicts_with="spec")]
+    pub src: Option<RemotePathDesc>,
     /// The destination path, which will be synced from the source path.
     /// Optionally contains a username and hostname for specifying remote paths.
     /// Format: [[username@]hostname:]path
-    pub dest: RemotePathDesc,
+    #[arg(required_unless_present="spec", conflicts_with="spec")]
+    pub dest: Option<RemotePathDesc>,
+
+    /// Instead of specifying SRC and DEST, this can be used to perform a sync defined by a config file.
+    #[arg(long)]
+    pub spec: Option<String>,
+
     /// If set, forces redeployment of rjrssync to any remote targets, even if they already have an
     /// up-to-date copy.
     #[arg(long)]

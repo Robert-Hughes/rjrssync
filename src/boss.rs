@@ -81,10 +81,13 @@ pub fn boss_main() -> ExitCode {
     //           in which case we couldn't share a copy. Also might need to make it multithreaded on the other end to handle
     //           doing one command at the same time for each Source and Dest, which might be more complicated.)
 
+    let src = args.src.unwrap(); //TODO: use .spec if specified instead
+    let dest = args.dest.unwrap();
+
     // Launch doers on remote hosts or threads on local targets and estabilish communication (check version etc.)
     let src_comms = match setup_comms(
-        &args.src.hostname,
-        &args.src.username,
+        &src.hostname,
+        &src.username,
         args.remote_port,
         "src".to_string(),
         args.force_redeploy,
@@ -93,8 +96,8 @@ pub fn boss_main() -> ExitCode {
         None => return ExitCode::from(10),
     };
     let dest_comms = match setup_comms(
-        &args.dest.hostname,
-        &args.dest.username,
+        &dest.hostname,
+        &dest.username,
         args.remote_port,
         "dest".to_string(),
         args.force_redeploy,
@@ -104,7 +107,7 @@ pub fn boss_main() -> ExitCode {
     };
 
     // Perform the actual file sync
-    let sync_result = sync(args.src.path, args.dest.path, args.exclude_filters, args.dry_run, args.stats, src_comms, dest_comms);
+    let sync_result = sync(src.path, dest.path, args.exclude_filters, args.dry_run, args.stats, src_comms, dest_comms);
 
     match sync_result {
         Ok(()) => ExitCode::SUCCESS,
