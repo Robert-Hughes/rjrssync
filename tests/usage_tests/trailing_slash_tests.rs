@@ -1,3 +1,6 @@
+use std::time::Duration;
+use std::time::SystemTime;
+
 use crate::test_framework::*;
 use crate::folder;
 use map_macro::map;
@@ -184,7 +187,10 @@ fn test_folder_trailing_slash_to_file_trailing_slash() {
 /// Tries syncing a file to a file. This should update dest to match src.
 #[test]
 fn test_file_no_trailing_slash_to_file_no_trailing_slash() {
-    run_trailing_slashes_test_expect_success(Some(&file("contents1")), "", Some(&file("contents2")), "", 1);
+    run_trailing_slashes_test_expect_success(
+        Some(&file_with_modified("contents1", SystemTime::UNIX_EPOCH + Duration::from_secs(1))), "", 
+        Some(&file_with_modified("contents2", SystemTime::UNIX_EPOCH)), "", 
+        1);
 }
 
 /// Tries syncing a file to a file/. This should fail because trailing slashes on files are not allowed.
@@ -282,20 +288,20 @@ fn test_folder_trailing_slash_to_non_existent_trailing_slash() {
 #[test]
 fn test_non_existent_to_others() {
     // => File
-    run_trailing_slashes_test_expected_failure(None, "", Some(&file("contents")), "", "is a file but is referred to with a trailing slash");
-    run_trailing_slashes_test_expected_failure(None, "", Some(&file("contents")), "/", "is a file but is referred to with a trailing slash");
-    run_trailing_slashes_test_expected_failure(None, "/", Some(&file("contents")), "", "is a file but is referred to with a trailing slash");
-    run_trailing_slashes_test_expected_failure(None, "/", Some(&file("contents")), "/", "is a file but is referred to with a trailing slash");
+    run_trailing_slashes_test_expected_failure(None, "", Some(&file("contents")), "", "Specified root doesn't exist");
+    run_trailing_slashes_test_expected_failure(None, "", Some(&file("contents")), "/", "Specified root doesn't exist");
+    run_trailing_slashes_test_expected_failure(None, "/", Some(&file("contents")), "", "Specified root doesn't exist");
+    run_trailing_slashes_test_expected_failure(None, "/", Some(&file("contents")), "/", "Specified root doesn't exist");
 
     // => Folder
-    run_trailing_slashes_test_expected_failure(None, "", Some(&empty_folder()), "", "is a file but is referred to with a trailing slash");
-    run_trailing_slashes_test_expected_failure(None, "", Some(&empty_folder()), "/", "is a file but is referred to with a trailing slash");
-    run_trailing_slashes_test_expected_failure(None, "/", Some(&empty_folder()), "", "is a file but is referred to with a trailing slash");
-    run_trailing_slashes_test_expected_failure(None, "/", Some(&empty_folder()), "/", "is a file but is referred to with a trailing slash");
+    run_trailing_slashes_test_expected_failure(None, "", Some(&empty_folder()), "", "Specified root doesn't exist");
+    run_trailing_slashes_test_expected_failure(None, "", Some(&empty_folder()), "/", "Specified root doesn't exist");
+    run_trailing_slashes_test_expected_failure(None, "/", Some(&empty_folder()), "", "Specified root doesn't exist");
+    run_trailing_slashes_test_expected_failure(None, "/", Some(&empty_folder()), "/", "Specified root doesn't exist");
 
     // => Non-existent
-    run_trailing_slashes_test_expected_failure(None, "", None, "", "is a file but is referred to with a trailing slash");
-    run_trailing_slashes_test_expected_failure(None, "", None, "/", "is a file but is referred to with a trailing slash");
-    run_trailing_slashes_test_expected_failure(None, "/", None, "", "is a file but is referred to with a trailing slash");
-    run_trailing_slashes_test_expected_failure(None, "/", None, "/", "is a file but is referred to with a trailing slash");
+    run_trailing_slashes_test_expected_failure(None, "", None, "", "Specified root doesn't exist");
+    run_trailing_slashes_test_expected_failure(None, "", None, "/", "Specified root doesn't exist");
+    run_trailing_slashes_test_expected_failure(None, "/", None, "", "Specified root doesn't exist");
+    run_trailing_slashes_test_expected_failure(None, "/", None, "/", "Specified root doesn't exist");
 }

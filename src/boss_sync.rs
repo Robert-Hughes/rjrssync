@@ -113,6 +113,10 @@ pub fn sync(
                 src_entries.push(d);
             }
             Ok(Response::EndOfEntries) => break,
+            Ok(Response::RootDoesntExist) => {
+                error!("Specified root doesn't exist!");
+                return Err(());
+            }
             r => { 
                 error!("Unexpected response: {:?}", r);
                 return Err(());

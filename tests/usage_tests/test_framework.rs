@@ -1,6 +1,5 @@
 use std::{path::{Path, PathBuf}, time::{SystemTime}, collections::HashMap};
 
-use map_macro::map;
 use tempdir::TempDir;
 
 /// Simple in-memory representation of a file or folder (including any children), to use for testing.
