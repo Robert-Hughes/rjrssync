@@ -5,7 +5,7 @@ use clap::Parser;
 use env_logger::{Env, fmt::Color};
 use log::{debug, error};
 
-use crate::boss::*;
+use crate::boss_launch::*;
 use crate::boss_sync::*;
 
 #[derive(clap::Parser)]

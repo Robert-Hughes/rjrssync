@@ -1,12 +1,12 @@
 use std::process::ExitCode;
 
-mod boss;
+mod boss_launch;
 mod boss_frontend;
 mod boss_sync;
 mod doer;
 mod encrypted_comms;
 
-use boss::*;
+use boss_launch::*;
 use boss_frontend::*;
 use doer::*;
 
