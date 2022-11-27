@@ -67,3 +67,25 @@ fn test_skip_unchanged() {
     run_expect_success(&src_folder, &dest_folder, 1); 
 }
 
+/// The destination is inside several folders that don't exist yet - they should be created.
+#[test]
+fn test_dest_ancestors_dont_exist() {
+    let src = &file("contents");
+    run(TestDesc {
+        setup_filesystem_nodes: vec![
+            ("$TEMP/src.txt", &src),
+        ],
+        src: "$TEMP/src.txt",
+        dest: "$TEMP/dest1/dest2/dest3/dest.txt",
+        expected_exit_code: 0,
+        expected_output_messages: vec![
+            "Copied 1 file(s)".to_string(),
+        ],
+        expected_filesystem_nodes: vec![
+            ("$TEMP/src.txt", Some(src)), // Source should always be unchanged
+            ("$TEMP/dest1/dest2/dest3/dest.txt", Some(src)), // Dest should be identical to source
+        ]
+    });
+}
+
+

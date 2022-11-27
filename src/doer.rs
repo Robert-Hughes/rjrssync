@@ -76,6 +76,7 @@ pub enum Command {
     GetEntries {
         exclude_filters: Vec<String>,
     },
+    CreateRootAncestors,
     GetFileContent {
         path: String,
     },
@@ -373,7 +374,16 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) 
                 }
             }
         }
-        Command::GetEntries { exclude_filters } => handle_get_entries(comms, context, &exclude_filters),        
+        Command::GetEntries { exclude_filters } => handle_get_entries(comms, context, &exclude_filters),      
+        Command::CreateRootAncestors => {
+            let path_to_create = context.root.parent();
+            if let Some(p) = path_to_create {
+                match std::fs::create_dir_all(p) {
+                    Ok(()) => comms.send_response(Response::Ack).unwrap(),
+                    Err(e) => comms.send_response(Response::Error(format!("Error creating folder: {e}"))).unwrap(),
+                }           
+            }
+        }  
         Command::GetFileContent { path } => {
             let full_path = context.root.join(&path);
             match std::fs::read(full_path) {

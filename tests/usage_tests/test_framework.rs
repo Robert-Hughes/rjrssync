@@ -1,4 +1,4 @@
-use std::{path::{Path, PathBuf}, time::{SystemTime}, collections::HashMap, io::Write};
+use std::{path::{Path, PathBuf}, time::{SystemTime}, collections::HashMap};
 
 use tempdir::TempDir;
 

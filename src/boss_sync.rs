@@ -177,6 +177,19 @@ pub fn sync(
         }
     }
 
+    // If the dest doesn't yet exist, make sure that all its ancestors are created, so that
+    // when we come to create itself, it can succeed
+    if dest_root_type.is_none() {
+        dest_comms.send_command(Command::CreateRootAncestors).unwrap();              
+        match dest_comms.receive_response() {
+            Ok(Response::Ack) => (),
+            r => { 
+                error!("Unexpected response: {:?}", r);
+                return Err(());
+            }
+        }
+    }
+
 
     src_comms
         .send_command(Command::GetEntries { exclude_filters: exclude_filters.clone() })
