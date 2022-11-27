@@ -395,6 +395,34 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) 
 }
 
 fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, root: &str, exclude_filters: &[String]) {
+    // Validate the root
+    match std::fs::metadata(root) {
+        Ok(m) => {
+            if m.is_file() && std::path::is_separator(root.chars().last().unwrap()) {
+                // Referring to an existing file with a trailing slash is an error, because it implies
+                // that the user thinks it is a folder, and so could lead to unwanted behaviour
+                comms.send_response(Response::Error(format!(
+                    "root {} is a file but is referred to with a trailing slash.", root
+                )))
+                .unwrap();
+                return;
+            }
+        },
+        Err(e) if e.kind() == ErrorKind::NotFound => {
+            // Report this as a special error, as we handle it differently on the boss side
+            comms.send_response(Response::RootDoesntExist).unwrap();
+            return;
+        }
+        Err(e) => {
+            comms
+                .send_response(Response::Error(format!(
+                    "root {} can't be read: {}", root, e
+                )))
+            .unwrap();
+            return;
+        }
+    }
+
     // Store the root path for future operations
     context.root = PathBuf::from(root);
 
@@ -416,15 +444,6 @@ fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, root: &str, 
         match walker_it.next() {
             None => break,
             Some(Err(e)) => {
-                if count == 0 {
-                    if let Some(e) = e.io_error() {
-                        if e.kind() == ErrorKind::NotFound {
-                            // The first entry (the root), can't be found - report this as a special error
-                            comms.send_response(Response::RootDoesntExist).unwrap();
-                            return;
-                        }
-                    }
-                }
                 comms.send_response(Response::Error(format!("Error walking root: {e}"))).unwrap();
                 break;
             },

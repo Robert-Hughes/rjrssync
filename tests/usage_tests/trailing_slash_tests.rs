@@ -128,13 +128,13 @@ fn test_file_no_trailing_slash_to_folder_trailing_slash() {
 /// Tries syncing a file/ to a folder. This should fail because trailing slashes on files are not allowed.
 #[test]
 fn test_file_trailing_slash_to_folder_no_trailing_slash() {
-    run_trailing_slashes_test_expected_failure(Some(&file("contents1")), "/", Some(&empty_folder()), "", "trailing slash not allowed on files");
+    run_trailing_slashes_test_expected_failure(Some(&file("contents1")), "/", Some(&empty_folder()), "", "is a file but is referred to with a trailing slash");
 }
 
 /// Tries syncing a file/ to a folder/. This should fail because trailing slashes on files are not allowed.
 #[test]
 fn test_file_trailing_slash_to_folder_trailing_slash() {
-    run_trailing_slashes_test_expected_failure(Some(&file("contents1")), "/", Some(&empty_folder()), "/", "trailing slash not allowed on files");
+    run_trailing_slashes_test_expected_failure(Some(&file("contents1")), "/", Some(&empty_folder()), "/", "is a file but is referred to with a trailing slash");
 }
 
 // ====================================================================================
@@ -156,7 +156,7 @@ fn test_folder_no_trailing_slash_to_file_trailing_slash() {
     let src_folder = folder! {
         "file1" => file("contents"),
     };
-    run_trailing_slashes_test_expected_failure(Some(&src_folder), "", Some(&file("contents2")), "/", "trailing slash not allowed on files");
+    run_trailing_slashes_test_expected_failure(Some(&src_folder), "", Some(&file("contents2")), "/", "is a file but is referred to with a trailing slash");
 }
 
 /// Tries syncing a folder/ to a file. This should replace the file with the folder.
@@ -174,7 +174,7 @@ fn test_folder_trailing_slash_to_file_trailing_slash() {
     let src_folder = folder! {
         "file1" => file("contents"),
     };
-    run_trailing_slashes_test_expected_failure(Some(&src_folder), "/", Some(&file("contents2")), "/", "trailing slash not allowed on files");
+    run_trailing_slashes_test_expected_failure(Some(&src_folder), "/", Some(&file("contents2")), "/", "is a file but is referred to with a trailing slash");
 }
 
 // ====================================================================================
@@ -190,19 +190,19 @@ fn test_file_no_trailing_slash_to_file_no_trailing_slash() {
 /// Tries syncing a file to a file/. This should fail because trailing slashes on files are not allowed.
 #[test]
 fn test_file_no_trailing_slash_to_file_trailing_slash() {
-    run_trailing_slashes_test_expected_failure(Some(&file("contents1")), "", Some(&file("contents2")), "/", "trailing slash not allowed on files");
+    run_trailing_slashes_test_expected_failure(Some(&file("contents1")), "", Some(&file("contents2")), "/", "is a file but is referred to with a trailing slash");
 }
 
 /// Tries syncing a file/ to a file. This should fail because trailing slashes on files are not allowed.
 #[test]
 fn test_file_trailing_slash_to_file_no_trailing_slash() {
-    run_trailing_slashes_test_expected_failure(Some(&file("contents1")), "/", Some(&file("contents2")), "", "trailing slash not allowed on files");
+    run_trailing_slashes_test_expected_failure(Some(&file("contents1")), "/", Some(&file("contents2")), "", "is a file but is referred to with a trailing slash");
 }
 
 /// Tries syncing a file/ to a file/. This should fail because trailing slashes on files are not allowed.
 #[test]
 fn test_file_trailing_slash_to_file_trailing_slash() {
-    run_trailing_slashes_test_expected_failure(Some(&file("contents1")), "/", Some(&file("contents2")), "/", "trailing slash not allowed on files");
+    run_trailing_slashes_test_expected_failure(Some(&file("contents1")), "/", Some(&file("contents2")), "/", "is a file but is referred to with a trailing slash");
 }
 
 // ====================================================================================
@@ -224,13 +224,13 @@ fn test_file_no_trailing_slash_to_non_existent_trailing_slash() {
 /// Tries syncing a file/ to a non-existent path. This should fail because trailing slashes on files are not allowed.
 #[test]
 fn test_file_trailing_slash_to_non_existent_no_trailing_slash() {
-    run_trailing_slashes_test_expected_failure(Some(&file("contents1")), "/", None, "", "trailing slash not allowed on files");
+    run_trailing_slashes_test_expected_failure(Some(&file("contents1")), "/", None, "", "is a file but is referred to with a trailing slash");
 }
 
 /// Tries syncing a file/ to a non-existent path/. This should fail because trailing slashes on files are not allowed.
 #[test]
 fn test_file_trailing_slash_to_non_existent_trailing_slash() {
-    run_trailing_slashes_test_expected_failure(Some(&file("contents1")), "/", None, "/", "trailing slash not allowed on files");
+    run_trailing_slashes_test_expected_failure(Some(&file("contents1")), "/", None, "/", "is a file but is referred to with a trailing slash");
 }
 
 // ====================================================================================
@@ -282,20 +282,20 @@ fn test_folder_trailing_slash_to_non_existent_trailing_slash() {
 #[test]
 fn test_non_existent_to_others() {
     // => File
-    run_trailing_slashes_test_expected_failure(None, "", Some(&file("contents")), "", "trailing slash not allowed on files");
-    run_trailing_slashes_test_expected_failure(None, "", Some(&file("contents")), "/", "trailing slash not allowed on files");
-    run_trailing_slashes_test_expected_failure(None, "/", Some(&file("contents")), "", "trailing slash not allowed on files");
-    run_trailing_slashes_test_expected_failure(None, "/", Some(&file("contents")), "/", "trailing slash not allowed on files");
+    run_trailing_slashes_test_expected_failure(None, "", Some(&file("contents")), "", "is a file but is referred to with a trailing slash");
+    run_trailing_slashes_test_expected_failure(None, "", Some(&file("contents")), "/", "is a file but is referred to with a trailing slash");
+    run_trailing_slashes_test_expected_failure(None, "/", Some(&file("contents")), "", "is a file but is referred to with a trailing slash");
+    run_trailing_slashes_test_expected_failure(None, "/", Some(&file("contents")), "/", "is a file but is referred to with a trailing slash");
 
     // => Folder
-    run_trailing_slashes_test_expected_failure(None, "", Some(&empty_folder()), "", "trailing slash not allowed on files");
-    run_trailing_slashes_test_expected_failure(None, "", Some(&empty_folder()), "/", "trailing slash not allowed on files");
-    run_trailing_slashes_test_expected_failure(None, "/", Some(&empty_folder()), "", "trailing slash not allowed on files");
-    run_trailing_slashes_test_expected_failure(None, "/", Some(&empty_folder()), "/", "trailing slash not allowed on files");
+    run_trailing_slashes_test_expected_failure(None, "", Some(&empty_folder()), "", "is a file but is referred to with a trailing slash");
+    run_trailing_slashes_test_expected_failure(None, "", Some(&empty_folder()), "/", "is a file but is referred to with a trailing slash");
+    run_trailing_slashes_test_expected_failure(None, "/", Some(&empty_folder()), "", "is a file but is referred to with a trailing slash");
+    run_trailing_slashes_test_expected_failure(None, "/", Some(&empty_folder()), "/", "is a file but is referred to with a trailing slash");
 
     // => Non-existent
-    run_trailing_slashes_test_expected_failure(None, "", None, "", "trailing slash not allowed on files");
-    run_trailing_slashes_test_expected_failure(None, "", None, "/", "trailing slash not allowed on files");
-    run_trailing_slashes_test_expected_failure(None, "/", None, "", "trailing slash not allowed on files");
-    run_trailing_slashes_test_expected_failure(None, "/", None, "/", "trailing slash not allowed on files");
+    run_trailing_slashes_test_expected_failure(None, "", None, "", "is a file but is referred to with a trailing slash");
+    run_trailing_slashes_test_expected_failure(None, "", None, "/", "is a file but is referred to with a trailing slash");
+    run_trailing_slashes_test_expected_failure(None, "/", None, "", "is a file but is referred to with a trailing slash");
+    run_trailing_slashes_test_expected_failure(None, "/", None, "/", "is a file but is referred to with a trailing slash");
 }
