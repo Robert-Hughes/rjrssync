@@ -232,7 +232,8 @@ pub fn sync(
     // are entries with the same name but different type (files vs folders).
     // We do this in reverse to make sure that files are deleted before their parent folder
     // (otherwise deleting the parent is harder/more risky - possibly would also have problems with 
-    // files being filtered so the folder is needed still as there are filtered-out files in there?)
+    // files being filtered so the folder is needed still as there are filtered-out files in there,
+    // see test_remove_dest_folder_with_excluded_files())
     for dest_entry in dest_entries.iter().rev() {
         if !src_entries
             .iter()

@@ -192,13 +192,18 @@ Syncing logic
 * Test for --dry-run
 * Test for --stats (maybe just all the command-line options...)
 * Progress bar
-* Support the user specifying a file rather than folder on one or both sides (or a symlink?)
-* Test behaviour when user specifies files/symlinks/non-existent instead of folders on one or both sides
-   - What about source and dest pointing to the same file/folder/symlink/etc.?
-   - What about the presence or lack of trailing slashes?
-   - For symlinks, do we care about the target? It could be a file, a folder, non-existent, or another symlink (of any of these types...)
+* Support symlinks (see notes on symblinks above)
+  - Support in testing framework
+  - Two modes - symlink unaware (treats the link as the target), and symlink aware (just syncs the link)?
+  - Support/test different 'types' of symlinks (windows types and also different target types?)
+  - Symlink target could be a file, a folder, non-existent, or another symlink (of any of these types...)
+  - Either src or dest itself could be symlink
+  - Symlinks could be present as ancestors as src or dest path (though this shouldn't matter)
+  - Symlinks could be present inside a folder being synced.
+  - Symlinks could be combined with any existing type as src or dest (e.g. symlink => folder, file => symlink etc.)
+* What happens if src and dest both point to the same place? 
+   - Either directly, or via symlink(s)?
 * --no-encryption option, might be faster?
-* Handle syncing of symlinks (just sync the link, don't follow it)
 
 
 Performance
@@ -214,6 +219,8 @@ Misc
 -----
 
 * Fix intermittent github actions failing because of RustEmbed
+* piper and tcper maybe shouldn't be in the `bin/` folder, as then they count as part of the proper program,
+but they should just be for testing/investigation. Maybe should be a separate crate?
 
 
 

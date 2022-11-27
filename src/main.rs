@@ -9,7 +9,7 @@ mod encrypted_comms;
 use boss::*;
 use doer::*;
 
-pub const VERSION: i32 = 48;
+pub const VERSION: i32 = 49;
 
 // Message printed by a doer copy of the program to indicate that it has loaded and is ready
 // to receive data over its stdin. Once the boss receives this, it knows that ssh has connected
