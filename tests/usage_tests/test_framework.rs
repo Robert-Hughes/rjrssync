@@ -1,4 +1,4 @@
-use std::{path::{Path, PathBuf}, time::{SystemTime}, collections::HashMap};
+use std::{path::{Path, PathBuf}, time::{SystemTime}, collections::HashMap, io::Write};
 
 use tempdir::TempDir;
 
@@ -133,6 +133,10 @@ pub fn run(desc: TestDesc) {
         .arg(substitute_temp(desc.src))
         .arg(substitute_temp(desc.dest))
         .output().expect("Failed to launch rjrssync");
+
+    // Print output for test debugging
+    //std::io::stdout().write_all(&output.stdout).unwrap();
+    //std::io::stderr().write_all(&output.stderr).unwrap();
 
     // Check exit code
     assert_eq!(output.status.code(), Some(desc.expected_exit_code));

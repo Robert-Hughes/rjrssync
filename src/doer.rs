@@ -67,8 +67,13 @@ pub enum Command {
     // Note we shouldn't use PathBufs, because the syntax of this path might differ between the boss and doer
     // platforms (e.g. Windows vs Linux), and so the type might have different meaning/behaviour on each side.
     //TODO: what format do we use then, do we need to convert between them??
-    GetEntries {
+    
+    // Checks the root file/folder and send back information about it,
+    // as the boss may need to do something before we send it all the rest of the entries
+    SetRoot {
         root: String,
+    },
+    GetEntries {
         exclude_filters: Vec<String>,
     },
     GetFileContent {
@@ -106,7 +111,7 @@ pub struct EntryDetails {
     pub entry_type: EntryType,
     pub modified_time: SystemTime, //TODO: is this compatible between platforms, time zone changes, precision differences, etc. etc.
     //TODO: can we safely serialize this on one platform and deserialize on another?
-    pub size: u64,
+    pub size: u64
 }
 
 /// Responses are sent back from the doer to the boss to report on something, usually
@@ -333,7 +338,42 @@ fn message_loop(mut comms: Comms) -> Result<(), ()> {
 /// Returns false if we received a Shutdown Command, otherwise true.
 fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) -> bool {
     match command {
-        Command::GetEntries { root, exclude_filters } => handle_get_entries(comms, context, &root, &exclude_filters),        
+        Command::SetRoot { root } => {
+            // Store the root path for future operations
+            context.root = PathBuf::from(root);
+
+            match std::fs::metadata(&context.root) {
+                Ok(m) => {
+                    let root_type = if m.file_type().is_dir() {
+                        EntryType::Folder
+                    } else if m.file_type().is_file() {
+                        EntryType::File
+                    } else {
+                        comms.send_response(Response::Error(format!(
+                                "root has unknown type: {:?}", m
+                            )))
+                        .unwrap();
+                        return true;
+                    };
+
+                    comms.send_response(Response::RootDetails(Some(root_type))).unwrap();
+                },
+                Err(e) if e.kind() == ErrorKind::NotFound => {
+                    // Report this as a special error, as we handle it differently on the boss side
+                    comms.send_response(Response::RootDetails(None)).unwrap();
+                    return true;
+                }
+                Err(e) => {
+                    comms
+                        .send_response(Response::Error(format!(
+                            "root {} can't be read: {}", context.root.display(), e
+                        )))
+                    .unwrap();
+                    return true;
+                }
+            }
+        }
+        Command::GetEntries { exclude_filters } => handle_get_entries(comms, context, &exclude_filters),        
         Command::GetFileContent { path } => {
             let full_path = context.root.join(&path);
             match std::fs::read(full_path) {
@@ -394,43 +434,7 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) 
     true
 }
 
-fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, root: &str, exclude_filters: &[String]) {
-    // Store the root path for future operations
-    context.root = PathBuf::from(root);
-
-    // Check the root file/folder and send back information about it,
-    // as the boss may need to do something before we send it all the rest of the entries
-    match std::fs::metadata(root) {
-        Ok(m) => {
-            let root_type = if m.file_type().is_dir() {
-                EntryType::Folder
-            } else if m.file_type().is_file() {
-                EntryType::File
-            } else {
-                comms.send_response(Response::Error(format!(
-                        "root has unknown type: {:?}", m
-                    )))
-                .unwrap();
-                return;
-            };
-
-            comms.send_response(Response::RootDetails(Some(root_type))).unwrap();
-        },
-        Err(e) if e.kind() == ErrorKind::NotFound => {
-            // Report this as a special error, as we handle it differently on the boss side
-            comms.send_response(Response::RootDetails(None)).unwrap();
-            return;
-        }
-        Err(e) => {
-            comms
-                .send_response(Response::Error(format!(
-                    "root {} can't be read: {}", root, e
-                )))
-            .unwrap();
-            return;
-        }
-    }
-
+fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, exclude_filters: &[String]) {
     // Compile filter regexes up-front
     //TODO: ideally we do this on the boss, not on both doers?
     //TODO: handle regex errors

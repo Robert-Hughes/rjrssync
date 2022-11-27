@@ -88,54 +88,65 @@ pub fn sync(
     mut src_comms: Comms,
     mut dest_comms: Comms,
 ) -> Result<(), ()> {
+    
+    // First get details of the root file/folder etc. of each side, as this might affect the transfer etc.
     src_comms
-        .send_command(Command::GetEntries { root: src_path.clone(), exclude_filters: exclude_filters.clone() })
-        .unwrap();
-
-    let mut stats = Stats::default();
-
-    let mut src_entries = Vec::new();
-    let mut src_root_type = None;
-    loop {
-        match src_comms.receive_response() {
-            Ok(Response::Entry(d)) => {
-                trace!("{:?}", d);
-                match d.entry_type {
-                    EntryType::File => {
-                        stats.num_src_files += 1;
-                        stats.src_total_bytes += d.size;
-                        stats.src_file_size_hist.add(d.size);
-                    }
-                    EntryType::Folder => stats.num_src_folders += 1,
-                }
-                src_entries.push(d);
-            }
-            Ok(Response::EndOfEntries) => break,
-            Ok(Response::RootDetails(t)) => {
-                match t {
-                    None => {
-                        error!("Specified root doesn't exist!");
-                        return Err(());                        
-                    },
-                    Some(t) => {
-                        src_root_type = Some(t);
-                        if src_root_type == Some(EntryType::File) {
-                            // Referring to an existing file with a trailing slash is an error, because it implies
-                            // that the user thinks it is a folder, and so could lead to unwanted behaviour
-                            // Note that we can't use std::path::is_separator because this might be a remote path, so the current platform
-                            // is irrelevant
-                            if src_path.chars().last().unwrap() == '/' || src_path.chars().last().unwrap() == '\\' {
-                                error!("root {} is a file but is referred to with a trailing slash.", src_path);
-                                return Err(());       
-                            }
+        .send_command(Command::SetRoot { root: src_path.clone() }).unwrap();
+    let src_root_type;
+    match src_comms.receive_response() {
+        Ok(Response::RootDetails(t)) => {
+            match t {
+                None => {
+                    error!("Specified root doesn't exist!");
+                    return Err(());                        
+                },
+                Some(t) => {
+                    src_root_type = Some(t);
+                    if src_root_type == Some(EntryType::File) {
+                        // Referring to an existing file with a trailing slash is an error, because it implies
+                        // that the user thinks it is a folder, and so could lead to unwanted behaviour
+                        // Note that we can't use std::path::is_separator because this might be a remote path, so the current platform
+                        // is irrelevant
+                        if src_path.chars().last().unwrap() == '/' || src_path.chars().last().unwrap() == '\\' {
+                            error!("root {} is a file but is referred to with a trailing slash.", src_path);
+                            return Err(());       
                         }
                     }
-                }                
-            }
-            r => { 
-                error!("Unexpected response: {:?}", r);
-                return Err(());
-            }
+                }
+            }                
+        }
+        r => { 
+            error!("Unexpected response: {:?}", r);
+            return Err(());
+        }
+    }
+    
+    dest_comms
+        .send_command(Command::SetRoot { root: dest_path.clone() }).unwrap();
+    let mut dest_root_type;
+    match dest_comms.receive_response() {
+        Ok(Response::RootDetails(t)) => {
+            dest_root_type = t;
+            match dest_root_type {
+                None => {
+                    // Continue anyway with an empty dest_entries - we'll create what we need                    
+                },
+                Some(EntryType::File) => {
+                    // Referring to an existing file with a trailing slash is an error, because it implies
+                    // that the user thinks it is a folder, and so could lead to unwanted behaviour
+                    // Note that we can't use std::path::is_separator because this might be a remote path, so the current platform
+                    // is irrelevant
+                    if dest_path.chars().last().unwrap() == '/' || dest_path.chars().last().unwrap() == '\\' {
+                        error!("root {} is a file but is referred to with a trailing slash.", dest_path);
+                        return Err(());       
+                    }
+                }
+                Some(EntryType::Folder) => (), // Nothing special to do
+            }                
+        }
+        r => { 
+            error!("Unexpected response: {:?}", r);
+            return Err(());
         }
     }
 
@@ -151,53 +162,79 @@ pub fn sync(
         if let Some(c) = src_last_component {
             dest_path_modified += c;
             debug!("Modified dest path to {}", dest_path_modified);
+
+            dest_comms
+                .send_command(Command::SetRoot { root: dest_path_modified }).unwrap();              
+            match dest_comms.receive_response() {
+                Ok(Response::RootDetails(t)) => {
+                    dest_root_type = t;
+                },
+                r => { 
+                    error!("Unexpected response: {:?}", r);
+                    return Err(());
+                }
+            }
         }
     }
 
-    dest_comms
-        .send_command(Command::GetEntries { root: dest_path_modified.clone(), exclude_filters })
+
+    src_comms
+        .send_command(Command::GetEntries { exclude_filters: exclude_filters.clone() })
         .unwrap();
 
-    let mut dest_entries = Vec::new();
+    let mut stats = Stats::default();
+
+    let mut src_entries = Vec::new();
     loop {
-        match dest_comms.receive_response() {
+        match src_comms.receive_response() {
             Ok(Response::Entry(d)) => {
                 trace!("{:?}", d);
                 match d.entry_type {
                     EntryType::File => {
-                        stats.num_dest_files += 1;
-                        stats.dest_total_bytes += d.size;
+                        stats.num_src_files += 1;
+                        stats.src_total_bytes += d.size;
+                        stats.src_file_size_hist.add(d.size);
                     }
-                    EntryType::Folder => stats.num_dest_folders += 1,
+                    EntryType::Folder => stats.num_src_folders += 1,
                 }
-                dest_entries.push(d);
+                src_entries.push(d);
             }
             Ok(Response::EndOfEntries) => break,
-            Ok(Response::RootDetails(t)) => {
-                match t {
-                    None => {
-                        // Continue anyway with an empty dest_entries - we'll create what we need
-                        break;
-                    },
-                    Some(EntryType::File) => {
-                        // Referring to an existing file with a trailing slash is an error, because it implies
-                        // that the user thinks it is a folder, and so could lead to unwanted behaviour
-                        // Note that we can't use std::path::is_separator because this might be a remote path, so the current platform
-                        // is irrelevant
-                        if dest_path_modified.chars().last().unwrap() == '/' || dest_path_modified.chars().last().unwrap() == '\\' {
-                            error!("root {} is a file but is referred to with a trailing slash.", dest_path_modified);
-                            return Err(());       
-                        }
-                    }
-                    Some(EntryType::Folder) => (), // Nothing special to do
-                }                
-            }
             r => { 
                 error!("Unexpected response: {:?}", r);
                 return Err(());
             }
         }
     }
+
+    let mut dest_entries = Vec::new();
+    if dest_root_type.is_some() { // Dest might not exist yet
+        dest_comms
+            .send_command(Command::GetEntries { exclude_filters })
+            .unwrap();
+
+        loop {
+            match dest_comms.receive_response() {
+                Ok(Response::Entry(d)) => {
+                    trace!("{:?}", d);
+                    match d.entry_type {
+                        EntryType::File => {
+                            stats.num_dest_files += 1;
+                            stats.dest_total_bytes += d.size;
+                        }
+                        EntryType::Folder => stats.num_dest_folders += 1,
+                    }
+                    dest_entries.push(d);
+                }
+                Ok(Response::EndOfEntries) => break,
+                r => { 
+                    error!("Unexpected response: {:?}", r);
+                    return Err(());
+                }
+            }
+        }
+    }
+    
     if show_stats {
         info!("Source: {} file(s) totalling {} bytes and {} folder(s) => Dest: {} file(s) totalling {} bytes and {} folder(s)",
             stats.num_src_files.separate_with_commas(), 
