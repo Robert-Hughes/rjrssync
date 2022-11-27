@@ -288,20 +288,20 @@ fn test_folder_trailing_slash_to_non_existent_trailing_slash() {
 #[test]
 fn test_non_existent_to_others() {
     // => File
-    run_trailing_slashes_test_expected_failure(None, "", Some(&file("contents")), "", "Specified root doesn't exist");
-    run_trailing_slashes_test_expected_failure(None, "", Some(&file("contents")), "/", "Specified root doesn't exist");
-    run_trailing_slashes_test_expected_failure(None, "/", Some(&file("contents")), "", "Specified root doesn't exist");
-    run_trailing_slashes_test_expected_failure(None, "/", Some(&file("contents")), "/", "Specified root doesn't exist");
+    run_trailing_slashes_test_expected_failure(None, "", Some(&file("contents")), "", "doesn't exist");
+    run_trailing_slashes_test_expected_failure(None, "", Some(&file("contents")), "/", "doesn't exist");
+    run_trailing_slashes_test_expected_failure(None, "/", Some(&file("contents")), "", "doesn't exist");
+    run_trailing_slashes_test_expected_failure(None, "/", Some(&file("contents")), "/", "doesn't exist");
 
     // => Folder
-    run_trailing_slashes_test_expected_failure(None, "", Some(&empty_folder()), "", "Specified root doesn't exist");
-    run_trailing_slashes_test_expected_failure(None, "", Some(&empty_folder()), "/", "Specified root doesn't exist");
-    run_trailing_slashes_test_expected_failure(None, "/", Some(&empty_folder()), "", "Specified root doesn't exist");
-    run_trailing_slashes_test_expected_failure(None, "/", Some(&empty_folder()), "/", "Specified root doesn't exist");
+    run_trailing_slashes_test_expected_failure(None, "", Some(&empty_folder()), "", "doesn't exist");
+    run_trailing_slashes_test_expected_failure(None, "", Some(&empty_folder()), "/", "doesn't exist");
+    run_trailing_slashes_test_expected_failure(None, "/", Some(&empty_folder()), "", "doesn't exist");
+    run_trailing_slashes_test_expected_failure(None, "/", Some(&empty_folder()), "/", "doesn't exist");
 
     // => Non-existent
-    run_trailing_slashes_test_expected_failure(None, "", None, "", "Specified root doesn't exist");
-    run_trailing_slashes_test_expected_failure(None, "", None, "/", "Specified root doesn't exist");
-    run_trailing_slashes_test_expected_failure(None, "/", None, "", "Specified root doesn't exist");
-    run_trailing_slashes_test_expected_failure(None, "/", None, "/", "Specified root doesn't exist");
+    run_trailing_slashes_test_expected_failure(None, "", None, "", "doesn't exist");
+    run_trailing_slashes_test_expected_failure(None, "", None, "/", "doesn't exist");
+    run_trailing_slashes_test_expected_failure(None, "/", None, "", "doesn't exist");
+    run_trailing_slashes_test_expected_failure(None, "/", None, "/", "doesn't exist");
 }

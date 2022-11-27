@@ -92,73 +92,66 @@ pub fn sync(
     // First get details of the root file/folder etc. of each side, as this might affect the sync
     // before we start it (e.g. errors, or changing the dest root)
     src_comms.send_command(Command::SetRoot { root: src_path.clone() })?;
-    let src_root_type;
-    match src_comms.receive_response() {
+    let src_root_type = match src_comms.receive_response() {
         Ok(Response::RootDetails(t)) => {
             match t {
-                None => return Err(format!("Specified root doesn't exist!")),
+                None => return Err(format!("src path '{src_path}' doesn't exist!")),
                 Some(t) => {
-                    src_root_type = Some(t);
-                    if src_root_type == Some(EntryType::File) {
+                    if t == EntryType::File {
                         // Referring to an existing file with a trailing slash is an error, because it implies
                         // that the user thinks it is a folder, and so could lead to unwanted behaviour
                         // Note that we can't use std::path::is_separator because this might be a remote path, so the current platform
                         // is irrelevant
                         if src_path.chars().last().unwrap() == '/' || src_path.chars().last().unwrap() == '\\' {
-                            return Err(format!("root {} is a file but is referred to with a trailing slash.", src_path));       
+                            return Err(format!("src path '{}' is a file but is referred to with a trailing slash.", src_path));       
                         }
                     }
+                    t
                 }
             }                
         }
-        r => return Err(format!("Unexpected response: {:?}", r)),
-    }
+        r => return Err(format!("Unexpected response getting root details from src: {:?}", r)),
+    };
     
-    dest_comms
-        .send_command(Command::SetRoot { root: dest_path.clone() })?;
-    let mut dest_root_type;
-    match dest_comms.receive_response() {
+    dest_comms.send_command(Command::SetRoot { root: dest_path.clone() })?;
+    let mut dest_root_type = match dest_comms.receive_response() {
         Ok(Response::RootDetails(t)) => {
-            dest_root_type = t;
-            match dest_root_type {
-                None => {
-                    // Continue anyway with an empty dest_entries - we'll create what we need                    
-                },
+            match t {
+                None => (), // Dest root doesn't exist, but that's fine (we will create it later)
                 Some(EntryType::File) => {
                     // Referring to an existing file with a trailing slash is an error, because it implies
                     // that the user thinks it is a folder, and so could lead to unwanted behaviour
                     // Note that we can't use std::path::is_separator because this might be a remote path, so the current platform
                     // is irrelevant
                     if dest_path.chars().last().unwrap() == '/' || dest_path.chars().last().unwrap() == '\\' {
-                        return Err(format!("root {} is a file but is referred to with a trailing slash.", dest_path));       
+                        return Err(format!("dest path '{}' is a file but is referred to with a trailing slash.", dest_path));       
                     }
                 }
                 Some(EntryType::Folder) => (), // Nothing special to do
-            }                
+            }
+            t             
         }
-        r => return Err(format!("Unexpected response: {:?}", r)),
-    }
+        r => return Err(format!("Unexpected response getting root details from dest: {:?}", r)),
+    };
 
-    // If src is a file, and dest root ends in a slash, append the last part of src to dest
-    // so that it places the src "inside" the dest, rather than replacing it
+    // If src is a file, and the dest path ends in a slash, then we want to sync the file 
+    // _inside_ the folder, rather then replacing it (see README for reasoning).
+    // To do this, we modify the dest path and then continue as if that was the path provided by the 
+    // user.
     let last_dest_char = dest_path.chars().last();
     // Note that we can't use std::path::is_separator (or similar) because this might be a remote path, so the current platform
     // is irrelevant
     let dest_trailing_slash = last_dest_char == Some('/') || last_dest_char == Some('\\');
-    let mut dest_path_modified = dest_path;
-    if src_root_type == Some(EntryType::File) && dest_trailing_slash {
-        let src_last_component = src_path.split(|c| c == '/' || c == '\\').last();
-        if let Some(c) = src_last_component {
-            dest_path_modified += c;
-            debug!("Modified dest path to {}", dest_path_modified);
+    if src_root_type == EntryType::File && dest_trailing_slash {
+        let src_filename = src_path.split(|c| c == '/' || c == '\\').last();
+        if let Some(c) = src_filename {
+            let new_dest_path = dest_path + c;
+            debug!("Modified dest path to {}", new_dest_path);
 
-            dest_comms
-                .send_command(Command::SetRoot { root: dest_path_modified })?;              
-            match dest_comms.receive_response() {
-                Ok(Response::RootDetails(t)) => {
-                    dest_root_type = t;
-                },
-                r => return Err(format!("Unexpected response: {:?}", r)),
+            dest_comms.send_command(Command::SetRoot { root: new_dest_path })?;              
+            dest_root_type = match dest_comms.receive_response() {
+                Ok(Response::RootDetails(t)) => t,
+                r => return Err(format!("Unexpected response getting root details from dest: {:?}", r)),
             }
         }
     }
@@ -201,7 +194,7 @@ pub fn sync(
     }
 
     let mut dest_entries = Vec::new();
-    if dest_root_type.is_some() { // Dest might not exist yet
+    if dest_root_type.is_some() { // Dest might not exist yet. Continue anyway with an empty dest_entries - we'll create what we need
         dest_comms
             .send_command(Command::GetEntries { exclude_filters })
             ?;
