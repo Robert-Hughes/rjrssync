@@ -3,13 +3,19 @@ use crate::folder;
 use map_macro::map;
 
 /// Runs a test with an optional trailing slash on the src and dest paths provided to rjrssync.
-/// The expected result is either a sucess with the given number of files copied (>0), or a failure
-/// if zero is given for expected_num_copies.
+/// The expected result is sucess with the given number of files copied.
 /// Note the slash is provided as a str rather than bool, so that it's more readable at the call-site.
-/// TODO: for failures, check the error message?
-fn run_trailing_slashes_test(src_node: Option<&FilesystemNode>, src_trailing_slash: &str,
+fn run_trailing_slashes_test_expect_success(src_node: Option<&FilesystemNode>, src_trailing_slash: &str,
     dest_node: Option<&FilesystemNode>, dest_trailing_slash: &str,
     expected_num_copies: u32
+) {
+    run_trailing_slashes_test_expect_success_override_dest(src_node, src_trailing_slash, dest_node, dest_trailing_slash,
+        expected_num_copies, "$TEMP/dest");
+}
+
+fn run_trailing_slashes_test_expect_success_override_dest(src_node: Option<&FilesystemNode>, src_trailing_slash: &str,
+    dest_node: Option<&FilesystemNode>, dest_trailing_slash: &str,
+    expected_num_copies: u32, override_dest: &str,
 ) {
     let mut setup_filesystem_nodes = vec![];
     if let Some(n) = src_node {
@@ -22,26 +28,44 @@ fn run_trailing_slashes_test(src_node: Option<&FilesystemNode>, src_trailing_sla
         setup_filesystem_nodes,
         src: &("$TEMP/src".to_string() + src_trailing_slash),
         dest: &("$TEMP/dest".to_string() + dest_trailing_slash),
-        expected_exit_code: if expected_num_copies == 0 { 12 } else { 0 },
-        expected_output_messages: 
-            if expected_num_copies > 0 {
-                vec![
-                    format!("Copied {} file(s)", expected_num_copies),
-                ] 
-            } else { vec![] },
-        expected_filesystem_nodes:
-            if expected_num_copies > 0 {
-                vec![
-                    ("$TEMP/src", Some(src_node.unwrap())), // Source should always be unchanged
-                    ("$TEMP/dest", Some(src_node.unwrap())), // Dest should be identical to source
-                ]
-            } else { 
-                vec![
-                    // Both src and dest should be unchanged, as the sync should have failed
-                    ("$TEMP/src", src_node),
-                    ("$TEMP/dest", dest_node),                
-                ] 
-            }, 
+        expected_exit_code: 0,
+        expected_output_messages: vec![
+             format!("Copied {} file(s)", expected_num_copies),
+        ],
+        expected_filesystem_nodes: vec![
+            ("$TEMP/src", Some(src_node.unwrap())), // Source should always be unchanged
+            (override_dest, Some(src_node.unwrap())), // Dest should be identical to source
+        ]
+    });
+}
+
+/// Runs a test with an optional trailing slash on the src and dest paths provided to rjrssync.
+/// The expected result is a failure with the given error message.
+/// Note the slash is provided as a str rather than bool, so that it's more readable at the call-site.
+fn run_trailing_slashes_test_expected_failure(src_node: Option<&FilesystemNode>, src_trailing_slash: &str,
+    dest_node: Option<&FilesystemNode>, dest_trailing_slash: &str,
+    expected_error: &str
+) {
+    let mut setup_filesystem_nodes = vec![];
+    if let Some(n) = src_node {
+        setup_filesystem_nodes.push(("$TEMP/src", n)); // Note no trailing slash here, as this is just to set up the filesystem, not to run rjrssync
+    }
+    if let Some(n) = dest_node {
+        setup_filesystem_nodes.push(("$TEMP/dest", n));  // Note no trailing slash here, as this is just to set up the filesystem, not to run rjrssync
+    }
+    run(TestDesc {
+        setup_filesystem_nodes,
+        src: &("$TEMP/src".to_string() + src_trailing_slash),
+        dest: &("$TEMP/dest".to_string() + dest_trailing_slash),
+        expected_exit_code: 12,
+        expected_output_messages: vec![
+            expected_error.to_string(),
+        ],
+        expected_filesystem_nodes: vec![
+            // Both src and dest should be unchanged, as the sync should have failed
+            ("$TEMP/src", src_node),
+            ("$TEMP/dest", dest_node),                
+        ] 
     });
 }
 
@@ -55,7 +79,7 @@ fn test_folder_no_trailing_slash_to_folder_no_trailing_slash() {
     let src_folder = folder! {
         "c1" => file("contents1"),
     };
-    run_trailing_slashes_test(Some(&src_folder), "", Some(&empty_folder()), "", 1);
+    run_trailing_slashes_test_expect_success(Some(&src_folder), "", Some(&empty_folder()), "", 1);
 }
 
 /// Tries syncing a folder to a folder/. This should work fine.
@@ -64,7 +88,7 @@ fn test_folder_no_trailing_slash_to_folder_trailing_slash() {
     let src_folder = folder! {
         "c1" => file("contents1"),
     };
-    run_trailing_slashes_test(Some(&src_folder), "", Some(&empty_folder()), "/", 1);
+    run_trailing_slashes_test_expect_success(Some(&src_folder), "", Some(&empty_folder()), "/", 1);
 }
 
 /// Tries syncing a folder/ to a folder. This should work fine.
@@ -73,7 +97,7 @@ fn test_folder_trailing_slash_to_folder_no_trailing_slash() {
     let src_folder = folder! {
         "c1" => file("contents1"),
     };
-    run_trailing_slashes_test(Some(&src_folder), "/", Some(&empty_folder()), "", 1);
+    run_trailing_slashes_test_expect_success(Some(&src_folder), "/", Some(&empty_folder()), "", 1);
 }
 
 /// Tries syncing a folder/ to a folder/. This should work fine.
@@ -82,7 +106,7 @@ fn test_folder_trailing_slash_to_folder_trailing_slash() {
     let src_folder = folder! {
         "c1" => file("contents1"),
     };
-    run_trailing_slashes_test(Some(&src_folder), "/", Some(&empty_folder()), "/", 1);
+    run_trailing_slashes_test_expect_success(Some(&src_folder), "/", Some(&empty_folder()), "/", 1);
 }
 
 // ====================================================================================
@@ -92,25 +116,25 @@ fn test_folder_trailing_slash_to_folder_trailing_slash() {
 /// Tries syncing a file to a folder. This should replace the folder with the file.
 #[test]
 fn test_file_no_trailing_slash_to_folder_no_trailing_slash() {
-    run_trailing_slashes_test(Some(&file("contents1")), "", Some(&empty_folder()), "", 1);
+    run_trailing_slashes_test_expect_success(Some(&file("contents1")), "", Some(&empty_folder()), "", 1);
 }
 
 /// Tries syncing a file to a folder/. This should place the file inside the folder 
 #[test]
 fn test_file_no_trailing_slash_to_folder_trailing_slash() {
-    run_trailing_slashes_test(Some(&file("contents1")), "", Some(&empty_folder()), "/", 17); //TODO: check in new folder!
+    run_trailing_slashes_test_expect_success_override_dest(Some(&file("contents1")), "", Some(&empty_folder()), "/", 1, "$TEMP/dest/src");
 }
 
 /// Tries syncing a file/ to a folder. This should fail because trailing slashes on files are not allowed.
 #[test]
 fn test_file_trailing_slash_to_folder_no_trailing_slash() {
-    run_trailing_slashes_test(Some(&file("contents1")), "/", Some(&empty_folder()), "", 0);
+    run_trailing_slashes_test_expected_failure(Some(&file("contents1")), "/", Some(&empty_folder()), "", "trailing slash not allowed on files");
 }
 
 /// Tries syncing a file/ to a folder/. This should fail because trailing slashes on files are not allowed.
 #[test]
 fn test_file_trailing_slash_to_folder_trailing_slash() {
-    run_trailing_slashes_test(Some(&file("contents1")), "/", Some(&empty_folder()), "/", 0);
+    run_trailing_slashes_test_expected_failure(Some(&file("contents1")), "/", Some(&empty_folder()), "/", "trailing slash not allowed on files");
 }
 
 // ====================================================================================
@@ -123,7 +147,7 @@ fn test_folder_no_trailing_slash_to_file_no_trailing_slash() {
     let src_folder = folder! {
         "file1" => file("contents"),
     };
-    run_trailing_slashes_test(Some(&src_folder), "", Some(&file("contents2")), "", 1);
+    run_trailing_slashes_test_expect_success(Some(&src_folder), "", Some(&file("contents2")), "", 1);
 }
 
 /// Tries syncing a folder to a file/. This should fail because trailing slashes on files are not allowed.
@@ -132,7 +156,7 @@ fn test_folder_no_trailing_slash_to_file_trailing_slash() {
     let src_folder = folder! {
         "file1" => file("contents"),
     };
-    run_trailing_slashes_test(Some(&src_folder), "", Some(&file("contents2")), "/", 0);
+    run_trailing_slashes_test_expected_failure(Some(&src_folder), "", Some(&file("contents2")), "/", "trailing slash not allowed on files");
 }
 
 /// Tries syncing a folder/ to a file. This should replace the file with the folder.
@@ -141,7 +165,7 @@ fn test_folder_trailing_slash_to_file_no_trailing_slash() {
     let src_folder = folder! {
         "file1" => file("contents"),
     };
-    run_trailing_slashes_test(Some(&src_folder), "/", Some(&file("contents2")), "", 1);
+    run_trailing_slashes_test_expect_success(Some(&src_folder), "/", Some(&file("contents2")), "", 1);
 }
 
 /// Tries syncing a folder/ to a file/. This should fail because trailing slashes on files are not allowed.
@@ -150,7 +174,7 @@ fn test_folder_trailing_slash_to_file_trailing_slash() {
     let src_folder = folder! {
         "file1" => file("contents"),
     };
-    run_trailing_slashes_test(Some(&src_folder), "/", Some(&file("contents2")), "/", 0);
+    run_trailing_slashes_test_expected_failure(Some(&src_folder), "/", Some(&file("contents2")), "/", "trailing slash not allowed on files");
 }
 
 // ====================================================================================
@@ -160,25 +184,25 @@ fn test_folder_trailing_slash_to_file_trailing_slash() {
 /// Tries syncing a file to a file. This should update dest to match src.
 #[test]
 fn test_file_no_trailing_slash_to_file_no_trailing_slash() {
-    run_trailing_slashes_test(Some(&file("contents1")), "", Some(&file("contents2")), "", 1);
+    run_trailing_slashes_test_expect_success(Some(&file("contents1")), "", Some(&file("contents2")), "", 1);
 }
 
 /// Tries syncing a file to a file/. This should fail because trailing slashes on files are not allowed.
 #[test]
 fn test_file_no_trailing_slash_to_file_trailing_slash() {
-    run_trailing_slashes_test(Some(&file("contents1")), "", Some(&file("contents2")), "/", 0);
+    run_trailing_slashes_test_expected_failure(Some(&file("contents1")), "", Some(&file("contents2")), "/", "trailing slash not allowed on files");
 }
 
 /// Tries syncing a file/ to a file. This should fail because trailing slashes on files are not allowed.
 #[test]
 fn test_file_trailing_slash_to_file_no_trailing_slash() {
-    run_trailing_slashes_test(Some(&file("contents1")), "/", Some(&file("contents2")), "", 0);
+    run_trailing_slashes_test_expected_failure(Some(&file("contents1")), "/", Some(&file("contents2")), "", "trailing slash not allowed on files");
 }
 
 /// Tries syncing a file/ to a file/. This should fail because trailing slashes on files are not allowed.
 #[test]
 fn test_file_trailing_slash_to_file_trailing_slash() {
-    run_trailing_slashes_test(Some(&file("contents1")), "/", Some(&file("contents2")), "/", 0);
+    run_trailing_slashes_test_expected_failure(Some(&file("contents1")), "/", Some(&file("contents2")), "/", "trailing slash not allowed on files");
 }
 
 // ====================================================================================
@@ -188,25 +212,25 @@ fn test_file_trailing_slash_to_file_trailing_slash() {
 /// Tries syncing a file to a non-existent path. Should create a new file.
 #[test]
 fn test_file_no_trailing_slash_to_non_existent_no_trailing_slash() {
-    run_trailing_slashes_test(Some(&file("contents1")), "", None, "", 1);
+    run_trailing_slashes_test_expect_success(Some(&file("contents1")), "", None, "", 1);
 }
 
 /// Tries syncing a file to a non-existent path/. This should create a new folder to put the file in.
 #[test]
 fn test_file_no_trailing_slash_to_non_existent_trailing_slash() {
-    run_trailing_slashes_test(Some(&file("contents1")), "", None, "/", 17); //TODO: check in new folder!
+    run_trailing_slashes_test_expect_success_override_dest(Some(&file("contents1")), "", None, "/", 1, "$TEMP/dest/src");
 }
 
 /// Tries syncing a file/ to a non-existent path. This should fail because trailing slashes on files are not allowed.
 #[test]
 fn test_file_trailing_slash_to_non_existent_no_trailing_slash() {
-    run_trailing_slashes_test(Some(&file("contents1")), "/", None, "", 0);
+    run_trailing_slashes_test_expected_failure(Some(&file("contents1")), "/", None, "", "trailing slash not allowed on files");
 }
 
 /// Tries syncing a file/ to a non-existent path/. This should fail because trailing slashes on files are not allowed.
 #[test]
 fn test_file_trailing_slash_to_non_existent_trailing_slash() {
-    run_trailing_slashes_test(Some(&file("contents1")), "/", None, "/", 0);
+    run_trailing_slashes_test_expected_failure(Some(&file("contents1")), "/", None, "/", "trailing slash not allowed on files");
 }
 
 // ====================================================================================
@@ -219,7 +243,7 @@ fn test_folder_no_trailing_slash_to_non_existent_no_trailing_slash() {
     let src_folder = folder! {
         "c1" => file("contents1"),
     };
-    run_trailing_slashes_test(Some(&src_folder), "", None, "", 1);
+    run_trailing_slashes_test_expect_success(Some(&src_folder), "", None, "", 1);
 }
 
 /// Tries syncing a folder to a folder/. This should work fine.
@@ -228,7 +252,7 @@ fn test_folder_no_trailing_slash_to_non_existent_trailing_slash() {
     let src_folder = folder! {
         "c1" => file("contents1"),
     };
-    run_trailing_slashes_test(Some(&src_folder), "", None, "/", 1);
+    run_trailing_slashes_test_expect_success(Some(&src_folder), "", None, "/", 1);
 }
 
 /// Tries syncing a folder/ to a folder. This should work fine.
@@ -237,7 +261,7 @@ fn test_folder_trailing_slash_to_non_existent_no_trailing_slash() {
     let src_folder = folder! {
         "c1" => file("contents1"),
     };
-    run_trailing_slashes_test(Some(&src_folder), "/", None, "", 1);
+    run_trailing_slashes_test_expect_success(Some(&src_folder), "/", None, "", 1);
 }
 
 /// Tries syncing a folder/ to a folder/. This should work fine.
@@ -246,7 +270,7 @@ fn test_folder_trailing_slash_to_non_existent_trailing_slash() {
     let src_folder = folder! {
         "c1" => file("contents1"),
     };
-    run_trailing_slashes_test(Some(&src_folder), "/", None, "/", 1);
+    run_trailing_slashes_test_expect_success(Some(&src_folder), "/", None, "/", 1);
 }
 
 // ====================================================================================
@@ -258,20 +282,20 @@ fn test_folder_trailing_slash_to_non_existent_trailing_slash() {
 #[test]
 fn test_non_existent_to_others() {
     // => File
-    run_trailing_slashes_test(None, "", Some(&file("contents")), "", 0);
-    run_trailing_slashes_test(None, "", Some(&file("contents")), "/", 0);
-    run_trailing_slashes_test(None, "/", Some(&file("contents")), "", 0);
-    run_trailing_slashes_test(None, "/", Some(&file("contents")), "/", 0);
+    run_trailing_slashes_test_expected_failure(None, "", Some(&file("contents")), "", "trailing slash not allowed on files");
+    run_trailing_slashes_test_expected_failure(None, "", Some(&file("contents")), "/", "trailing slash not allowed on files");
+    run_trailing_slashes_test_expected_failure(None, "/", Some(&file("contents")), "", "trailing slash not allowed on files");
+    run_trailing_slashes_test_expected_failure(None, "/", Some(&file("contents")), "/", "trailing slash not allowed on files");
 
     // => Folder
-    run_trailing_slashes_test(None, "", Some(&empty_folder()), "", 0);
-    run_trailing_slashes_test(None, "", Some(&empty_folder()), "/", 0);
-    run_trailing_slashes_test(None, "/", Some(&empty_folder()), "", 0);
-    run_trailing_slashes_test(None, "/", Some(&empty_folder()), "/", 0);
+    run_trailing_slashes_test_expected_failure(None, "", Some(&empty_folder()), "", "trailing slash not allowed on files");
+    run_trailing_slashes_test_expected_failure(None, "", Some(&empty_folder()), "/", "trailing slash not allowed on files");
+    run_trailing_slashes_test_expected_failure(None, "/", Some(&empty_folder()), "", "trailing slash not allowed on files");
+    run_trailing_slashes_test_expected_failure(None, "/", Some(&empty_folder()), "/", "trailing slash not allowed on files");
 
     // => Non-existent
-    run_trailing_slashes_test(None, "", None, "", 0);
-    run_trailing_slashes_test(None, "", None, "/", 0);
-    run_trailing_slashes_test(None, "/", None, "", 0);
-    run_trailing_slashes_test(None, "/", None, "/", 0);
+    run_trailing_slashes_test_expected_failure(None, "", None, "", "trailing slash not allowed on files");
+    run_trailing_slashes_test_expected_failure(None, "", None, "/", "trailing slash not allowed on files");
+    run_trailing_slashes_test_expected_failure(None, "/", None, "", "trailing slash not allowed on files");
+    run_trailing_slashes_test_expected_failure(None, "/", None, "/", "trailing slash not allowed on files");
 }
