@@ -110,7 +110,7 @@ impl std::str::FromStr for RemotePathDesc {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Debug, PartialEq)]
 struct Spec {
     src_hostname: String,
     src_username: String,
@@ -119,6 +119,7 @@ struct Spec {
     syncs: Vec<SyncSpec>,
 }
 
+#[derive(Debug, PartialEq)]
 struct SyncSpec {
     src: String,
     dest: String,
@@ -130,13 +131,16 @@ fn parse_spec_file(path: &str) -> Result<Spec, String> {
 
     let contents = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
     let docs = YamlLoader::load_from_str(&contents).map_err(|e| e.to_string())?;
-    if docs.len() != 1 {
-        return Err("Should be exactly one YAML doc".to_string());
+    if docs.len() < 1 {
+        // We allow >1 doc, but just ignore the rest, this might be useful for users, to use like a comments or versions
+        return Err("Expected at least one YAML document".to_string());
     }
     let doc = &docs[0];
 
     //TODO: error reporting, rather than silently ignore
     //TODO: error on unknown fields? e.g. if typo "exclude", then your excludes would be silently ignored!
+    //TODO: go through each child element and check it, rather than looking just for what we expect
+    //TODO: can then test various errors with unit tests at the bottom
     if let Some(s) = doc["src_hostname"].as_str() {
         result.src_hostname = s.to_string();
     }
@@ -492,4 +496,23 @@ mod tests {
             })
         );
     }
+
+    #[test]
+    fn test_parse_spec_file_missing() {
+        assert!(parse_spec_file("does/not/exist").unwrap_err().contains("cannot find the path"));
+    }
+
+    #[test]
+    fn test_parse_spec_file_empty() {
+        std::fs::write("spec.yaml", "").unwrap(); //TODO: put in temp file, that is unique from other parallel tests!
+        assert!(parse_spec_file("spec.yaml").unwrap_err().contains("Expected at least one YAML document"));
+    }
+
+    #[test]
+    fn test_parse_spec_file_invalid_syntax() {
+        std::fs::write("spec.yaml", "this is not YAML").unwrap(); //TODO: put in temp file, that is unique from other parallel tests!
+        assert!(parse_spec_file("spec.yaml").unwrap_err().contains("parse error"));
+    }
+    
+    //TODO: add more parse_spec_file tests here
 }
