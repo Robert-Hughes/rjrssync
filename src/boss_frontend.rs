@@ -5,6 +5,7 @@ use clap::Parser;
 use env_logger::{Env, fmt::Color};
 use log::info;
 use log::{debug, error};
+use yaml_rust::YamlLoader;
 
 use crate::boss_launch::*;
 use crate::boss_sync::*;
@@ -124,8 +125,41 @@ struct SyncSpecPart {
     exclude_filters: Vec<String>,
 }
 
-fn parse_spec_file(path: &str) -> SyncSpec {
-    SyncSpec::default()
+fn parse_spec_file(path: &str) -> Result<SyncSpec, String> {
+    let mut result = SyncSpec::default();
+
+    let contents = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    let docs = YamlLoader::load_from_str(&contents).map_err(|e| e.to_string())?;
+    if docs.len() != 1 {
+        return Err("Should be exactly one YAML doc".to_string());
+    }
+    let doc = &docs[0];
+
+    //TODO: error reporting, rather than silently ignore
+    if let Some(s) = doc["src_hostname"].as_str() {
+        result.src_hostname = s.to_string();
+    }
+    if let Some(s) = doc["src_username"].as_str() {
+        result.src_username = s.to_string();
+    }
+    if let Some(s) = doc["dest_hostname"].as_str() {
+        result.dest_hostname = s.to_string();
+    }
+    if let Some(s) = doc["dest_username"].as_str() {
+        result.dest_username = s.to_string();
+    }
+    for p in doc["parts"].as_vec().unwrap_or(&vec![]) {
+        let part = SyncSpecPart {
+            src_path: p["src_path"].as_str().unwrap_or("").to_string(),
+            dest_path: p["dest_path"].as_str().unwrap_or("").to_string(),
+            exclude_filters: vec![]
+        };
+        //TODO: parse exclude_filters            
+
+        result.parts.push(part);
+    }
+
+    Ok(result)
 }
 
 pub fn boss_main() -> ExitCode {
@@ -176,7 +210,13 @@ pub fn boss_main() -> ExitCode {
     // Decide what to sync - defined either on the command line or in a spec file if provided
     let mut spec = SyncSpec::default();
     if let Some(s) = args.spec {
-        spec = parse_spec_file(&s);
+        spec = match parse_spec_file(&s) {
+            Ok(s) => s,
+            Err(e) => {
+                error!("Failed to parse spec file at '{}': {}", s, e);
+                return ExitCode::from(18)
+            }
+        }
     } else {
         let src = args.src.unwrap(); // Command-line parsing rules means these must be valid, if spec is not provided
         let dest = args.dest.unwrap();
