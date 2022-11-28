@@ -150,6 +150,21 @@ Symlinks can cause cycles.
 On Windows, a symlink is either a "file symlink" or "directory symlink" (specified on creation),
 whereas on Linux it is simply a symlink.
 
+Example spec file
+===================
+
+```
+src_hostname: computer1
+src_username: root
+dest_hostname: computer2
+dest_username: myuser
+syncs:
+  - src: D:/Source
+    dest: D:/Dest
+    exclude_filters: [ "\.txt" ]
+  - src: D:/Source
+    dest: D:/Dest2
+```
 
 TODO:
 =====
