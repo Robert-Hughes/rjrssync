@@ -152,9 +152,8 @@ fn parse_spec_file(path: &str) -> Result<Spec, String> {
         let sync = SyncSpec {
             src: s["src"].as_str().unwrap_or("").to_string(),
             dest: s["dest"].as_str().unwrap_or("").to_string(),
-            exclude_filters: vec![]
+            exclude_filters: s["exclude_filters"].as_vec().unwrap_or(&vec![]).iter().filter_map(|e| e.as_str().map(|e| e.to_string())).collect(),
         };
-        //TODO: parse exclude_filters
 
         result.syncs.push(sync);
     }
