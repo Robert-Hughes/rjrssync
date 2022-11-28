@@ -604,6 +604,8 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> 
             String::from_utf8_lossy(&output.stdout).to_string()
         }
         Ok(output) => {
+            //TODO: if this fails, we don't print the stdout or stderr, so the user won't see why.
+            // This is especially important if using --force-redeploy on a broken remote, as you don't see any errors from the initial attempt to connect either
             error!("Error checking remote OS. Exit status from ssh: {}", output.status);
             return Err(());
         }
@@ -648,7 +650,8 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> 
     // but this would make error reporting slightly more difficult as the command in launch_doer_via_ssh is more tricky as
     // we are parsing the stdout, but for the command here we can wait for it to finish easily.
     // We leave stdout and stderr to inherit, so the user can see what's happening and if there are any errors
-    let remote_command = format!("{} && cargo build --release", cd_command);
+    // We use "$SHELL -lc" to run a login shell, as cargo might not be on the PATH otherwise.
+    let remote_command = format!("$SHELL -lc '{} && cargo build --release'", cd_command);
     debug!("Running remote command: {}", remote_command);
     match std::process::Command::new("ssh")
         .arg("-t") // This fixes issues with line endings getting messed up after ssh exits
