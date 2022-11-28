@@ -120,7 +120,7 @@ struct Spec {
     syncs: Vec<SyncSpec>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Default, Debug, PartialEq)]
 struct SyncSpec {
     src: String,
     dest: String,
@@ -130,8 +130,41 @@ struct SyncSpec {
 fn parse_string(yaml: &Yaml, key_name: &str) -> Result<String, String> {
     match yaml {
         Yaml::String(x) => Ok(x.to_string()),
-        x => Err(format!("Unexpected value for '{}': {:?}", key_name, x)),
+        x => Err(format!("Unexpected value for '{}'. Expected a string, but got {:?}", key_name, x)),
     }
+}
+
+fn parse_sync_spec(yaml: &Yaml) -> Result<SyncSpec, String> {
+    let mut result = SyncSpec::default();
+    for (root_key, root_value) in yaml.as_hash().ok_or("Sync value must be a dictionary")? {
+        match root_key {
+            Yaml::String(x) if x == "src" => result.src = parse_string(root_value, "src")?,
+            Yaml::String(x) if x == "dest" => result.dest = parse_string(root_value, "dest")?,
+            Yaml::String(x) if x == "excludes" => {
+                match root_value {
+                    Yaml::Array(array_yaml) => {
+                        for element_yaml in array_yaml {
+                            match element_yaml {
+                                Yaml::String(x) => result.exclude_filters.push(x.to_string()),
+                                x => return Err(format!("Unexpected value in 'excludes' array. Expected string, but got {:?}", x)),
+                            }            
+                        }
+                    }
+                    x => return Err(format!("Unexpected value for 'excludes'. Expected an array, but got {:?}", x)),
+                }
+            },
+            x => return Err(format!("Unexpected key in 'syncs' entry: {:?}", x)),
+        }
+    }
+
+    if result.src.is_empty() {
+        return Err("src must be provided and non-empty".to_string());
+    }
+    if result.dest.is_empty() {
+        return Err("dest must be provided and non-empty".to_string());
+    }
+
+    Ok(result)
 }
 
 fn parse_spec_file(path: &Path) -> Result<Spec, String> {
@@ -145,7 +178,9 @@ fn parse_spec_file(path: &Path) -> Result<Spec, String> {
     }
     let doc = &docs[0];
 
-   /* for (root_key, root_value) in doc.as_hash().ok_or("Document root must be a dictionary")? {
+    //TODO: test various error cases with unit tests
+
+    for (root_key, root_value) in doc.as_hash().ok_or("Document root must be a dictionary")? {
         match root_key {
             Yaml::String(x) if x == "src_hostname" => result.src_hostname = parse_string(root_value, "src_hostname")?,
             Yaml::String(x) if x == "src_username" => result.src_username = parse_string(root_value, "src_username")?,
@@ -154,40 +189,15 @@ fn parse_spec_file(path: &Path) -> Result<Spec, String> {
             Yaml::String(x) if x == "syncs" => {
                 match root_value {
                     Yaml::Array(syncs_yaml) => {
-                        todo!();
-                      //  result.dest_username = x.to_string();
+                        for sync_yaml in syncs_yaml {
+                            result.syncs.push(parse_sync_spec(sync_yaml)?);
+                        }
                     }
-                    x => return Err(format!("Unexpected value for 'syncs': {:?}", x)),
+                    x => return Err(format!("Unexpected value for 'syncs'. Expected an array, but got {:?}", x)),
                 }
             },
             x => return Err(format!("Unexpected key in root dictionary: {:?}", x)),
         }
-    }*/
-
-    //TODO: error reporting, rather than silently ignore
-    //TODO: error on unknown fields? e.g. if typo "exclude", then your excludes would be silently ignored!
-    //TODO: go through each child element and check it, rather than looking just for what we expect
-    //TODO: can then test various errors with unit tests at the bottom
-    if let Some(s) = doc["src_hostname"].as_str() {
-        result.src_hostname = s.to_string();
-    }
-    if let Some(s) = doc["src_username"].as_str() {
-        result.src_username = s.to_string();
-    }
-    if let Some(s) = doc["dest_hostname"].as_str() {
-        result.dest_hostname = s.to_string();
-    }
-    if let Some(s) = doc["dest_username"].as_str() {
-        result.dest_username = s.to_string();
-    }
-    for s in doc["syncs"].as_vec().unwrap_or(&vec![]) {
-        let sync = SyncSpec {
-            src: s["src"].as_str().unwrap_or("").to_string(),
-            dest: s["dest"].as_str().unwrap_or("").to_string(),
-            exclude_filters: s["exclude"].as_vec().unwrap_or(&vec![]).iter().filter_map(|e| e.as_str().map(|e| e.to_string())).collect(),
-        };
-
-        result.syncs.push(sync);
     }
 
     Ok(result)
@@ -542,6 +552,96 @@ mod tests {
         writeln!(s, "!!").unwrap();
         assert!(parse_spec_file(s.path()).unwrap_err().contains("did not find expected tag"));
     }
-    
+
+    #[test]
+    fn test_parse_spec_file_all_fields() {
+        let mut s = NamedTempFile::new().unwrap();
+        write!(s, r#"
+            src_hostname: "computer1"
+            src_username: "user1"
+            dest_hostname: "computer2"
+            dest_username: "user2"
+            syncs:
+            - src: T:\Source1
+              dest: T:\Dest1
+              excludes: [ "exclude1", "exclude2" ]
+            - src: T:\Source2
+              dest: T:\Dest2
+              excludes: [ "exclude3", "exclude4" ]
+        "#).unwrap();
+
+        let expected_result = Spec {
+            src_hostname: "computer1".to_string(),
+            src_username: "user1".to_string(),
+            dest_hostname: "computer2".to_string(),
+            dest_username: "user2".to_string(),
+            syncs: vec![
+                SyncSpec {
+                    src: "T:\\Source1".to_string(),
+                    dest: "T:\\Dest1".to_string(),
+                    exclude_filters: vec![ "exclude1".to_string(), "exclude2".to_string() ],
+                },
+                SyncSpec {
+                    src: "T:\\Source2".to_string(),
+                    dest: "T:\\Dest2".to_string(),
+                    exclude_filters: vec![ "exclude3".to_string(), "exclude4".to_string() ],
+                }
+            ]
+        };
+
+        assert_eq!(parse_spec_file(s.path()), Ok(expected_result));
+    }
+
+    /// Checks that parse_spec_file() allows some fields to be omitted, with sensible defaults.
+    #[test]
+    fn test_parse_spec_file_default_fields() {
+        let mut s = NamedTempFile::new().unwrap();
+        write!(s, r#"
+            syncs:
+            - src: T:\Source1
+              dest: T:\Dest1
+        "#).unwrap();
+
+        let expected_result = Spec {
+            src_hostname: "".to_string(), // Default - not specified in the YAML
+            src_username: "".to_string(), // Default - not specified in the YAML
+            dest_hostname: "".to_string(), // Default - not specified in the YAML
+            dest_username: "".to_string(), // Default - not specified in the YAML
+            syncs: vec![
+                SyncSpec {
+                    src: "T:\\Source1".to_string(),
+                    dest: "T:\\Dest1".to_string(),
+                    exclude_filters: vec![], // Default - not specified in the YAML
+                },
+            ]
+        };
+
+        assert_eq!(parse_spec_file(s.path()), Ok(expected_result));
+    }
+
+    /// Checks that parse_spec_file() errors if required fields are omitted.
+    #[test]
+    fn test_parse_spec_file_missing_required_src() {
+        let mut s = NamedTempFile::new().unwrap();
+        write!(s, r#"
+            syncs:
+            - src: T:\Source1
+        "#).unwrap();
+
+        assert!(parse_spec_file(s.path()).unwrap_err().contains("dest must be provided and non-empty"));
+    }
+
+    /// Checks that parse_spec_file() errors if required fields are omitted.
+    #[test]
+    fn test_parse_spec_file_missing_required_dest() {
+        let mut s = NamedTempFile::new().unwrap();
+        write!(s, r#"
+            syncs:
+            - dest: T:\Dest1
+        "#).unwrap();
+
+        assert!(parse_spec_file(s.path()).unwrap_err().contains("src must be provided and non-empty"));
+    }
+
     //TODO: add more parse_spec_file tests here
 }
