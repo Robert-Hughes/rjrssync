@@ -154,8 +154,9 @@ Example spec file
 ===================
 
 ```
-src_hostname: computer1
-src_username: root
+# Defaults to local path, if no remote hostname is specified
+# src_hostname: computer1
+# src_username: root
 dest_hostname: computer2
 dest_username: myuser
 syncs:
