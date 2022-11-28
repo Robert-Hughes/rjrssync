@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::process::ExitCode;
 use std::io::Write;
 
@@ -5,7 +6,7 @@ use clap::Parser;
 use env_logger::{Env, fmt::Color};
 use log::info;
 use log::{debug, error};
-use yaml_rust::YamlLoader;
+use yaml_rust::{YamlLoader, Yaml};
 
 use crate::boss_launch::*;
 use crate::boss_sync::*;
@@ -126,7 +127,14 @@ struct SyncSpec {
     exclude_filters: Vec<String>,
 }
 
-fn parse_spec_file(path: &str) -> Result<Spec, String> {
+fn parse_string(yaml: &Yaml, key_name: &str) -> Result<String, String> {
+    match yaml {
+        Yaml::String(x) => Ok(x.to_string()),
+        x => Err(format!("Unexpected value for '{}': {:?}", key_name, x)),
+    }
+}
+
+fn parse_spec_file(path: &Path) -> Result<Spec, String> {
     let mut result = Spec::default();
 
     let contents = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
@@ -136,6 +144,25 @@ fn parse_spec_file(path: &str) -> Result<Spec, String> {
         return Err("Expected at least one YAML document".to_string());
     }
     let doc = &docs[0];
+
+   /* for (root_key, root_value) in doc.as_hash().ok_or("Document root must be a dictionary")? {
+        match root_key {
+            Yaml::String(x) if x == "src_hostname" => result.src_hostname = parse_string(root_value, "src_hostname")?,
+            Yaml::String(x) if x == "src_username" => result.src_username = parse_string(root_value, "src_username")?,
+            Yaml::String(x) if x == "dest_hostname" => result.dest_hostname = parse_string(root_value, "dest_hostname")?,
+            Yaml::String(x) if x == "dest_username" => result.dest_username = parse_string(root_value, "dest_username")?,
+            Yaml::String(x) if x == "syncs" => {
+                match root_value {
+                    Yaml::Array(syncs_yaml) => {
+                        todo!();
+                      //  result.dest_username = x.to_string();
+                    }
+                    x => return Err(format!("Unexpected value for 'syncs': {:?}", x)),
+                }
+            },
+            x => return Err(format!("Unexpected key in root dictionary: {:?}", x)),
+        }
+    }*/
 
     //TODO: error reporting, rather than silently ignore
     //TODO: error on unknown fields? e.g. if typo "exclude", then your excludes would be silently ignored!
@@ -214,7 +241,7 @@ pub fn boss_main() -> ExitCode {
     // Decide what to sync - defined either on the command line or in a spec file if provided
     let mut spec = Spec::default();
     if let Some(s) = args.spec {
-        spec = match parse_spec_file(&s) {
+        spec = match parse_spec_file(Path::new(&s)) {
             Ok(s) => s,
             Err(e) => {
                 error!("Failed to parse spec file at '{}': {}", s, e);
@@ -293,6 +320,7 @@ pub fn boss_main() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use std::str::FromStr;
+    use tempfile::NamedTempFile;
 
     use super::*;
 
@@ -499,19 +527,20 @@ mod tests {
 
     #[test]
     fn test_parse_spec_file_missing() {
-        assert!(parse_spec_file("does/not/exist").unwrap_err().contains("cannot find the path"));
+        assert!(parse_spec_file(Path::new("does/not/exist")).unwrap_err().contains("cannot find the path"));
     }
 
     #[test]
     fn test_parse_spec_file_empty() {
-        std::fs::write("spec.yaml", "").unwrap(); //TODO: put in temp file, that is unique from other parallel tests!
-        assert!(parse_spec_file("spec.yaml").unwrap_err().contains("Expected at least one YAML document"));
+        let s = NamedTempFile::new().unwrap();
+        assert!(parse_spec_file(s.path()).unwrap_err().contains("Expected at least one YAML document"));
     }
 
     #[test]
     fn test_parse_spec_file_invalid_syntax() {
-        std::fs::write("spec.yaml", "this is not YAML").unwrap(); //TODO: put in temp file, that is unique from other parallel tests!
-        assert!(parse_spec_file("spec.yaml").unwrap_err().contains("parse error"));
+        let mut s = NamedTempFile::new().unwrap();
+        writeln!(s, "!!").unwrap();
+        assert!(parse_spec_file(s.path()).unwrap_err().contains("did not find expected tag"));
     }
     
     //TODO: add more parse_spec_file tests here
