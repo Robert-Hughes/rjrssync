@@ -238,6 +238,9 @@ Misc
 * Fix intermittent github actions failing because of RustEmbed
 * piper and tcper maybe shouldn't be in the `bin/` folder, as then they count as part of the proper program,
 but they should just be for testing/investigation. Maybe should be a separate crate?
+* On work PC this fails:
+`cargo run D:\TempSource\ robhug01@localhost:/home/robhug01/TempDest -v`
+ERROR | rjrssync::boss_frontend: Sync error: Unexpected response from dest GetEntries: Ok(Error("normalize_path failed: Illegal characters in path"))
 
 
 
