@@ -176,7 +176,7 @@ pub fn boss_main() -> ExitCode {
     let mut builder = env_logger::Builder::from_env(Env::default().default_filter_or(args_level));
     builder.format(|buf, record| {
         let target_color = match record.target() {
-            "rjrssync::boss" => Color::Rgb(255, 64, 255),
+            "rjrssync::boss" => Color::Rgb(255, 64, 255), //TODO: module has been renamed!
             "rjrssync::doer" => Color::Cyan,
             "remote doer" => Color::Yellow,
             _ => Color::Green,
