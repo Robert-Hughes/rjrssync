@@ -178,8 +178,6 @@ fn parse_spec_file(path: &Path) -> Result<Spec, String> {
     }
     let doc = &docs[0];
 
-    //TODO: test various error cases with unit tests
-
     for (root_key, root_value) in doc.as_hash().ok_or("Document root must be a dictionary")? {
         match root_key {
             Yaml::String(x) if x == "src_hostname" => result.src_hostname = parse_string(root_value, "src_hostname")?,
@@ -643,5 +641,71 @@ mod tests {
         assert!(parse_spec_file(s.path()).unwrap_err().contains("src must be provided and non-empty"));
     }
 
-    //TODO: add more parse_spec_file tests here
+    #[test]
+    fn test_parse_spec_file_invalid_root() {
+        let mut s = NamedTempFile::new().unwrap();
+        write!(s, "123").unwrap();
+        assert!(parse_spec_file(s.path()).unwrap_err().contains("Document root must be a dictionary"));
+    }
+    
+    #[test]
+    fn test_parse_spec_file_invalid_string_field() {
+        let mut s = NamedTempFile::new().unwrap();
+        write!(s, "dest_hostname: [ 341 ]").unwrap();
+        assert!(parse_spec_file(s.path()).unwrap_err().contains("Unexpected value for 'dest_hostname'"));
+    }
+
+    #[test]
+    fn test_parse_spec_file_invalid_field_name() {
+        let mut s = NamedTempFile::new().unwrap();
+        write!(s, "this-isnt-valid: 0").unwrap();
+        assert!(parse_spec_file(s.path()).unwrap_err().contains("Unexpected key in root dictionary"));
+    }
+
+    #[test]
+    fn test_parse_spec_file_invalid_syncs_field() {
+        let mut s = NamedTempFile::new().unwrap();
+        write!(s, "syncs: 0").unwrap();
+        assert!(parse_spec_file(s.path()).unwrap_err().contains("Unexpected value for 'syncs'"));
+    }
+
+    #[test]
+    fn test_parse_spec_file_invalid_sync_spec_type() {
+        let mut s = NamedTempFile::new().unwrap();
+        write!(s, r#"
+            syncs:
+            - not-a-dict
+        "#).unwrap();
+        assert!(parse_spec_file(s.path()).unwrap_err().contains("Sync value must be a dictionary"));
+    }
+
+    #[test]
+    fn test_parse_spec_file_invalid_sync_spec_field() {
+        let mut s = NamedTempFile::new().unwrap();
+        write!(s, r#"
+            syncs:
+            - unexpected-field: 0
+        "#).unwrap();
+        assert!(parse_spec_file(s.path()).unwrap_err().contains("Unexpected key in 'syncs' entry"));
+    }
+
+    #[test]
+    fn test_parse_spec_file_invalid_excludes_type() {
+        let mut s = NamedTempFile::new().unwrap();
+        write!(s, r#"
+            syncs:
+            - excludes: 0
+        "#).unwrap();
+        assert!(parse_spec_file(s.path()).unwrap_err().contains("Unexpected value for 'excludes'"));
+    }
+
+    #[test]
+    fn test_parse_spec_file_invalid_excludes_element() {
+        let mut s = NamedTempFile::new().unwrap();
+        write!(s, r#"
+            syncs:
+            - excludes: [ 9 ]
+        "#).unwrap();
+        assert!(parse_spec_file(s.path()).unwrap_err().contains("Unexpected value in 'excludes' array"));
+    }
 }
