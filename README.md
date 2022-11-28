@@ -162,7 +162,7 @@ dest_username: myuser
 syncs:
   - src: D:/Source
     dest: D:/Dest
-    exclude_filters: [ "\.txt" ]
+    exclude: [ "\.txt" ]
   - src: D:/Source
     dest: D:/Dest2
 ```
@@ -182,7 +182,7 @@ Interface
     * If a dir is excluded by the filters (after resolving all filters), then we don't walk inside that dir, so stuff inside it will be excluded *even if the filters would have matched them*
 * Multiple root folders in the same command, e.g. two repos you want synced (see idea at bottom)
 * --dry-run (and the same for -v) should make it clearer exactly what is being copied to where, e.g. give absolute paths. If there is a long path up to the root (or afterwards), could shorten it with ellipses, e.g. "Copying T:\work\...\bob\folder\...\thing.txt to X:\backups\...\newbackup\folder\...\thing.txt"
-
+* Option to override the "dest file is newer" error
 
 Remote launching
 ----------------

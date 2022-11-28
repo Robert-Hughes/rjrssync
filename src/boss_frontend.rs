@@ -136,6 +136,7 @@ fn parse_spec_file(path: &str) -> Result<Spec, String> {
     let doc = &docs[0];
 
     //TODO: error reporting, rather than silently ignore
+    //TODO: error on unknown fields? e.g. if typo "exclude", then your excludes would be silently ignored!
     if let Some(s) = doc["src_hostname"].as_str() {
         result.src_hostname = s.to_string();
     }
@@ -152,7 +153,7 @@ fn parse_spec_file(path: &str) -> Result<Spec, String> {
         let sync = SyncSpec {
             src: s["src"].as_str().unwrap_or("").to_string(),
             dest: s["dest"].as_str().unwrap_or("").to_string(),
-            exclude_filters: s["exclude_filters"].as_vec().unwrap_or(&vec![]).iter().filter_map(|e| e.as_str().map(|e| e.to_string())).collect(),
+            exclude_filters: s["exclude"].as_vec().unwrap_or(&vec![]).iter().filter_map(|e| e.as_str().map(|e| e.to_string())).collect(),
         };
 
         result.syncs.push(sync);
