@@ -111,22 +111,22 @@ impl std::str::FromStr for RemotePathDesc {
 }
 
 #[derive(Default)]
-struct SyncSpec {
+struct Spec {
     src_hostname: String,
     src_username: String,
     dest_hostname: String,
     dest_username: String,
-    parts: Vec<SyncSpecPart>,
+    syncs: Vec<SyncSpec>,
 }
 
-struct SyncSpecPart {
-    src_path: String,
-    dest_path: String,
+struct SyncSpec {
+    src: String,
+    dest: String,
     exclude_filters: Vec<String>,
 }
 
-fn parse_spec_file(path: &str) -> Result<SyncSpec, String> {
-    let mut result = SyncSpec::default();
+fn parse_spec_file(path: &str) -> Result<Spec, String> {
+    let mut result = Spec::default();
 
     let contents = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
     let docs = YamlLoader::load_from_str(&contents).map_err(|e| e.to_string())?;
@@ -148,15 +148,15 @@ fn parse_spec_file(path: &str) -> Result<SyncSpec, String> {
     if let Some(s) = doc["dest_username"].as_str() {
         result.dest_username = s.to_string();
     }
-    for p in doc["parts"].as_vec().unwrap_or(&vec![]) {
-        let part = SyncSpecPart {
-            src_path: p["src_path"].as_str().unwrap_or("").to_string(),
-            dest_path: p["dest_path"].as_str().unwrap_or("").to_string(),
+    for s in doc["syncs"].as_vec().unwrap_or(&vec![]) {
+        let sync = SyncSpec {
+            src: s["src"].as_str().unwrap_or("").to_string(),
+            dest: s["dest"].as_str().unwrap_or("").to_string(),
             exclude_filters: vec![]
         };
-        //TODO: parse exclude_filters            
+        //TODO: parse exclude_filters
 
-        result.parts.push(part);
+        result.syncs.push(sync);
     }
 
     Ok(result)
@@ -208,7 +208,7 @@ pub fn boss_main() -> ExitCode {
     debug!("Running as boss");
 
     // Decide what to sync - defined either on the command line or in a spec file if provided
-    let mut spec = SyncSpec::default();
+    let mut spec = Spec::default();
     if let Some(s) = args.spec {
         spec = match parse_spec_file(&s) {
             Ok(s) => s,
@@ -224,7 +224,7 @@ pub fn boss_main() -> ExitCode {
         spec.src_username = src.username;
         spec.dest_hostname = dest.hostname;
         spec.dest_username = dest.username;
-        spec.parts.push(SyncSpecPart { src_path: src.path, dest_path: dest.path, exclude_filters: args.exclude_filters });
+        spec.syncs.push(SyncSpec { src: src.path, dest: dest.path, exclude_filters: args.exclude_filters });
     }
 
     // The src and/or dest may be on another computer. We need to run a copy of rjrssync on the remote
@@ -265,13 +265,13 @@ pub fn boss_main() -> ExitCode {
     };
 
     // Perform the actual file sync(s)
-    for part in &spec.parts {
-        // Indicate which part this is, if there are many
-        if spec.parts.len() > 1 {
-            info!("{} => {}:", part.src_path, part.dest_path);
+    for sync_spec in &spec.syncs {
+        // Indicate which sync this is, if there are many
+        if spec.syncs.len() > 1 {
+            info!("{} => {}:", sync_spec.src, sync_spec.dest);
         }
-        
-        let sync_result = sync(&part.src_path, &part.dest_path, &part.exclude_filters, 
+
+        let sync_result = sync(&sync_spec.src, &sync_spec.dest, &sync_spec.exclude_filters,
             args.dry_run, args.stats, &mut src_comms, &mut dest_comms);
 
         match sync_result {
