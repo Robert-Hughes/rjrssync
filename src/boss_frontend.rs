@@ -3,6 +3,7 @@ use std::io::Write;
 
 use clap::Parser;
 use env_logger::{Env, fmt::Color};
+use log::info;
 use log::{debug, error};
 
 use crate::boss_launch::*;
@@ -108,6 +109,25 @@ impl std::str::FromStr for RemotePathDesc {
     }
 }
 
+#[derive(Default)]
+struct SyncSpec {
+    src_hostname: String,
+    src_username: String,
+    dest_hostname: String,
+    dest_username: String,
+    parts: Vec<SyncSpecPart>,
+}
+
+struct SyncSpecPart {
+    src_path: String,
+    dest_path: String,
+    exclude_filters: Vec<String>,
+}
+
+fn parse_spec_file(path: &str) -> SyncSpec {
+    SyncSpec::default()
+}
+
 pub fn boss_main() -> ExitCode {
     let args = BossCliArgs::parse();
 
@@ -153,6 +173,20 @@ pub fn boss_main() -> ExitCode {
 
     debug!("Running as boss");
 
+    // Decide what to sync - defined either on the command line or in a spec file if provided
+    let mut spec = SyncSpec::default();
+    if let Some(s) = args.spec {
+        spec = parse_spec_file(&s);
+    } else {
+        let src = args.src.unwrap(); // Command-line parsing rules means these must be valid, if spec is not provided
+        let dest = args.dest.unwrap();
+        spec.src_hostname = src.hostname;
+        spec.src_username = src.username;
+        spec.dest_hostname = dest.hostname;
+        spec.dest_username = dest.username;
+        spec.parts.push(SyncSpecPart { src_path: src.path, dest_path: dest.path, exclude_filters: args.exclude_filters });
+    }
+
     // The src and/or dest may be on another computer. We need to run a copy of rjrssync on the remote
     // computer(s) and set up network commmunication.
     // There are therefore up to three copies of our program involved (although some may actually be the same as each other)
@@ -167,13 +201,11 @@ pub fn boss_main() -> ExitCode {
     //           in which case we couldn't share a copy. Also might need to make it multithreaded on the other end to handle
     //           doing one command at the same time for each Source and Dest, which might be more complicated.)
 
-    let src = args.src.unwrap(); //TODO: use .spec if specified instead
-    let dest = args.dest.unwrap();
 
     // Launch doers on remote hosts or threads on local targets and estabilish communication (check version etc.)
-    let src_comms = match setup_comms(
-        &src.hostname,
-        &src.username,
+    let mut src_comms = match setup_comms(
+        &spec.src_hostname,
+        &spec.src_username,
         args.remote_port,
         "src".to_string(),
         args.force_redeploy,
@@ -181,9 +213,9 @@ pub fn boss_main() -> ExitCode {
         Some(c) => c,
         None => return ExitCode::from(10),
     };
-    let dest_comms = match setup_comms(
-        &dest.hostname,
-        &dest.username,
+    let mut dest_comms = match setup_comms(
+        &spec.dest_hostname,
+        &spec.dest_username,
         args.remote_port,
         "dest".to_string(),
         args.force_redeploy,
@@ -192,16 +224,26 @@ pub fn boss_main() -> ExitCode {
         None => return ExitCode::from(11),
     };
 
-    // Perform the actual file sync
-    let sync_result = sync(src.path, dest.path, args.exclude_filters, args.dry_run, args.stats, src_comms, dest_comms);
+    // Perform the actual file sync(s)
+    for part in &spec.parts {
+        // Indicate which part this is, if there are many
+        if spec.parts.len() > 1 {
+            info!("{} => {}:", part.src_path, part.dest_path);
+        }
+        
+        let sync_result = sync(&part.src_path, &part.dest_path, &part.exclude_filters, 
+            args.dry_run, args.stats, &mut src_comms, &mut dest_comms);
 
-    match sync_result {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(e) => {
-            error!("Sync error: {}", e);
-            ExitCode::from(12)
+        match sync_result {
+            Ok(()) => (),
+            Err(e) => {
+                error!("Sync error: {}", e);
+                return ExitCode::from(12);
+            }
         }
     }
+
+    ExitCode::SUCCESS
 }
 
 #[cfg(test)]

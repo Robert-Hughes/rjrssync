@@ -191,6 +191,7 @@ Syncing logic
    - Exclude filters
 * Test for --dry-run
 * Test for --stats (maybe just all the command-line options...)
+* Test for --spec file
 * Progress bar
 * Support symlinks (see notes on symblinks above)
   - Support in testing framework

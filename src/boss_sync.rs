@@ -80,20 +80,20 @@ struct Stats {
 }
 
 pub fn sync(
-    src_path: String,
-    dest_path: String,
-    exclude_filters: Vec<String>,
+    src_path: &str,
+    dest_path: &str,
+    exclude_filters: &[String],
     dry_run: bool,
     show_stats: bool,
-    mut src_comms: Comms,
-    mut dest_comms: Comms,
+    src_comms: &mut Comms,
+    dest_comms: &mut Comms,
 ) -> Result<(), String> {
     let mut stats = Stats::default();
     
     // First get details of the root file/folder etc. of each side, as this might affect the sync
     // before we start it (e.g. errors, or changing the dest root)
     // Source SetRoot
-    src_comms.send_command(Command::SetRoot { root: src_path.clone() })?;
+    src_comms.send_command(Command::SetRoot { root: src_path.to_string() })?;
     let src_root_type = match src_comms.receive_response() {
         Ok(Response::RootDetails(t)) => {
             match t {
@@ -116,7 +116,7 @@ pub fn sync(
     };
     
     // Dest SetRoot
-    dest_comms.send_command(Command::SetRoot { root: dest_path.clone() })?;
+    dest_comms.send_command(Command::SetRoot { root: dest_path.to_string() })?;
     let mut dest_root_type = match dest_comms.receive_response() {
         Ok(Response::RootDetails(t)) => {
             match t {
@@ -148,7 +148,7 @@ pub fn sync(
     if src_root_type == EntryType::File && dest_trailing_slash {
         let src_filename = src_path.split(|c| c == '/' || c == '\\').last();
         if let Some(c) = src_filename {
-            let new_dest_path = dest_path + c;
+            let new_dest_path = dest_path.to_string() + c;
             debug!("Modified dest path to {}", new_dest_path);
 
             dest_comms.send_command(Command::SetRoot { root: new_dest_path })?;              
@@ -171,7 +171,7 @@ pub fn sync(
 
     // Fetch all the entries for the source path
     let mut src_entries = Vec::new();
-    src_comms.send_command(Command::GetEntries { exclude_filters: exclude_filters.clone() })?;
+    src_comms.send_command(Command::GetEntries { exclude_filters: exclude_filters.to_vec() })?;
     loop {
         match src_comms.receive_response() {
             Ok(Response::Entry(d)) => {
@@ -196,7 +196,7 @@ pub fn sync(
     // The dest might not exist yet, which is fine - continue anyway with an empty array of dest entries
     // and we will create the dest as part of the sync.
     if dest_root_type.is_some() { 
-        dest_comms.send_command(Command::GetEntries { exclude_filters })?;
+        dest_comms.send_command(Command::GetEntries { exclude_filters: exclude_filters.to_vec() })?;
         loop {
             match dest_comms.receive_response() {
                 Ok(Response::Entry(d)) => {
@@ -288,7 +288,7 @@ pub fn sync(
                     }
                     Ordering::Greater => {
                         debug!("{}: source file newer - copying", src_entry.path); //TODO: if path is empty, this is confusing
-                        copy_file(&src_entry, &mut src_comms, &mut dest_comms, &mut stats, dry_run)?
+                        copy_file(&src_entry, src_comms, dest_comms, &mut stats, dry_run)?
                     }
                 },
                 EntryType::Folder => {
@@ -298,7 +298,7 @@ pub fn sync(
             None => match src_entry.entry_type {
                 EntryType::File => {
                     debug!("{}: Dest file doesn't exist - copying", src_entry.path); //TODO: if path is empty, this is confusing
-                    copy_file(&src_entry, &mut src_comms, &mut dest_comms, &mut stats, dry_run)?
+                    copy_file(&src_entry, src_comms, dest_comms, &mut stats, dry_run)?
                 }
                 EntryType::Folder => {
                     debug!("{}: dest folder doesn't exists - creating", src_entry.path); //TODO: if path is empty, this is confusing
