@@ -79,9 +79,22 @@ struct Stats {
     pub copied_file_size_hist: FileSizeHistogram,
 }
 
+/// Formats a path which is relative to the root, so that it is easier to understand for the user.
+/// Especially if path is empty (i.e. referring to the root itself)
+fn format_root_relative(path: &str, root: &str) -> String {
+    //TODO: include something that says whether this is the source or dest, rather than relying on outside code to do it?
+    //TODO: limit length of string using ellipses e.g. "Copying T:\work\...\bob\folder\...\thing.txt to X:\backups\...\newbackup\folder\...\thing.txt"
+    //TODO: the formatting here isn't quite right yet
+    if path.is_empty() {
+        format!("'({root})'")
+    } else {
+        format!("'({root}/){path}'")
+    }
+}
+
 pub fn sync(
-    src_path: &str,
-    dest_path: &str,
+    src_root: &str,
+    mut dest_root: String,
     exclude_filters: &[String],
     dry_run: bool,
     show_stats: bool,
@@ -89,15 +102,16 @@ pub fn sync(
     dest_comms: &mut Comms,
 ) -> Result<(), String> {
     let mut stats = Stats::default();
-    
+
     // First get details of the root file/folder etc. of each side, as this might affect the sync
     // before we start it (e.g. errors, or changing the dest root)
+
     // Source SetRoot
-    src_comms.send_command(Command::SetRoot { root: src_path.to_string() })?;
+    src_comms.send_command(Command::SetRoot { root: src_root.to_string() })?;
     let src_root_type = match src_comms.receive_response() {
         Ok(Response::RootDetails(t)) => {
             match t {
-                None => return Err(format!("src path '{src_path}' doesn't exist!")),
+                None => return Err(format!("src path '{src_root}' doesn't exist!")),
                 Some(t) => {
                     if t == EntryType::File {
                         // Referring to an existing file with a trailing slash is an error, because it implies
@@ -107,19 +121,19 @@ pub fn sync(
                         // so we have to do our own check here.
                         // Note that we can't use std::path::is_separator because this might be a remote path, so the current platform
                         // is irrelevant
-                        if src_path.chars().last().unwrap() == '/' || src_path.chars().last().unwrap() == '\\' {
-                            return Err(format!("src path '{}' is a file but is referred to with a trailing slash.", src_path));       
+                        if src_root.chars().last().unwrap() == '/' || src_root.chars().last().unwrap() == '\\' {
+                            return Err(format!("src path '{}' is a file but is referred to with a trailing slash.", src_root));
                         }
                     }
                     t
                 }
-            }                
+            }
         }
         r => return Err(format!("Unexpected response getting root details from src: {:?}", r)),
     };
-    
+
     // Dest SetRoot
-    dest_comms.send_command(Command::SetRoot { root: dest_path.to_string() })?;
+    dest_comms.send_command(Command::SetRoot { root: dest_root.to_string() })?;
     let mut dest_root_type = match dest_comms.receive_response() {
         Ok(Response::RootDetails(t)) => {
             match t {
@@ -132,32 +146,32 @@ pub fn sync(
                     // so we have to do our own check here.
                     // Note that we can't use std::path::is_separator because this might be a remote path, so the current platform
                     // is irrelevant
-                    if dest_path.chars().last().unwrap() == '/' || dest_path.chars().last().unwrap() == '\\' {
-                        return Err(format!("dest path '{}' is a file but is referred to with a trailing slash.", dest_path));       
+                    if dest_root.chars().last().unwrap() == '/' || dest_root.chars().last().unwrap() == '\\' {
+                        return Err(format!("dest path '{}' is a file but is referred to with a trailing slash.", dest_root));
                     }
                 }
                 Some(EntryType::Folder) => (), // Nothing special to do
             }
-            t             
+            t
         }
         r => return Err(format!("Unexpected response getting root details from dest: {:?}", r)),
     };
 
-    // If src is a file, and the dest path ends in a slash, then we want to sync the file 
-    // _inside_ the folder, rather then replacing it (see README for reasoning).
-    // To do this, we modify the dest path and then continue as if that was the path provided by the 
+    // If src is a file, and the dest path ends in a slash, then we want to sync the file
+    // _inside_ the folder, rather then replacing the folder with the file (see README for reasoning).
+    // To do this, we modify the dest path and then continue as if that was the path provided by the
     // user.
-    let last_dest_char = dest_path.chars().last();
+    let last_dest_char = dest_root.chars().last();
     // Note that we can't use std::path::is_separator (or similar) because this might be a remote path, so the current platform
-    // is irrelevant
+    // isn't appropriate.
     let dest_trailing_slash = last_dest_char == Some('/') || last_dest_char == Some('\\');
     if src_root_type == EntryType::File && dest_trailing_slash {
-        let src_filename = src_path.split(|c| c == '/' || c == '\\').last();
+        let src_filename = src_root.split(|c| c == '/' || c == '\\').last();
         if let Some(c) = src_filename {
-            let new_dest_path = dest_path.to_string() + c;
-            debug!("Modified dest path to {}", new_dest_path);
+            dest_root = dest_root.to_string() + c;
+            debug!("Modified dest path to {}", dest_root);
 
-            dest_comms.send_command(Command::SetRoot { root: new_dest_path })?;              
+            dest_comms.send_command(Command::SetRoot { root: dest_root.clone() })?;
             dest_root_type = match dest_comms.receive_response() {
                 Ok(Response::RootDetails(t)) => t,
                 r => return Err(format!("Unexpected response getting root details from dest: {:?}", r)),
@@ -168,10 +182,10 @@ pub fn sync(
     // If the dest doesn't yet exist, make sure that all its ancestors are created, so that
     // when we come to create the dest path itself, it can succeed
     if dest_root_type.is_none() {
-        dest_comms.send_command(Command::CreateRootAncestors)?;              
+        dest_comms.send_command(Command::CreateRootAncestors)?;
         match dest_comms.receive_response() {
             Ok(Response::Ack) => (),
-            r => return Err(format!("Unexpected response: {:?}", r)),
+            r => return Err(format!("Unexpected response from creating root ancestors on dest: {:?}", r)),
         }
     }
 
@@ -193,7 +207,7 @@ pub fn sync(
                 src_entries.push(d);
             }
             Ok(Response::EndOfEntries) => break,
-            r => return Err(format!("Unexpected response from src GetEnties: {:?}", r)),
+            r => return Err(format!("Unexpected response getting entries from src: {:?}", r)),
         }
     }
 
@@ -201,7 +215,7 @@ pub fn sync(
     let mut dest_entries = Vec::new();
     // The dest might not exist yet, which is fine - continue anyway with an empty array of dest entries
     // and we will create the dest as part of the sync.
-    if dest_root_type.is_some() { 
+    if dest_root_type.is_some() {
         dest_comms.send_command(Command::GetEntries { exclude_filters: exclude_filters.to_vec() })?;
         loop {
             match dest_comms.receive_response() {
@@ -217,18 +231,18 @@ pub fn sync(
                     dest_entries.push(d);
                 }
                 Ok(Response::EndOfEntries) => break,
-                r => return Err(format!("Unexpected response from dest GetEntries: {:?}", r)),
+                r => return Err(format!("Unexpected response getting entries from dest: {:?}", r)),
             }
         }
     }
-    
+
     if show_stats {
         info!("Source: {} file(s) totalling {} bytes and {} folder(s) => Dest: {} file(s) totalling {} bytes and {} folder(s)",
-            stats.num_src_files.separate_with_commas(), 
-            stats.src_total_bytes.separate_with_commas(), 
+            stats.num_src_files.separate_with_commas(),
+            stats.src_total_bytes.separate_with_commas(),
             stats.num_src_folders.separate_with_commas(),
-            stats.num_dest_files.separate_with_commas(), 
-            stats.dest_total_bytes.separate_with_commas(), 
+            stats.num_dest_files.separate_with_commas(),
+            stats.dest_total_bytes.separate_with_commas(),
             stats.num_dest_folders.separate_with_commas());
         info!("Source file size distribution:");
         info!("{}", stats.src_file_size_hist);
@@ -237,7 +251,7 @@ pub fn sync(
     // Delete dest entries that don't exist on the source. This needs to be done first in case there
     // are entries with the same name but different type (files vs folders).
     // We do this in reverse to make sure that files are deleted before their parent folder
-    // (otherwise deleting the parent is harder/more risky - possibly would also have problems with 
+    // (otherwise deleting the parent is harder/more risky - possibly would also have problems with
     // files being filtered so the folder is needed still as there are filtered-out files in there,
     // see test_remove_dest_folder_with_excluded_files())
     for dest_entry in dest_entries.iter().rev() {
@@ -245,7 +259,7 @@ pub fn sync(
             .iter()
             .any(|f| f.path == dest_entry.path && f.entry_type == dest_entry.entry_type)
         {
-            debug!("Deleting {}", dest_entry.path);
+            debug!("Deleting from dest {}", format_root_relative(&dest_entry.path, &dest_root));
             let c = match dest_entry.entry_type {
                 EntryType::File => {
                     stats.num_files_deleted += 1;
@@ -265,49 +279,61 @@ pub fn sync(
                 dest_comms.send_command(c)?;
                 match dest_comms.receive_response() {
                     Ok(doer::Response::Ack) => (),
-                    r => return Err(format!("Unexpected response: {:?}", r)),
+                    r => return Err(format!("Unexpected response from deletion of {} on dest: {:?}", 
+                        format_root_relative(&dest_entry.path, &dest_root), r)),
                 };
             } else {
-                // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be copied
-                info!("Would delete {}", dest_entry.path); //TODO: if path is empty, this is confusing
+                // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be deleted
+                info!("Would delete from dest {}", format_root_relative(&dest_entry.path, &dest_root));
             }
         }
     }
 
-    let start = Instant::now();
-
+    // Copy entries that don't exist, or do exist but are out-of-date.
+    let copy_start = Instant::now();
     for src_entry in src_entries {
         match dest_entries
             .iter()
             .find(|f| f.path == src_entry.path && f.entry_type == src_entry.entry_type)
         {
-            Some(dest_entry) => match src_entry.entry_type {
-                EntryType::File => match src_entry.modified_time.cmp(&dest_entry.modified_time) {
-                    Ordering::Less => {
-                        return Err(format!(
-                            "{}: Dest file is newer - how did this happen!",
-                            src_entry.path //TODO: if path is empty, this is confusing
-                        ));
+            Some(dest_entry) => {
+                // Dest already has this entry - check if it is up-to-date
+                match src_entry.entry_type {
+                    EntryType::File => match src_entry.modified_time.cmp(&dest_entry.modified_time) {
+                        Ordering::Less => {
+                            return Err(format!(
+                                "Dest file {} is newer than src file {}. Will not overwrite.",
+                                format_root_relative(&dest_entry.path, &dest_root),
+                                format_root_relative(&src_entry.path, src_root)
+                            ));
+                        }
+                        Ordering::Equal => {
+                            trace!("Dest file {} has same modified time as src file {}. Will not update.",
+                                format_root_relative(&dest_entry.path, &dest_root),
+                                format_root_relative(&src_entry.path, src_root));
+                        }
+                        Ordering::Greater => {
+                            debug!("Source file {} is newer than dest file {}. Will copy.",
+                                format_root_relative(&src_entry.path, &src_root),
+                                format_root_relative(&dest_entry.path, &dest_root));
+                            copy_file(&src_entry, src_comms, dest_comms, &mut stats, dry_run, &src_root, &dest_root)?
+                        }
+                    },
+                    EntryType::Folder => {
+                        // Folders are always up-to-date
+                        trace!("Source folder {} already exists on dest {} - nothing to do", 
+                            format_root_relative(&src_entry.path, &src_root),
+                            format_root_relative(&dest_entry.path, &dest_root))
                     }
-                    Ordering::Equal => {
-                        trace!("{}: Same modified time - skipping", src_entry.path); //TODO: if path is empty, this is confusing
-                    }
-                    Ordering::Greater => {
-                        debug!("{}: source file newer - copying", src_entry.path); //TODO: if path is empty, this is confusing
-                        copy_file(&src_entry, src_comms, dest_comms, &mut stats, dry_run)?
-                    }
-                },
-                EntryType::Folder => {
-                    trace!("{}: folder already exists - nothing to do", src_entry.path) //TODO: if path is empty, this is confusing
                 }
             },
             None => match src_entry.entry_type {
                 EntryType::File => {
-                    debug!("{}: Dest file doesn't exist - copying", src_entry.path); //TODO: if path is empty, this is confusing
-                    copy_file(&src_entry, src_comms, dest_comms, &mut stats, dry_run)?
+                    debug!("Source file {} file doesn't exist on dest - copying", format_root_relative(&src_entry.path, &src_root));
+                    copy_file(&src_entry, src_comms, dest_comms, &mut stats, dry_run, &src_root, &dest_root)?
                 }
                 EntryType::Folder => {
-                    debug!("{}: dest folder doesn't exists - creating", src_entry.path); //TODO: if path is empty, this is confusing
+                    debug!("Source folder {} doesn't exist on dest - creating", format_root_relative(&src_entry.path, &src_root));
                     stats.num_folders_created += 1;
                     if !dry_run {
                         dest_comms
@@ -317,27 +343,27 @@ pub fn sync(
                             ?;
                         match dest_comms.receive_response() {
                             Ok(doer::Response::Ack) => (),
-                            x => return Err(format!("Wrong response: {:?}", x)),
+                            x => return Err(format!("Unexpected response creating on dest {}: {:?}", format_root_relative(&src_entry.path, &dest_root), x)),
                         };
                     } else {
                         // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be copied
-                        info!("Would create {}", src_entry.path); //TODO: if path is empty, this is confusing
+                        info!("Would create dest folder {}", format_root_relative(&src_entry.path, &dest_root));
                     }
                 }
             },
         }
     }
 
-    let elapsed = start.elapsed().as_secs_f32();
+    let copy_elapsed = copy_start.elapsed().as_secs_f32();
 
     // Note that we print all the stats at the end (even though we could print the delete stats earlier),
     // so that they are together in the output (e.g. for dry run or --verbose, they could be a lot of other
-    // messages between them)    
+    // messages between them)
     if stats.num_files_deleted + stats.num_folders_deleted > 0 {
         info!(
             "{} {} file(s){} and {} folder(s)",
             if !dry_run { "Deleted" } else { "Would delete" },
-            stats.num_files_deleted.separate_with_commas(), 
+            stats.num_files_deleted.separate_with_commas(),
             if show_stats { format!(" totalling {} bytes", stats.num_bytes_deleted.separate_with_commas()) } else { "".to_string() },
             stats.num_folders_deleted.separate_with_commas()
         );
@@ -345,19 +371,19 @@ pub fn sync(
     if stats.num_files_copied + stats.num_folders_created > 0 {
         info!(
             "{} {} file(s){} and {} {} folder(s){}",
-            if !dry_run { "Copied" } else { "Would copy" },           
+            if !dry_run { "Copied" } else { "Would copy" },
             stats.num_files_copied.separate_with_commas(),
             if show_stats { format!(" totalling {} bytes", stats.num_bytes_copied.separate_with_commas()) } else { "".to_string() },
             if !dry_run { "created" } else { "would create" },
             stats.num_folders_created.separate_with_commas(),
-            if !dry_run && show_stats { 
-                format!(", in {:.1} seconds ({} bytes/s)", 
-                    elapsed, (stats.num_bytes_copied as f32 / elapsed as f32).round().separate_with_commas())
-            } else { "".to_string() },                      
+            if !dry_run && show_stats {
+                format!(", in {:.1} seconds ({} bytes/s)",
+                    copy_elapsed, (stats.num_bytes_copied as f32 / copy_elapsed as f32).round().separate_with_commas())
+            } else { "".to_string() },
         );
         if show_stats {
             info!("{} file size distribution:",
-                if !dry_run { "Copied" } else { "Would copy" },           
+                if !dry_run { "Copied" } else { "Would copy" },
             );
             info!("{}", stats.copied_file_size_hist);
         }
@@ -380,18 +406,20 @@ fn copy_file(
     dest_comms: &mut Comms,
     stats: &mut Stats,
     dry_run: bool,
+    src_root: &str,
+    dest_root: &str,
 ) -> Result<(), String> {
     if !dry_run {
-        trace!("Fetching {}", src_file.path); //TODO: if path is empty, this is confusing
+        trace!("Fetching from src {}", format_root_relative(&src_file.path, &src_root));
         src_comms
             .send_command(Command::GetFileContent {
                 path: src_file.path.to_string(),
             })?;
         let data = match src_comms.receive_response() {
             Ok(Response::FileContent { data }) => data,
-            x => return Err(format!("Wrong response: {:?}", x)),
+            x => return Err(format!("Unexpected response fetching {} from src: {:?}", format_root_relative(&src_file.path, &src_root), x)),
         };
-        trace!("Writing {}", src_file.path);
+        trace!("Create/update on dest {}", format_root_relative(&src_file.path, &dest_root));
         dest_comms
             .send_command(Command::CreateOrUpdateFile {
                 path: src_file.path.to_string(),
@@ -400,11 +428,13 @@ fn copy_file(
             })?;
         match dest_comms.receive_response() {
             Ok(doer::Response::Ack) => (),
-            x => return Err(format!("Wrong response: {:?}", x)),
+            x => return Err(format!("Unexpected response response creeating/updating on dest {}: {:?}", format_root_relative(&src_file.path, &dest_root), x)),
         };
     } else {
         // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be copied
-        info!("Would copy {}", src_file.path); //TODO: if path is empty, this is confusing
+        info!("Would copy {} => {}",
+            format_root_relative(&src_file.path, &src_root),
+            format_root_relative(&src_file.path, &dest_root));
     }
 
     stats.num_files_copied += 1;

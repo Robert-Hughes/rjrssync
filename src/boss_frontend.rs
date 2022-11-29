@@ -310,7 +310,7 @@ pub fn boss_main() -> ExitCode {
             info!("{} => {}:", sync_spec.src, sync_spec.dest);
         }
 
-        let sync_result = sync(&sync_spec.src, &sync_spec.dest, &sync_spec.exclude_filters,
+        let sync_result = sync(&sync_spec.src, sync_spec.dest.clone(), &sync_spec.exclude_filters,
             args.dry_run, args.stats, &mut src_comms, &mut dest_comms);
 
         match sync_result {
