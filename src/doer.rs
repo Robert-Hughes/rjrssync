@@ -389,7 +389,7 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) 
             }
         }  
         Command::GetFileContent { path } => {
-            let full_path = context.root.join(&path);
+            let full_path = if path.is_empty() { context.root.clone() } else { context.root.join(&path) };
             match std::fs::read(full_path) {
                 Ok(data) => comms.send_response(Response::FileContent { data }).unwrap(),
                 Err(e) => comms.send_response(Response::Error(format!("Error getting file content: {e}"))).unwrap(),
@@ -400,7 +400,7 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) 
             data,
             set_modified_time,
         } => {
-            let full_path = context.root.join(&path);
+            let full_path = if path.is_empty() { context.root.clone() } else { context.root.join(&path) };
             let r = std::fs::write(&full_path, data);
             if let Err(e) = r {
                 comms.send_response(Response::Error(format!("Error writing file contents to {}: {e}", full_path.display()))).unwrap();
@@ -421,21 +421,21 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) 
             comms.send_response(Response::Ack).unwrap();
         }
         Command::CreateFolder { path } => {
-            let full_path = context.root.join(&path);
+            let full_path = if path.is_empty() { context.root.clone() } else { context.root.join(&path) };
             match std::fs::create_dir(full_path) {
                 Ok(()) => comms.send_response(Response::Ack).unwrap(),
                 Err(e) => comms.send_response(Response::Error(format!("Error creating folder: {e}"))).unwrap(),
             }
         }
         Command::DeleteFile { path } => {
-            let full_path = context.root.join(&path);
+            let full_path = if path.is_empty() { context.root.clone() } else { context.root.join(&path) };
             match std::fs::remove_file(full_path) {
                 Ok(()) => comms.send_response(Response::Ack).unwrap(),
                 Err(e) => comms.send_response(Response::Error(format!("Error deleting file: {e}"))).unwrap(),
             }
         }
         Command::DeleteFolder { path } => {
-            let full_path = context.root.join(&path);
+            let full_path = if path.is_empty() { context.root.clone() } else { context.root.join(&path) };
             match std::fs::remove_dir(full_path) {
                 Ok(()) => comms.send_response(Response::Ack).unwrap(),
                 Err(e) => comms.send_response(Response::Error(format!("Error deleting folder: {e}"))).unwrap(),

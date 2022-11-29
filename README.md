@@ -189,6 +189,7 @@ Remote launching
 * Testing for ssh launching/copying/deploying stuff
 * Test for windows/linux deploying onto windows/linux (4 combinations!)
 * Sometimes remote processes are left orphaned, preventing new ones from listening on the same port
+* Using temporary dir means that rebooting the remote will mean we have to rebuild from scratch (on Linux)
 
 
 Syncing logic
@@ -218,6 +219,8 @@ Syncing logic
    - Either directly, or via symlink(s)?
 * --no-encryption option, might be faster?
 * Test both absolute and relative paths (and a combination)
+* Fix tests on Linux
+   - file trailing slash fails earlier in some cases - it seems the filesystem might allow accessing a file with a trailing slash, but not always
 
 
 Performance
