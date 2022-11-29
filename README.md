@@ -180,6 +180,7 @@ Interface
 * --dry-run (and the same for -v) should make it clearer exactly what is being copied to where, e.g. give absolute paths. If there is a long path up to the root (or afterwards), could shorten it with ellipses, e.g. "Copying T:\work\...\bob\folder\...\thing.txt to X:\backups\...\newbackup\folder\...\thing.txt"
 * Option to override the "dest file is newer" error
 * Usage test for --spec file
+* Should filters expect to see trailing slashes on folder names or not?
 
 Remote launching
 ----------------
