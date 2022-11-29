@@ -219,7 +219,6 @@ Syncing logic
 * What happens if src and dest both point to the same place? 
    - Either directly, or via symlink(s)?
 * --no-encryption option, might be faster?
-* Test both absolute and relative paths (and a combination)
 * How to handle case when want to copy two different folders into the same destination, some sort of --no-delete?
 
 
