@@ -101,7 +101,10 @@ pub fn sync(
                 Some(t) => {
                     if t == EntryType::File {
                         // Referring to an existing file with a trailing slash is an error, because it implies
-                        // that the user thinks it is a folder, and so could lead to unwanted behaviour
+                        // that the user thinks it is a folder, and so could lead to unwanted behaviour.
+                        // In some environments (e.g. Linux), this is caught on the doer side when it attempts to
+                        // get the metadata for the root, but on some environments it isn't caught (Windows, depending on the drive)
+                        // so we have to do our own check here.
                         // Note that we can't use std::path::is_separator because this might be a remote path, so the current platform
                         // is irrelevant
                         if src_path.chars().last().unwrap() == '/' || src_path.chars().last().unwrap() == '\\' {
@@ -124,6 +127,9 @@ pub fn sync(
                 Some(EntryType::File) => {
                     // Referring to an existing file with a trailing slash is an error, because it implies
                     // that the user thinks it is a folder, and so could lead to unwanted behaviour
+                    // In some environments (e.g. Linux), this is caught on the doer side when it attempts to
+                    // get the metadata for the root, but on some environments it isn't caught (Windows, depending on the drive)
+                    // so we have to do our own check here.
                     // Note that we can't use std::path::is_separator because this might be a remote path, so the current platform
                     // is irrelevant
                     if dest_path.chars().last().unwrap() == '/' || dest_path.chars().last().unwrap() == '\\' {

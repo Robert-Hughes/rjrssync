@@ -220,8 +220,6 @@ Syncing logic
    - Either directly, or via symlink(s)?
 * --no-encryption option, might be faster?
 * Test both absolute and relative paths (and a combination)
-* Fix tests on Linux
-   - file trailing slash fails earlier in some cases - it seems the filesystem might allow accessing a file with a trailing slash, but not always
 * How to handle case when want to copy two different folders into the same destination, some sort of --no-delete?
 
 

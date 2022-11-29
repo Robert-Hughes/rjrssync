@@ -535,7 +535,9 @@ mod tests {
 
     #[test]
     fn test_parse_spec_file_missing() {
-        assert!(parse_spec_file(Path::new("does/not/exist")).unwrap_err().contains("cannot find the path"));
+        let err = parse_spec_file(Path::new("does/not/exist")).unwrap_err();
+        // Check for Windows and Linux error messages
+        assert!(err.contains("cannot find the path") || err.contains("No such file"));
     }
 
     #[test]

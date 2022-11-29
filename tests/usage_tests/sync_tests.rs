@@ -4,6 +4,7 @@ use std::time::SystemTime;
 use crate::test_framework::*;
 use crate::folder;
 use map_macro::map;
+use regex::Regex;
 
 /// Simple folder -> folder sync
 #[test]
@@ -85,7 +86,7 @@ fn test_dest_ancestors_dont_exist() {
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
-            "Copied 1 file(s)".to_string(),
+            Regex::new(&regex::escape("Copied 1 file(s)")).unwrap(),
         ],
         expected_filesystem_nodes: vec![
             ("$TEMP/src.txt", Some(src)), // Source should always be unchanged
@@ -118,7 +119,8 @@ fn test_remove_dest_folder_with_excluded_files() {
         ],
         expected_exit_code: 12,
         expected_output_messages: vec![
-            "The directory is not empty".to_string(),
+            // Check for both Linux and Windows error messages
+            Regex::new("(The directory is not empty)|(Directory not empty)").unwrap(),
         ],
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&src_folder)), // Source should always be unchanged
@@ -143,7 +145,7 @@ fn test_relative_paths() {
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
-            "Copied 1 file(s)".to_string(),
+            Regex::new(&regex::escape("Copied 1 file(s)")).unwrap()
         ],
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&src_folder)), // Source should always be unchanged
@@ -180,9 +182,9 @@ fn test_spec_file() {
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
-            "src1/ => dest1/".to_string(),
-            "src2/ => dest2/".to_string(),
-            "Copied 1 file(s)".to_string(),
+            Regex::new(&regex::escape("src1/ => dest1/")).unwrap(),
+            Regex::new(&regex::escape("src2/ => dest2/")).unwrap(),
+            Regex::new(&regex::escape("Copied 1 file(s)")).unwrap(),
         ],
         expected_filesystem_nodes: vec![
             ("$TEMP/dest1", Some(&src1)),

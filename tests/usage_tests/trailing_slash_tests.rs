@@ -4,6 +4,7 @@ use std::time::SystemTime;
 use crate::test_framework::*;
 use crate::folder;
 use map_macro::map;
+use regex::Regex;
 
 /// Runs a test with an optional trailing slash on the src and dest paths provided to rjrssync.
 /// The expected result is sucess with the given number of files copied.
@@ -35,7 +36,7 @@ fn run_trailing_slashes_test_expect_success_override_dest(src_node: Option<&File
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
-             format!("Copied {} file(s)", expected_num_copies),
+            Regex::new(&regex::escape(&format!("Copied {} file(s)", expected_num_copies))).unwrap(),
         ],
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(src_node.unwrap())), // Source should always be unchanged
@@ -49,7 +50,7 @@ fn run_trailing_slashes_test_expect_success_override_dest(src_node: Option<&File
 /// Note the slash is provided as a str rather than bool, so that it's more readable at the call-site.
 fn run_trailing_slashes_test_expected_failure(src_node: Option<&FilesystemNode>, src_trailing_slash: &str,
     dest_node: Option<&FilesystemNode>, dest_trailing_slash: &str,
-    expected_error: &str
+    expected_error: Regex
 ) {
     let mut setup_filesystem_nodes = vec![];
     if let Some(n) = src_node {
@@ -66,7 +67,7 @@ fn run_trailing_slashes_test_expected_failure(src_node: Option<&FilesystemNode>,
         ],
         expected_exit_code: 12,
         expected_output_messages: vec![
-            expected_error.to_string(),
+            expected_error,
         ],
         expected_filesystem_nodes: vec![
             // Both src and dest should be unchanged, as the sync should have failed
@@ -74,6 +75,13 @@ fn run_trailing_slashes_test_expected_failure(src_node: Option<&FilesystemNode>,
             ("$TEMP/dest", dest_node),                
         ] 
     });
+}
+
+// In some environments (e.g. Linux), a file with a trailing slash  is caught on the doer side when it attempts to
+// get the metadata for the root, but on some environments it isn't caught (Windows, depending on the drive)
+// so do our own check here, so the error message could be either.
+fn get_file_trailing_slash_error() -> Regex {
+    return Regex::new("(is a file but is referred to with a trailing slash)|(can't be read: Not a directory)").unwrap();
 }
 
 // ====================================================================================
@@ -135,13 +143,13 @@ fn test_file_no_trailing_slash_to_folder_trailing_slash() {
 /// Tries syncing a file/ to a folder. This should fail because trailing slashes on files are not allowed.
 #[test]
 fn test_file_trailing_slash_to_folder_no_trailing_slash() {
-    run_trailing_slashes_test_expected_failure(Some(&file("contents1")), "/", Some(&empty_folder()), "", "is a file but is referred to with a trailing slash");
+    run_trailing_slashes_test_expected_failure(Some(&file("contents1")), "/", Some(&empty_folder()), "", get_file_trailing_slash_error());
 }
 
 /// Tries syncing a file/ to a folder/. This should fail because trailing slashes on files are not allowed.
 #[test]
 fn test_file_trailing_slash_to_folder_trailing_slash() {
-    run_trailing_slashes_test_expected_failure(Some(&file("contents1")), "/", Some(&empty_folder()), "/", "is a file but is referred to with a trailing slash");
+    run_trailing_slashes_test_expected_failure(Some(&file("contents1")), "/", Some(&empty_folder()), "/", get_file_trailing_slash_error());
 }
 
 // ====================================================================================
@@ -163,7 +171,7 @@ fn test_folder_no_trailing_slash_to_file_trailing_slash() {
     let src_folder = folder! {
         "file1" => file("contents"),
     };
-    run_trailing_slashes_test_expected_failure(Some(&src_folder), "", Some(&file("contents2")), "/", "is a file but is referred to with a trailing slash");
+    run_trailing_slashes_test_expected_failure(Some(&src_folder), "", Some(&file("contents2")), "/", get_file_trailing_slash_error());
 }
 
 /// Tries syncing a folder/ to a file. This should replace the file with the folder.
@@ -181,7 +189,7 @@ fn test_folder_trailing_slash_to_file_trailing_slash() {
     let src_folder = folder! {
         "file1" => file("contents"),
     };
-    run_trailing_slashes_test_expected_failure(Some(&src_folder), "/", Some(&file("contents2")), "/", "is a file but is referred to with a trailing slash");
+    run_trailing_slashes_test_expected_failure(Some(&src_folder), "/", Some(&file("contents2")), "/", get_file_trailing_slash_error());
 }
 
 // ====================================================================================
@@ -200,19 +208,19 @@ fn test_file_no_trailing_slash_to_file_no_trailing_slash() {
 /// Tries syncing a file to a file/. This should fail because trailing slashes on files are not allowed.
 #[test]
 fn test_file_no_trailing_slash_to_file_trailing_slash() {
-    run_trailing_slashes_test_expected_failure(Some(&file("contents1")), "", Some(&file("contents2")), "/", "is a file but is referred to with a trailing slash");
+    run_trailing_slashes_test_expected_failure(Some(&file("contents1")), "", Some(&file("contents2")), "/", get_file_trailing_slash_error());
 }
 
 /// Tries syncing a file/ to a file. This should fail because trailing slashes on files are not allowed.
 #[test]
 fn test_file_trailing_slash_to_file_no_trailing_slash() {
-    run_trailing_slashes_test_expected_failure(Some(&file("contents1")), "/", Some(&file("contents2")), "", "is a file but is referred to with a trailing slash");
+    run_trailing_slashes_test_expected_failure(Some(&file("contents1")), "/", Some(&file("contents2")), "", get_file_trailing_slash_error());
 }
 
 /// Tries syncing a file/ to a file/. This should fail because trailing slashes on files are not allowed.
 #[test]
 fn test_file_trailing_slash_to_file_trailing_slash() {
-    run_trailing_slashes_test_expected_failure(Some(&file("contents1")), "/", Some(&file("contents2")), "/", "is a file but is referred to with a trailing slash");
+    run_trailing_slashes_test_expected_failure(Some(&file("contents1")), "/", Some(&file("contents2")), "/", get_file_trailing_slash_error());
 }
 
 // ====================================================================================
@@ -234,13 +242,13 @@ fn test_file_no_trailing_slash_to_non_existent_trailing_slash() {
 /// Tries syncing a file/ to a non-existent path. This should fail because trailing slashes on files are not allowed.
 #[test]
 fn test_file_trailing_slash_to_non_existent_no_trailing_slash() {
-    run_trailing_slashes_test_expected_failure(Some(&file("contents1")), "/", None, "", "is a file but is referred to with a trailing slash");
+    run_trailing_slashes_test_expected_failure(Some(&file("contents1")), "/", None, "", get_file_trailing_slash_error());
 }
 
 /// Tries syncing a file/ to a non-existent path/. This should fail because trailing slashes on files are not allowed.
 #[test]
 fn test_file_trailing_slash_to_non_existent_trailing_slash() {
-    run_trailing_slashes_test_expected_failure(Some(&file("contents1")), "/", None, "/", "is a file but is referred to with a trailing slash");
+    run_trailing_slashes_test_expected_failure(Some(&file("contents1")), "/", None, "/", get_file_trailing_slash_error());
 }
 
 // ====================================================================================
@@ -292,20 +300,20 @@ fn test_folder_trailing_slash_to_non_existent_trailing_slash() {
 #[test]
 fn test_non_existent_to_others() {
     // => File
-    run_trailing_slashes_test_expected_failure(None, "", Some(&file("contents")), "", "doesn't exist");
-    run_trailing_slashes_test_expected_failure(None, "", Some(&file("contents")), "/", "doesn't exist");
-    run_trailing_slashes_test_expected_failure(None, "/", Some(&file("contents")), "", "doesn't exist");
-    run_trailing_slashes_test_expected_failure(None, "/", Some(&file("contents")), "/", "doesn't exist");
+    run_trailing_slashes_test_expected_failure(None, "", Some(&file("contents")), "", Regex::new("doesn't exist").unwrap());
+    run_trailing_slashes_test_expected_failure(None, "", Some(&file("contents")), "/", Regex::new("doesn't exist").unwrap());
+    run_trailing_slashes_test_expected_failure(None, "/", Some(&file("contents")), "", Regex::new("doesn't exist").unwrap());
+    run_trailing_slashes_test_expected_failure(None, "/", Some(&file("contents")), "/", Regex::new("doesn't exist").unwrap());
 
     // => Folder
-    run_trailing_slashes_test_expected_failure(None, "", Some(&empty_folder()), "", "doesn't exist");
-    run_trailing_slashes_test_expected_failure(None, "", Some(&empty_folder()), "/", "doesn't exist");
-    run_trailing_slashes_test_expected_failure(None, "/", Some(&empty_folder()), "", "doesn't exist");
-    run_trailing_slashes_test_expected_failure(None, "/", Some(&empty_folder()), "/", "doesn't exist");
+    run_trailing_slashes_test_expected_failure(None, "", Some(&empty_folder()), "", Regex::new("doesn't exist").unwrap());
+    run_trailing_slashes_test_expected_failure(None, "", Some(&empty_folder()), "/", Regex::new("doesn't exist").unwrap());
+    run_trailing_slashes_test_expected_failure(None, "/", Some(&empty_folder()), "", Regex::new("doesn't exist").unwrap());
+    run_trailing_slashes_test_expected_failure(None, "/", Some(&empty_folder()), "/", Regex::new("doesn't exist").unwrap());
 
     // => Non-existent
-    run_trailing_slashes_test_expected_failure(None, "", None, "", "doesn't exist");
-    run_trailing_slashes_test_expected_failure(None, "", None, "/", "doesn't exist");
-    run_trailing_slashes_test_expected_failure(None, "/", None, "", "doesn't exist");
-    run_trailing_slashes_test_expected_failure(None, "/", None, "/", "doesn't exist");
+    run_trailing_slashes_test_expected_failure(None, "", None, "", Regex::new("doesn't exist").unwrap());
+    run_trailing_slashes_test_expected_failure(None, "", None, "/", Regex::new("doesn't exist").unwrap());
+    run_trailing_slashes_test_expected_failure(None, "/", None, "", Regex::new("doesn't exist").unwrap());
+    run_trailing_slashes_test_expected_failure(None, "/", None, "/", Regex::new("doesn't exist").unwrap());
 }
