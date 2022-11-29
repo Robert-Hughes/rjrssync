@@ -127,12 +127,14 @@ pub fn run(desc: TestDesc) {
     // Run rjrssync with the specified paths
     let rjrssync_path = env!("CARGO_BIN_EXE_rjrssync");
     let output = std::process::Command::new(rjrssync_path)
+        .current_dir(temp_folder.path()) // So that any relative paths are inside the test folder
         .args(desc.args.iter().map(|a| substitute_temp(a)))
         .output().expect("Failed to launch rjrssync");
 
-    // Print output for test debugging
-    //std::io::stdout().write_all(&output.stdout).unwrap();
-    //std::io::stderr().write_all(&output.stderr).unwrap();
+    // Print output for test debugging. Note that we need to use println, not write directly to stdout, so that
+    // cargo's testing framework captures the output correctly.
+    println!("{}", std::str::from_utf8(&output.stdout).unwrap());
+    eprintln!("{}", std::str::from_utf8(&output.stderr).unwrap());
 
     // Check exit code
     assert_eq!(output.status.code(), Some(desc.expected_exit_code));

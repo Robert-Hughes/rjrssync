@@ -217,6 +217,7 @@ Syncing logic
 * What happens if src and dest both point to the same place? 
    - Either directly, or via symlink(s)?
 * --no-encryption option, might be faster?
+* Test both absolute and relative paths (and a combination)
 
 
 Performance

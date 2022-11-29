@@ -126,3 +126,67 @@ fn test_remove_dest_folder_with_excluded_files() {
         ]
     });
 }
+
+/// Tests that src and dest can use relative paths.
+#[test]
+fn test_relative_paths() {
+    let src_folder = folder! {
+        "c1" => file("contents1"),
+    };
+    run(TestDesc {
+        setup_filesystem_nodes: vec![
+            ("$TEMP/src", &src_folder),
+        ],
+        args: vec![
+            "src".to_string(),
+            "dest".to_string(),
+        ],
+        expected_exit_code: 0,
+        expected_output_messages: vec![
+            "Copied 1 file(s)".to_string(),
+        ],
+        expected_filesystem_nodes: vec![
+            ("$TEMP/src", Some(&src_folder)), // Source should always be unchanged
+            ("$TEMP/dest", Some(&src_folder)), // Dest should be same as source
+        ]
+    });
+}
+
+/// Tests that the --spec option works instead of specifying SRC and DEST directly.
+#[test]
+fn test_spec_file() {
+    let spec_file = file(r#"
+        syncs:
+        - src: src1/
+          dest: dest1/
+        - src: src2/
+          dest: dest2/
+    "#);
+    let src1 = folder! {
+        "c1" => file("contents1"),
+    };
+    let src2 = folder! {
+        "c2" => file("contents2"),
+    };
+    run(TestDesc {
+        setup_filesystem_nodes: vec![
+            ("$TEMP/spec.yaml", &spec_file),
+            ("$TEMP/src1", &src1),
+            ("$TEMP/src2", &src2),
+        ],
+        args: vec![
+            "--spec".to_string(),
+            "$TEMP/spec.yaml".to_string(),
+        ],
+        expected_exit_code: 0,
+        expected_output_messages: vec![
+            "src1/ => dest1/".to_string(),
+            "src2/ => dest2/".to_string(),
+            "Copied 1 file(s)".to_string(),
+        ],
+        expected_filesystem_nodes: vec![
+            ("$TEMP/dest1", Some(&src1)),
+            ("$TEMP/dest2", Some(&src2)),
+        ]
+    });
+}
