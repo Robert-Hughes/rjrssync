@@ -5,7 +5,8 @@ use std::{
     collections::HashMap,
     fs::File,
     io::Write,
-    time::{Duration, Instant}, sync::Mutex,
+    sync::Mutex,
+    time::{Duration, Instant},
 };
 
 use lazy_static::lazy_static;
@@ -14,7 +15,7 @@ lazy_static! {
     // Only initialize profiling when the first entry is added.
     static ref PROFILING_START: Instant = Instant::now();
 
-    pub static ref ALL_PROFILING_DATA: Mutex<ProfilingData> = Mutex::new(ProfilingData::new());
+    pub static ref GLOBAL_PROFILING_DATA: Mutex<GlobalProfilingData> = Mutex::new(GlobalProfilingData::new());
 }
 
 thread_local! {
@@ -37,15 +38,22 @@ macro_rules! function_name {
 #[macro_export]
 macro_rules! profile_this {
     () => {
-        let _profiling_keep_alive = crate::profiling::profiling_real::Timer::new(crate::function_name!().to_string(), "".to_string());
+        let _profiling_keep_alive = crate::profiling::profiling_real::Timer::new(
+            crate::function_name!().to_string(),
+            "".to_string(),
+        );
     };
     ($mand_1:expr) => {
-        let _profiling_keep_alive =
-            crate::profiling::profiling_real::Timer::new(crate::function_name!().to_string() + " " + $mand_1, "".to_string());
+        let _profiling_keep_alive = crate::profiling::profiling_real::Timer::new(
+            crate::function_name!().to_string() + " " + $mand_1,
+            "".to_string(),
+        );
     };
     ($mand_1:expr, $mand_2:expr) => {
-        let _profiling_keep_alive =
-            crate::profiling::profiling_real::Timer::new(crate::function_name!().to_string() + " " + $mand_1, $mand_2);
+        let _profiling_keep_alive = crate::profiling::profiling_real::Timer::new(
+            crate::function_name!().to_string() + " " + $mand_1,
+            $mand_2,
+        );
     };
 }
 
@@ -63,6 +71,17 @@ struct ProfilingEntry {
 #[derive(Serialize, Clone)]
 pub struct ProfilingData {
     entries: Vec<ProfilingEntry>,
+}
+
+struct LastEntryWithName {
+    last: usize,
+    name: String,
+}
+
+// Store the thread name as well so we can distinguish the threads on the timeline
+pub struct GlobalProfilingData {
+    entries: Vec<ProfilingEntry>,
+    last_entry_with_name: Vec<LastEntryWithName>,
 }
 
 pub struct Timer {
@@ -112,30 +131,60 @@ impl Drop for ProfilingData {
             "Failed to save profiling data for {}",
             thread_name.clone() + ".json"
         ));
-        self.dump_profiling_to_chrome(
-            "profiling_data/".to_string() + &thread_name + "_trace.json");
+        GLOBAL_PROFILING_DATA
+            .lock()
+            .unwrap()
+            .append(self, &thread_name);
     }
 }
 
-impl ProfilingData{
+impl GlobalProfilingData {
     pub fn new() -> Self {
-        ProfilingData{entries: vec![]}
+        GlobalProfilingData {
+            entries: vec![],
+            last_entry_with_name: vec![],
+        }
     }
 
-    pub fn append(&mut self, other: &mut ProfilingData) -> &mut Self{
+    pub fn append(&mut self, other: &mut ProfilingData, thread_name: &String) -> &mut Self {
         self.entries.append(&mut other.entries);
+        let last = self.entries.len();
+        self.last_entry_with_name.push(LastEntryWithName {
+            last,
+            name: thread_name.clone(),
+        });
         self
     }
 
     pub fn dump_profiling_to_chrome(&self, file_name: String) {
+        // TODO: Clean this up its pretty disgusting
+        assert!(self.entries.len() > 0 && self.last_entry_with_name.len() > 0);
         let mut file = File::create(&file_name).unwrap();
         write!(file, "[").unwrap();
-    
+
+        // Use pid to mark the different threads because why not
+        // Keep track of which pid maps to which thread name
+        let mut current_pid = 0;
+        let mut name_to_pid =
+            HashMap::from([(self.last_entry_with_name[0].name.clone(), current_pid)]);
+        let mut last_entry_with_name_index = 0;
         for i in 0..self.entries.len() {
+            if i >= self.last_entry_with_name[last_entry_with_name_index].last {
+                last_entry_with_name_index += 1;
+                current_pid += 1;
+                if last_entry_with_name_index < self.last_entry_with_name.len() {
+                    name_to_pid.insert(
+                        self.last_entry_with_name[last_entry_with_name_index]
+                            .name
+                            .clone(),
+                        current_pid,
+                    );
+                }
+            }
             let entry = &self.entries[i];
             let name = &entry.detailed_name;
-            let cat = "josh";
-            let pid = 0;
+            let cat = &entry.category_name;
+            let pid = current_pid;
             let tid = *map_profiling_to_string()
                 .get(&entry.category_name as &str)
                 .expect(&format!(
@@ -180,12 +229,27 @@ impl ProfilingData{
                 &name
             ));
         }
-        for (k, v) in map_profiling_to_string() {
+        for i in 0..=current_pid {
+            for (k, v) in map_profiling_to_string() {
+                write!(
+                    file,
+                    r#"
+                {{
+                    "name": "thread_name", "ph": "M", "pid": {i}, "tid": {v},
+                    "args": {{
+                        "name" : "{k}"
+                    }}
+                }},"#
+                )
+                .unwrap();
+            }
+        }
+        for (k, v) in name_to_pid {
             write!(
                 file,
                 r#"
             {{
-                "name": "thread_name", "ph": "M", "pid": 0, "tid": {v},
+                "name": "process_name", "ph": "M", "pid": {v}, "tid": 0,
                 "args": {{
                     "name" : "{k}"
                 }}
@@ -204,8 +268,26 @@ impl ProfilingData{
             }}"#
         )
         .unwrap();
+
         write!(file, "]").unwrap();
     }
+}
+
+// Only to be called by main.
+// TODO: Assert for this somehow?
+pub fn dump_all_profiling() {
+    // Create the profiling_data directory again if somehow no other threads are launched on this side
+    // Maybe some case where the doers are both on remotes?
+    std::fs::create_dir_all("profiling_data").expect("Failed to create profiling data directory");
+    // As main is the only thread to not be joined (and thus the ProfilingData dropped)
+    // it must be append to the global profiling manually.
+    let name = std::thread::current().name().unwrap().to_string();
+    let mut thread_local_profiling_data = PROFILING_DATA.with(|p| p.clone()).into_inner();
+    GLOBAL_PROFILING_DATA
+        .lock()
+        .unwrap()
+        .append(&mut thread_local_profiling_data, &name.to_string())
+        .dump_profiling_to_chrome("profiling_data/".to_string() + "all_trace.json");
 }
 
 fn map_profiling_to_string() -> HashMap<&'static str, &'static str> {
@@ -220,6 +302,6 @@ fn map_profiling_to_string() -> HashMap<&'static str, &'static str> {
         ("send Serialize", "8"),
         ("send Encrypt", "9"),
         ("send Tcp_Write", "10"),
-        ("receive_response", "11")
+        ("receive_response", "11"),
     ])
 }

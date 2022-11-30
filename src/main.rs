@@ -10,7 +10,7 @@ mod profiling;
 use boss_frontend::*;
 use boss_launch::*;
 use doer::*;
-use profiling::profiling_real::{ALL_PROFILING_DATA, PROFILING_DATA};
+use profiling::profiling::*;
 
 pub const VERSION: i32 = 51;
 
@@ -38,11 +38,7 @@ fn main() -> ExitCode {
     } else {
         boss_main()
     };
-    let mut thread_local_profiling_data = PROFILING_DATA.with(|p| p.clone()).into_inner();
-    ALL_PROFILING_DATA
-        .lock()
-        .unwrap()
-        .append(&mut thread_local_profiling_data)
-        .dump_profiling_to_chrome("profiling_data/".to_string() + "all_trace.json");
+
+    dump_all_profiling();
     ret
 }
