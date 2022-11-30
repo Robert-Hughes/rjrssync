@@ -5,6 +5,7 @@ use env_logger::Env;
 use log::{debug, error, trace};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use std::cell::RefCell;
 use std::io::ErrorKind;
 use std::{
     fmt::{self, Display},
@@ -16,7 +17,8 @@ use std::{
 use walkdir::WalkDir;
 
 use crate::*;
-use crate::profile_this;
+use crate::profiling::profiling::ProfilingData;
+use crate::profiling::profiling::PROFILING_DATA;
 
 #[derive(clap::Parser)]
 struct DoerCliArgs {
@@ -353,12 +355,13 @@ pub fn doer_main() -> ExitCode {
 
 // When the source and/or dest is local, the doer is run as a thread in the boss process,
 // rather than over ssh.
-pub fn doer_thread_running_on_boss(receiver: Receiver<Command>, sender: Sender<Response>) {
+pub fn doer_thread_running_on_boss(receiver: Receiver<Command>, sender: Sender<Response>) -> ProfilingData {
     debug!("doer thread running");
     match message_loop(Comms::Local { sender, receiver }) {
         Ok(_) => debug!("doer thread finished successfully!"),
         Err(e) => debug!("doer thread finished with error: {:?}", e),
     }
+    RefCell::clone(&PROFILING_DATA.with(|p| p.clone())).into_inner()
 }
 
 /// Context for each doer instance. We can't use anything global (e.g. like changing the

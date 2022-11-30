@@ -5,7 +5,7 @@ use std::{
     collections::HashMap,
     fs::File,
     io::Write,
-    time::{Duration, Instant},
+    time::{Duration, Instant}, sync::Mutex,
 };
 
 use lazy_static::lazy_static;
@@ -13,6 +13,8 @@ use lazy_static::lazy_static;
 lazy_static! {
     // Only initialize profiling when the first entry is added.
     static ref PROFILING_START: Instant = Instant::now();
+
+    pub static ref ALL_PROFILING_DATA: Mutex<ProfilingData> = Mutex::new(ProfilingData::new());
 }
 
 thread_local! {
@@ -21,7 +23,6 @@ thread_local! {
 }
 
 #[macro_export]
-#[cfg(feature = "profiling")]
 macro_rules! function_name {
     () => {{
         fn f() {}
@@ -34,33 +35,21 @@ macro_rules! function_name {
 }
 
 #[macro_export]
-#[cfg(feature = "profiling")]
 macro_rules! profile_this {
     () => {
-        let _profiling_keep_alive = crate::profiling::Timer::new(crate::function_name!().to_string(), "".to_string());
+        let _profiling_keep_alive = crate::profiling::profiling_real::Timer::new(crate::function_name!().to_string(), "".to_string());
     };
     ($mand_1:expr) => {
         let _profiling_keep_alive =
-            crate::profiling::Timer::new(crate::function_name!().to_string() + " " + $mand_1, "".to_string());
+            crate::profiling::profiling_real::Timer::new(crate::function_name!().to_string() + " " + $mand_1, "".to_string());
     };
     ($mand_1:expr, $mand_2:expr) => {
         let _profiling_keep_alive =
-            crate::profiling::Timer::new(crate::function_name!().to_string() + " " + $mand_1, $mand_2);
+            crate::profiling::profiling_real::Timer::new(crate::function_name!().to_string() + " " + $mand_1, $mand_2);
     };
 }
 
-#[macro_export]
-#[cfg(not(feature = "profiling"))]
-macro_rules! function {
-    () => {};
-}
-#[macro_export]
-#[cfg(not(feature = "profiling"))]
-macro_rules! profile_this {
-    ($($tts:tt)*) => {};
-}
-
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 struct ProfilingEntry {
     category_name: String,
     detailed_name: String,
@@ -71,7 +60,7 @@ struct ProfilingEntry {
     duration: Duration,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 pub struct ProfilingData {
     entries: Vec<ProfilingEntry>,
 }
@@ -123,10 +112,99 @@ impl Drop for ProfilingData {
             "Failed to save profiling data for {}",
             thread_name.clone() + ".json"
         ));
-        dump_profiling_to_chrome(
-            self,
-            "profiling_data/".to_string() + &thread_name + "_trace.json",
-        );
+        self.dump_profiling_to_chrome(
+            "profiling_data/".to_string() + &thread_name + "_trace.json");
+    }
+}
+
+impl ProfilingData{
+    pub fn new() -> Self {
+        ProfilingData{entries: vec![]}
+    }
+
+    pub fn append(&mut self, other: &mut ProfilingData) -> &mut Self{
+        self.entries.append(&mut other.entries);
+        self
+    }
+
+    pub fn dump_profiling_to_chrome(&self, file_name: String) {
+        let mut file = File::create(&file_name).unwrap();
+        write!(file, "[").unwrap();
+    
+        for i in 0..self.entries.len() {
+            let entry = &self.entries[i];
+            let name = &entry.detailed_name;
+            let cat = "josh";
+            let pid = 0;
+            let tid = *map_profiling_to_string()
+                .get(&entry.category_name as &str)
+                .expect(&format!(
+                    "mapping profiling string failed: {}",
+                    &entry.category_name
+                ));
+            let beginning = {
+                let ts = entry.start.as_nanos();
+                format!(
+                    r#"{{"name": "{name}",
+                    "cat": "{cat}",
+                    "ph": "B",
+                    "ts": {ts},
+                    "pid": {pid},
+                    "tid": {tid},
+                    "args": {{
+                    }}
+                }},"#
+                )
+            };
+            let end = {
+                let ts = entry.end.as_nanos();
+                format!(
+                    r#"{{
+                    "name": "{name}",
+                    "cat": "{cat}",
+                    "ph": "E",
+                    "ts": {ts},
+                    "pid": {pid},
+                    "tid": {tid},
+                    "args": {{
+                    }}
+                }},"#
+                )
+            };
+            file.write_all(&beginning.as_bytes()).expect(&format!(
+                "Failed to save beginning converted profiling data {}",
+                &name
+            ));
+            file.write_all(&end.as_bytes()).expect(&format!(
+                "Failed to save end converted profiling data for {}",
+                &name
+            ));
+        }
+        for (k, v) in map_profiling_to_string() {
+            write!(
+                file,
+                r#"
+            {{
+                "name": "thread_name", "ph": "M", "pid": 0, "tid": {v},
+                "args": {{
+                    "name" : "{k}"
+                }}
+            }},"#
+            )
+            .unwrap();
+        }
+        write!(
+            file,
+            r#"
+            {{
+                "name": "thread_name", "ph": "M", "pid": 0, "tid": 0,
+                "args": {{
+                    "name" : "PLEASE UPDATE PROFILING MAP"
+                }}
+            }}"#
+        )
+        .unwrap();
+        write!(file, "]").unwrap();
     }
 }
 
@@ -144,84 +222,4 @@ fn map_profiling_to_string() -> HashMap<&'static str, &'static str> {
         ("send Tcp_Write", "10"),
         ("receive_response", "11")
     ])
-}
-
-fn dump_profiling_to_chrome(profiling_data: &ProfilingData, file_name: String) {
-    let mut file = File::create(&file_name).unwrap();
-    write!(file, "[").unwrap();
-
-    for i in 0..profiling_data.entries.len() {
-        let entry = &profiling_data.entries[i];
-        let name = &entry.detailed_name;
-        let cat = "josh";
-        let pid = 0;
-        let tid = *map_profiling_to_string()
-            .get(&entry.category_name as &str)
-            .expect(&format!(
-                "mapping profiling string failed: {}",
-                &entry.category_name
-            ));
-        let beginning = {
-            let ts = entry.start.as_nanos();
-            format!(
-                r#"{{"name": "{name}",
-                "cat": "{cat}",
-                "ph": "B",
-                "ts": {ts},
-                "pid": {pid},
-                "tid": {tid},
-                "args": {{
-                }}
-            }},"#
-            )
-        };
-        let end = {
-            let ts = entry.end.as_nanos();
-            format!(
-                r#"{{
-                "name": "{name}",
-                "cat": "{cat}",
-                "ph": "E",
-                "ts": {ts},
-                "pid": {pid},
-                "tid": {tid},
-                "args": {{
-                }}
-            }},"#
-            )
-        };
-        file.write_all(&beginning.as_bytes()).expect(&format!(
-            "Failed to save beginning converted profiling data {}",
-            &name
-        ));
-        file.write_all(&end.as_bytes()).expect(&format!(
-            "Failed to save end converted profiling data for {}",
-            &name
-        ));
-    }
-    for (k, v) in map_profiling_to_string() {
-        write!(
-            file,
-            r#"
-        {{
-            "name": "thread_name", "ph": "M", "pid": 0, "tid": {v},
-            "args": {{
-                "name" : "{k}"
-            }}
-        }},"#
-        )
-        .unwrap();
-    }
-    write!(
-        file,
-        r#"
-        {{
-            "name": "thread_name", "ph": "M", "pid": 0, "tid": 0,
-            "args": {{
-                "name" : "PLEASE UPDATE PROFILING MAP"
-            }}
-        }}"#
-    )
-    .unwrap();
-    write!(file, "]").unwrap();
 }
