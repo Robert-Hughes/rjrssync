@@ -96,6 +96,7 @@ fn load_filesystem_node_from_disk(path: &Path) -> Option<FilesystemNode> {
 /// that some files were copied, and check that the files were in fact copied onto the filesystem.
 /// All the paths provided here will have the special value $TEMP substituted for the temporary folder
 /// created for placing test files in.
+#[derive(Default)]
 pub struct TestDesc<'a> {
     /// The given FilesystemNodes are saved to the given paths before running rjrssync
     /// (e.g. to set up src and dest).
@@ -107,6 +108,8 @@ pub struct TestDesc<'a> {
     pub expected_exit_code: i32,
     /// Messages that are expected to be present in rjrssync's stdout/stderr
     pub expected_output_messages: Vec<Regex>,
+    /// Messages that are expected to _not_ be present in rjrssync's stdout/stderr
+    pub unexpected_output_messages: Vec<Regex>,
     /// The filesystem at the given paths are expected to be as described (including None, for non-existent)
     pub expected_filesystem_nodes: Vec<(&'a str, Option<&'a FilesystemNode>)>
 }
@@ -141,9 +144,15 @@ pub fn run(desc: TestDesc) {
     assert_eq!(output.status.code(), Some(desc.expected_exit_code));
 
     // Check for expected output messages
-    let actual_output = String::from_utf8(output.stderr).unwrap(); //TODO: not stdout?
+    let actual_output = String::from_utf8(output.stderr).unwrap()
+                    + &String::from_utf8(output.stdout).unwrap();
     for m in desc.expected_output_messages {
         assert!(m.is_match(&actual_output));
+    }
+
+    // Check for unexpected output messages
+    for m in desc.unexpected_output_messages {
+        assert!(!m.is_match(&actual_output));
     }
 
     // Check the filesystem is as expected afterwards
@@ -173,7 +182,8 @@ pub fn run_expect_success(src_node: &FilesystemNode, dest_node: &FilesystemNode,
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(src_node)), // Source should always be unchanged
             ("$TEMP/dest", Some(src_node)), // Dest should be identical to source
-        ]
+        ],
+        ..Default::default()
     });
 }
 

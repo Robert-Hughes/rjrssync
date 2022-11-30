@@ -456,7 +456,9 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str, remote_port_for
                 // Show ssh output to the user, as this might be useful/necessary
                 info!("ssh {}: {}", stream_type, l);
                 // Check for both the Linux (bash) and Windows (cmd) errors
-                if l.contains("No such file or directory") || l.contains("The system cannot find the path specified") {
+                if l.contains("No such file or directory") || 
+                    l.contains("The system cannot find the path specified") ||
+                    l.contains("is not recognized as an internal or external command") {
                     warn!("rjrssync not present on remote computer");
                     // Note the stdin of the ssh will be dropped and this will tidy everything up nicely
                     return SshDoerLaunchResult::NotPresentOnRemote;
@@ -663,7 +665,8 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> 
     };
     debug!("Running remote command: {}", remote_command);
     match std::process::Command::new("ssh")
-        .arg("-t") // This fixes issues with line endings getting messed up after ssh exits
+        .arg("-t") // This fixes issues with line endings getting messed up after ssh exits 
+        //TODO: but it seems to mess up line endings etc. when running remote_tests with --nocapture! on windows at least, and breaks the tests entirely!
         .arg(user_prefix + remote_hostname)
         .arg(remote_command)
         .status()

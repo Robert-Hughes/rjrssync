@@ -41,7 +41,8 @@ fn run_trailing_slashes_test_expect_success_override_dest(src_node: Option<&File
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(src_node.unwrap())), // Source should always be unchanged
             (override_dest, Some(src_node.unwrap())), // Dest should be identical to source
-        ]
+        ],
+        ..Default::default()
     });
 }
 
@@ -73,7 +74,8 @@ fn run_trailing_slashes_test_expected_failure(src_node: Option<&FilesystemNode>,
             // Both src and dest should be unchanged, as the sync should have failed
             ("$TEMP/src", src_node),
             ("$TEMP/dest", dest_node),                
-        ] 
+        ],
+        ..Default::default()
     });
 }
 

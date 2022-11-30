@@ -185,8 +185,6 @@ Remote launching
 
 * Additional SSH options as command-line arguments (separate for source and dest?)
 * SSH host key verification prompt doesn't echo the user's typing, but it does seem to work anyway
-* Testing for ssh launching/copying/deploying stuff
-* Test for windows/linux deploying onto windows/linux (4 combinations!)
 * Sometimes remote processes are left orphaned, preventing new ones from listening on the same port
 * Using temporary dir means that rebooting the remote will mean we have to rebuild from scratch (on Linux)
 * sshpass seems to cause problems when deploying
@@ -237,6 +235,8 @@ Misc
 -----
 
 * Fix intermittent github actions failing because of RustEmbed
+* Make GitHub actions run on both Windows and Linux.
+* Configure GitHub actions to run with remote hosts somehow
 * piper and tcper maybe shouldn't be in the `bin/` folder, as then they count as part of the proper program,
 but they should just be for testing/investigation. Maybe should be a separate crate?
 * On work PC this fails:

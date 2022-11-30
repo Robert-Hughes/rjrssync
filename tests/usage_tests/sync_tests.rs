@@ -91,7 +91,8 @@ fn test_dest_ancestors_dont_exist() {
         expected_filesystem_nodes: vec![
             ("$TEMP/src.txt", Some(src)), // Source should always be unchanged
             ("$TEMP/dest1/dest2/dest3/dest.txt", Some(src)), // Dest should be identical to source
-        ]
+        ],
+        ..Default::default()
     });
 }
 
@@ -126,7 +127,7 @@ fn test_filters() {
             "+c1".to_string(),
             "--filter".to_string(),
             "-.*/sc1".to_string(),
-       ],
+        ],
         expected_exit_code: 0,
         expected_output_messages: vec![
             Regex::new(&regex::escape("Copied 2 file(s) and created 2 folder(s)")).unwrap(),
@@ -134,7 +135,8 @@ fn test_filters() {
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&src_folder)), // Source should always be unchanged
             ("$TEMP/dest", Some(&expected_dest_folder)),
-        ]
+        ],
+        ..Default::default()
     });
 }
 
@@ -150,12 +152,12 @@ fn test_invalid_filter_prefix() {
             "$TEMP/dest".to_string(),
             "--filter".to_string(),
             "BLARG".to_string(),
-       ],
+        ],
         expected_exit_code: 18,
         expected_output_messages: vec![
             Regex::new(&regex::escape("Invalid filter 'BLARG'")).unwrap(),
         ],
-        expected_filesystem_nodes: vec![]
+        ..Default::default()
     });
 }
 
@@ -176,7 +178,7 @@ fn test_invalid_filter_regex() {
         expected_output_messages: vec![
             Regex::new(&regex::escape("Invalid regex for filter")).unwrap(),
         ],
-        expected_filesystem_nodes: vec![]
+        ..Default::default()
     });
 }
 
@@ -212,7 +214,8 @@ fn test_remove_dest_folder_with_excluded_files() {
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&src_folder)), // Source should always be unchanged
             ("$TEMP/dest", Some(&dest_folder)), // Dest should be unchanged too as it failed
-        ]
+        ],
+        ..Default::default()
     });
 }
 
@@ -237,7 +240,8 @@ fn test_relative_paths() {
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&src_folder)), // Source should always be unchanged
             ("$TEMP/dest", Some(&src_folder)), // Dest should be same as source
-        ]
+        ],
+        ..Default::default()
     });
 }
 
@@ -276,6 +280,7 @@ fn test_spec_file() {
         expected_filesystem_nodes: vec![
             ("$TEMP/dest1", Some(&src1)),
             ("$TEMP/dest2", Some(&src2)),
-        ]
+        ],
+        ..Default::default()
     });
 }
