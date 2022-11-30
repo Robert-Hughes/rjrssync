@@ -31,6 +31,7 @@ struct DoerCliArgs {
     log_filter: String,
 }
 
+//TODO: unit tests for this
 fn normalize_path(p: &Path) -> Result<RootRelativePath, String> {
     if p.is_absolute() {
         return Err("Must be relative".to_string());
@@ -107,8 +108,7 @@ pub enum Command {
     CreateOrUpdateFile {
         path: RootRelativePath,
         data: Vec<u8>,
-        set_modified_time: Option<SystemTime>, //TODO: is this compatible between platforms, time zone changes, precision differences, etc. etc.
-                                               //TODO: can we safely serialize this on one platform and deserialize on another?
+        set_modified_time: Option<SystemTime>,
     },
     CreateFolder {
         path: RootRelativePath,
@@ -134,8 +134,7 @@ pub enum EntryType {
 pub struct EntryDetails {
     pub path: RootRelativePath,
     pub entry_type: EntryType,
-    pub modified_time: SystemTime, //TODO: is this compatible between platforms, time zone changes, precision differences, etc. etc.
-    //TODO: can we safely serialize this on one platform and deserialize on another?
+    pub modified_time: SystemTime,
     pub size: u64
 }
 
@@ -560,4 +559,16 @@ fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, exclude_filt
     );
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_normalize_path_is_root() {
+        let x = normalize_path(Path::new(""));
+        assert_eq!(x, Ok(RootRelativePath { inner: "".to_string() }));
+        assert_eq!(x.unwrap().is_root(), true);
+    }
 }

@@ -222,6 +222,9 @@ Syncing logic
    - Either directly, or via symlink(s)?
 * --no-encryption option, might be faster?
 * How to handle case when want to copy two different folders into the same destination, some sort of --no-delete?
+* Use of SystemTime
+   -  is this compatible between platforms, time zone changes, precision differences, etc. etc.
+   - can we safely serialize this on one platform and deserialize on another?
 
 
 
