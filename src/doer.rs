@@ -85,7 +85,11 @@ impl RootRelativePath {
 }
 impl Display for RootRelativePath {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.inner)
+        if self.is_root() {
+            write!(f, "<ROOT>")
+        } else {
+            write!(f, "{}", self.inner)
+        }
     }
 }
 
@@ -363,9 +367,16 @@ fn message_loop(mut comms: Comms) -> Result<(), ()> {
     loop {
         match comms.receive_command() {
             Ok(c) => {
-                if !exec_command(c, &mut comms, &mut context) {
-                    debug!("Shutdown command received - finishing message_loop");
-                    return Ok(());
+                match exec_command(c, &mut comms, &mut context) {
+                    Ok(false) => {
+                        debug!("Shutdown command received - finishing message_loop");
+                        return Ok(());
+                    }
+                    Ok(true) => (), // Continue processing commands
+                    Err(e) => {
+                        error!("Error processing command: {}", e);
+                        return Err(());
+                    }
                 }
             }
             Err(e) => {
@@ -378,7 +389,11 @@ fn message_loop(mut comms: Comms) -> Result<(), ()> {
 
 /// Handles a Command from the boss, possibly replying with one or more Responses.
 /// Returns false if we received a Shutdown Command, otherwise true.
-fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) -> bool {
+/// Note that if processing a command results in an error which is related to the command itself (e.g. we are asked
+/// to fetch details of a file that doesn't exist), then this is reported back to the boss in a Response::Error,
+/// and this function still returns Ok(). Error() variants returned from this function indicate a more catastrophic
+/// error, like a communication failure.
+fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) -> Result<bool, String> {
     match command {
         Command::SetRoot { root } => {
             // Store the root path for future operations
@@ -394,26 +409,22 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) 
                         RootDetails::File
                     } else {
                         comms.send_response(Response::Error(format!(
-                                "root has unknown type: {:?}", m
-                            )))
-                        .unwrap();
-                        return true;
+                                "root '{}' has unknown type: {:?}", context.root.display(), m
+                            )))?;
+                        return Ok(true);
                     };
 
-                    comms.send_response(Response::RootDetails(root_details)).unwrap();
+                    comms.send_response(Response::RootDetails(root_details))?;
                 },
                 Err(e) if e.kind() == ErrorKind::NotFound => {
                     // Report this as a special error, as we handle it differently on the boss side
-                    comms.send_response(Response::RootDetails(RootDetails::None)).unwrap();
-                    return true;
+                    comms.send_response(Response::RootDetails(RootDetails::None))?;
                 }
                 Err(e) => {
                     comms
                         .send_response(Response::Error(format!(
-                            "root {} can't be read: {}", context.root.display(), e
-                        )))
-                    .unwrap();
-                    return true;
+                            "root '{}' can't be read: {}", context.root.display(), e
+                        )))?;
                 }
             }
         }
@@ -424,18 +435,20 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) 
         }
         Command::CreateRootAncestors => {
             let path_to_create = context.root.parent();
+            trace!("Creating {:?} and all its ancestors", path_to_create);
             if let Some(p) = path_to_create {
                 match std::fs::create_dir_all(p) {
                     Ok(()) => comms.send_response(Response::Ack).unwrap(),
-                    Err(e) => comms.send_response(Response::Error(format!("Error creating folder: {e}"))).unwrap(),
+                    Err(e) => comms.send_response(Response::Error(format!("Error creating folder and ancestors for '{}': {e}", p.display()))).unwrap(),
                 }
             }
         }
         Command::GetFileContent { path } => {
-            let full_path =  path.get_full_path(&context.root);
-            match std::fs::read(full_path) {
+            let full_path = path.get_full_path(&context.root);
+            trace!("Getting content of '{}'", full_path.display());
+            match std::fs::read(&full_path) {
                 Ok(data) => comms.send_response(Response::FileContent { data }).unwrap(),
-                Err(e) => comms.send_response(Response::Error(format!("Error getting file content: {e}"))).unwrap(),
+                Err(e) => comms.send_response(Response::Error(format!("Error getting file content of '{}': {e}", full_path.display()))).unwrap(),
             }
         }
         Command::CreateOrUpdateFile {
@@ -444,20 +457,22 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) 
             set_modified_time,
         } => {
             let full_path = path.get_full_path(&context.root);
+            trace!("Creating/updating content of '{}'", full_path.display());
             let r = std::fs::write(&full_path, data);
             if let Err(e) = r {
-                comms.send_response(Response::Error(format!("Error writing file contents to {}: {e}", full_path.display()))).unwrap();
-                return true;
+                comms.send_response(Response::Error(format!("Error writing file contents to '{}': {e}", full_path.display()))).unwrap();
+                return Ok(true);
             }
 
             // After changing the content, we need to override the modified time of the file to that of the original,
             // otherwise it will immediately count as modified again if we do another sync.
             if let Some(t) = set_modified_time {
+                trace!("Setting modifited time of '{}'", full_path.display());
                 let r =
                     filetime::set_file_mtime(&full_path, filetime::FileTime::from_system_time(t));
                 if let Err(e) = r {
-                    comms.send_response(Response::Error(format!("Error setting modified time: {e}"))).unwrap();
-                    return true;
+                    comms.send_response(Response::Error(format!("Error setting modified time of '{}': {e}", full_path.display()))).unwrap();
+                    return Ok(true);
                 }
             }
 
@@ -465,30 +480,33 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) 
         }
         Command::CreateFolder { path } => {
             let full_path =  path.get_full_path(&context.root);
-            match std::fs::create_dir(full_path) {
+            trace!("Creating folder '{}'", full_path.display());
+            match std::fs::create_dir(&full_path) {
                 Ok(()) => comms.send_response(Response::Ack).unwrap(),
-                Err(e) => comms.send_response(Response::Error(format!("Error creating folder: {e}"))).unwrap(),
+                Err(e) => comms.send_response(Response::Error(format!("Error creating folder '{}': {e}", full_path.display()))).unwrap(),
             }
         }
         Command::DeleteFile { path } => {
             let full_path =  path.get_full_path(&context.root);
-            match std::fs::remove_file(full_path) {
+            trace!("Deleting file '{}'", full_path.display());
+            match std::fs::remove_file(&full_path) {
                 Ok(()) => comms.send_response(Response::Ack).unwrap(),
-                Err(e) => comms.send_response(Response::Error(format!("Error deleting file: {e}"))).unwrap(),
+                Err(e) => comms.send_response(Response::Error(format!("Error deleting file '{}': {e}", full_path.display()))).unwrap(),
             }
         }
         Command::DeleteFolder { path } => {
             let full_path =  path.get_full_path(&context.root);
-            match std::fs::remove_dir(full_path) {
+            trace!("Deleting folder '{}'", full_path.display());
+            match std::fs::remove_dir(&full_path) {
                 Ok(()) => comms.send_response(Response::Ack).unwrap(),
-                Err(e) => comms.send_response(Response::Error(format!("Error deleting folder: {e}"))).unwrap(),
+                Err(e) => comms.send_response(Response::Error(format!("Error deleting folder '{}': {e}", full_path.display()))).unwrap(),
             }
         }
         Command::Shutdown => {
-            return false;
+            return Ok(false);
         }
     }
-    true
+    Ok(true)
 }
 
 fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, exclude_filters: &[String]) -> Result<(), String> {
@@ -509,22 +527,24 @@ fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, exclude_filt
     loop {
         match walker_it.next() {
             None => break,
-            Some(Err(e)) => return Err(format!("Error walking root: {e}")),
+            Some(Err(e)) => return Err(format!("Error fetching entries of root '{}': {e}", context.root.display())),
             Some(Ok(e)) => {
+                trace!("Processing entry {:?}", e);
                 // Check if we should filter this entry.
                 // First normalize the path to our platform-independent representation, so that the filters
                 // apply equally well on both source and dest sides, if they are different platforms.
 
                 // Paths returned by WalkDir will include the root, but we want paths relative to the root
+                // The strip_prefix should always be successful, because the entry has to be inside the root.
                 let path = e.path().strip_prefix(&context.root).unwrap();
                 // Convert to platform-agnostic representation
                 let path = match normalize_path(path) {
                     Ok(p) => p,
-                    Err(e) => return Err(format!("normalize_path failed: {e}")),
+                    Err(e) => return Err(format!("normalize_path failed on '{}': {e}", path.display())),
                 };
 
                 if exclude_regexes.iter().any(|r| path.matches_regex(r)) {
-                    trace!("Skipping {} due to filter", path);
+                    trace!("Skipping '{}' due to filter", path);
                     if e.file_type().is_dir() {
                         // Filtering a folder prevents iterating into child files/folders, so this is efficient.
                         walker_it.skip_current_dir();
@@ -532,39 +552,33 @@ fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, exclude_filt
                     continue;
                 }
 
-                let d;
-                if e.file_type().is_dir() {
-                    d = EntryDetails::Folder;
+                let d = if e.file_type().is_dir() {
+                    EntryDetails::Folder
                 } else if e.file_type().is_file() {
                     let metadata = match e.metadata() {
                         Ok(m) => m,
-                        Err(e) => return Err(format!("Unable to get metadata: {e}")),
+                        Err(err) => return Err(format!("Unable to get metadata for '{}': {err}", path)),
                     };
 
                     let modified_time = match metadata.modified() {
                         Ok(m) => m,
-                        Err(e) => return Err(format!("Unknown modified time: {e}")),
+                        Err(err) => return Err(format!("Unknown modified time for '{}': {err}", path)),
                     };
 
-                    d = EntryDetails::File {
+                    EntryDetails::File {
                         modified_time,
                         size: metadata.len(),
-                    };
+                    }
                 } else {
-                    return Err(format!("Unknown file type for {}: {:?}", path, e.file_type()));
-                }
+                    return Err(format!("Unknown file type for '{}': {:?}", path, e.file_type()));
+                };
 
                 comms.send_response(Response::Entry((path, d))).unwrap();
-                //                      if e.file_type().is_file() {
-                //                         let bytes = std::fs::read(e.path()).unwrap();
-                //                         let hash = md5::compute(&bytes);
-                //                         hash_sum += hash.into_iter().sum::<u8>();
-                //                         count += 1;
-                //                      }
             }
         }
         count += 1;
     }
+
     let elapsed = start.elapsed().as_millis();
     comms.send_response(Response::EndOfEntries).unwrap();
     debug!(

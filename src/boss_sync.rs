@@ -195,7 +195,7 @@ pub fn sync(
     loop {
         match src_comms.receive_response() {
             Ok(Response::Entry((p, d))) => {
-                trace!("{}: {:?}", p, d);
+                trace!("Source entry '{}': {:?}", p, d);
                 match d {
                     EntryDetails::File { size, .. } => {
                         stats.num_src_files += 1;
@@ -220,7 +220,7 @@ pub fn sync(
         loop {
             match dest_comms.receive_response() {
                 Ok(Response::Entry((p, d))) => {
-                    trace!("{}: {:?}", p, d);
+                    trace!("Dest entry '{}': {:?}", p, d);
                     match d {
                         EntryDetails::File { size, .. } => {
                             stats.num_dest_files += 1;

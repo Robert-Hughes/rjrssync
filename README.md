@@ -20,7 +20,7 @@ connection. Testing on Windows showed this could peak at around 200MB/s. We lose
 security though, as anybody can connect to the tunnel.
 
 The best for performance is a direct TCP connection (without ssh), which peaks at around 2GB/s
-locally on Windows. We can use ssh for the initial setup, sharing some kind of secret key 
+locally on Windows. We can use ssh for the initial setup, sharing some kind of secret key
 so that each side of the connection is secure.
 
 All readings from home PC (MANTA)
@@ -198,13 +198,12 @@ Remote launching
 Syncing logic
 -------------
 
-* Review/tidy up sync code in boss_sync.rs and also the command handling code in doer.rs
 * Compare and sync file permissions?
 * Modified time:
     - need to account for time zone differences etc. between source and dest when updating the timestamp
     - would this play nicely with other tools (e.g. build systems) that check timestamps - it might think that it doesn't need to rebuild anything, as the new timestamp for this file is still really old?
     - Maybe instead we could store something else, like a hash or our own marker to indicate when this file was synced, so that the timestamp is "correct", but we know not to sync it again next time.
-* Testing for sync logic, including between different combinations of windows and linux, remote and local etc. 
+* Testing for sync logic, including between different combinations of windows and linux, remote and local etc.
    - Exclude filters
 * Test for --dry-run
 * Test for --stats (maybe just all the command-line options...)
@@ -218,7 +217,7 @@ Syncing logic
   - Symlinks could be present as ancestors as src or dest path (though this shouldn't matter)
   - Symlinks could be present inside a folder being synced.
   - Symlinks could be combined with any existing type as src or dest (e.g. symlink => folder, file => symlink etc.)
-* What happens if src and dest both point to the same place? 
+* What happens if src and dest both point to the same place?
    - Either directly, or via symlink(s)?
 * --no-encryption option, might be faster?
 * How to handle case when want to copy two different folders into the same destination, some sort of --no-delete?
