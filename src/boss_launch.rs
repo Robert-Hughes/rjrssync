@@ -617,17 +617,17 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> 
     // We could check for "linux" in the string, but there are other Unix systems we might want to supoprt e.g. Mac,
     // so we fall back to Linux as a default
     let is_windows = os_test_output.contains("Windows");
-    let (remote_temp, cd_command) = if is_windows {
-        (REMOTE_TEMP_WINDOWS, format!("cd /d {REMOTE_TEMP_WINDOWS}\\rjrssync"))
-    } else {
-        (REMOTE_TEMP_UNIX, format!("cd {REMOTE_TEMP_UNIX}/rjrssync"))
-    };
 
     // Deploy to remote target using scp
     // Note we need to deal with the case where the the remote folder doesn't exist, and the case where it does, so
     // we copy into /tmp (which should always exist), rather than directly to /tmp/rjrssync which may or may not
     // We leave stdout and stderr to inherit, so the user can see what's happening and if there are any errors
     let source_spec = local_temp_dir.path().join("rjrssync");
+    let remote_temp = if is_windows {
+        REMOTE_TEMP_WINDOWS
+    } else {
+        REMOTE_TEMP_UNIX
+    };
     let remote_spec = format!("{user_prefix}{remote_hostname}:{remote_temp}");
     debug!("Copying {} to {}", source_spec.display(), remote_spec);
     match std::process::Command::new("scp")
@@ -654,8 +654,13 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> 
     // but this would make error reporting slightly more difficult as the command in launch_doer_via_ssh is more tricky as
     // we are parsing the stdout, but for the command here we can wait for it to finish easily.
     // We leave stdout and stderr to inherit, so the user can see what's happening and if there are any errors
-    // We use "$SHELL -lc" to run a login shell, as cargo might not be on the PATH otherwise.
-    let remote_command = format!("$SHELL -lc '{} && cargo build --release'", cd_command);
+    let cargo_command = "cargo build --release";
+    let remote_command = if is_windows {
+        format!("cd /d {REMOTE_TEMP_WINDOWS}\\rjrssync && {cargo_command}")
+    } else {
+        // We use "$SHELL -lc" to run a login shell, as cargo might not be on the PATH otherwise.
+        format!("$SHELL -lc 'cd {REMOTE_TEMP_UNIX}/rjrssync && {cargo_command}'")
+    };
     debug!("Running remote command: {}", remote_command);
     match std::process::Command::new("ssh")
         .arg("-t") // This fixes issues with line endings getting messed up after ssh exits
