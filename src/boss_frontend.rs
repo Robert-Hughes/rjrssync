@@ -10,6 +10,7 @@ use yaml_rust::{YamlLoader, Yaml};
 
 use crate::boss_launch::*;
 use crate::boss_sync::*;
+use crate::doer::Filter;
 
 #[derive(clap::Parser)]
 pub struct BossCliArgs {
@@ -32,19 +33,27 @@ pub struct BossCliArgs {
     /// up-to-date copy.
     #[arg(long)]
     pub force_redeploy: bool,
-    #[arg(name="exclude", long)]
-    pub exclude_filters: Vec<String>,
+    /// A list of filters that can be used to ignore some entries (files/folders) when performing the sync.
+    /// Each filter is a regex, prepended with either a '+' or '-' character, to indicate if this filter
+    /// should include or exclude matching entries.
+    /// If the first filter provided is an include (+), then only those entries matching this filter will be included.
+    /// If the first filter provided is an exclude (-), then only those entries not matching this filter will be included.
+    /// Further filters can then add or remove entries.
+    /// The regexes are matched against a normalized path relative to the root of the source/dest.
+    /// Normalized means that forward slashes are always used as directory separators, never backwards slashes.
+    #[arg(name="filter", long, allow_hyphen_values(true))]
+    pub filters: Vec<String>,
     /// Override the port used to connect to hostnames specified in src or dest.
     #[arg(long, default_value_t = 40129)]
     pub remote_port: u16,
-    
+
     #[arg(long)]
     pub dry_run: bool,
 
     /// Outputs some additional statistics about the data copied.
     #[arg(long)]
     pub stats: bool, // This is a separate flag to --verbose, because that is more for debugging, but this is useful for normal users
-    /// Hides all output except warnings and errors. 
+    /// Hides all output except warnings and errors.
     #[arg(short, long, group="verbosity")]
     pub quiet: bool,
     /// Shows additional output.
@@ -124,7 +133,7 @@ struct Spec {
 struct SyncSpec {
     src: String,
     dest: String,
-    exclude_filters: Vec<String>,
+    filters: Vec<String>,
 }
 
 fn parse_string(yaml: &Yaml, key_name: &str) -> Result<String, String> {
@@ -140,17 +149,17 @@ fn parse_sync_spec(yaml: &Yaml) -> Result<SyncSpec, String> {
         match root_key {
             Yaml::String(x) if x == "src" => result.src = parse_string(root_value, "src")?,
             Yaml::String(x) if x == "dest" => result.dest = parse_string(root_value, "dest")?,
-            Yaml::String(x) if x == "excludes" => {
+            Yaml::String(x) if x == "filters" => {
                 match root_value {
                     Yaml::Array(array_yaml) => {
                         for element_yaml in array_yaml {
                             match element_yaml {
-                                Yaml::String(x) => result.exclude_filters.push(x.to_string()),
-                                x => return Err(format!("Unexpected value in 'excludes' array. Expected string, but got {:?}", x)),
-                            }            
+                                Yaml::String(x) => result.filters.push(x.to_string()),
+                                x => return Err(format!("Unexpected value in 'filters' array. Expected string, but got {:?}", x)),
+                            }
                         }
                     }
-                    x => return Err(format!("Unexpected value for 'excludes'. Expected an array, but got {:?}", x)),
+                    x => return Err(format!("Unexpected value for 'filters'. Expected an array, but got {:?}", x)),
                 }
             },
             x => return Err(format!("Unexpected key in 'syncs' entry: {:?}", x)),
@@ -263,7 +272,7 @@ pub fn boss_main() -> ExitCode {
         spec.src_username = src.username;
         spec.dest_hostname = dest.hostname;
         spec.dest_username = dest.username;
-        spec.syncs.push(SyncSpec { src: src.path, dest: dest.path, exclude_filters: args.exclude_filters });
+        spec.syncs.push(SyncSpec { src: src.path, dest: dest.path, filters: args.filters });
     }
 
     // The src and/or dest may be on another computer. We need to run a copy of rjrssync on the remote
@@ -305,12 +314,25 @@ pub fn boss_main() -> ExitCode {
 
     // Perform the actual file sync(s)
     for sync_spec in &spec.syncs {
+        // Parse the filter strings - check if they start with a + or a -
+        let mut filters : Vec<Filter>  = vec![];
+        for f in &sync_spec.filters {
+            match f.chars().nth(0) {
+                Some('+') => filters.push(Filter::Include(f.split_at(1).1.to_string())),
+                Some('-') => filters.push(Filter::Exclude(f.split_at(1).1.to_string())),
+                _ => {
+                    error!("Invalid filter '{}': Must start with a '+' or '-'", f);
+                    return ExitCode::from(18)
+                }
+            }
+        }
+
         // Indicate which sync this is, if there are many
         if spec.syncs.len() > 1 {
             info!("{} => {}:", sync_spec.src, sync_spec.dest);
         }
 
-        let sync_result = sync(&sync_spec.src, sync_spec.dest.clone(), &sync_spec.exclude_filters,
+        let sync_result = sync(&sync_spec.src, sync_spec.dest.clone(), &filters,
             args.dry_run, args.stats, &mut src_comms, &mut dest_comms);
 
         match sync_result {
@@ -564,10 +586,10 @@ mod tests {
             syncs:
             - src: T:\Source1
               dest: T:\Dest1
-              excludes: [ "exclude1", "exclude2" ]
+              filters: [ "-exclude1", "-exclude2" ]
             - src: T:\Source2
               dest: T:\Dest2
-              excludes: [ "exclude3", "exclude4" ]
+              filters: [ "-exclude3", "-exclude4" ]
         "#).unwrap();
 
         let expected_result = Spec {
@@ -579,12 +601,12 @@ mod tests {
                 SyncSpec {
                     src: "T:\\Source1".to_string(),
                     dest: "T:\\Dest1".to_string(),
-                    exclude_filters: vec![ "exclude1".to_string(), "exclude2".to_string() ],
+                    filters: vec![ "-exclude1".to_string(), "-exclude2".to_string() ],
                 },
                 SyncSpec {
                     src: "T:\\Source2".to_string(),
                     dest: "T:\\Dest2".to_string(),
-                    exclude_filters: vec![ "exclude3".to_string(), "exclude4".to_string() ],
+                    filters: vec![ "-exclude3".to_string(), "-exclude4".to_string() ],
                 }
             ]
         };
@@ -611,7 +633,7 @@ mod tests {
                 SyncSpec {
                     src: "T:\\Source1".to_string(),
                     dest: "T:\\Dest1".to_string(),
-                    exclude_filters: vec![], // Default - not specified in the YAML
+                    filters: vec![], // Default - not specified in the YAML
                 },
             ]
         };
@@ -649,7 +671,7 @@ mod tests {
         write!(s, "123").unwrap();
         assert!(parse_spec_file(s.path()).unwrap_err().contains("Document root must be a dictionary"));
     }
-    
+
     #[test]
     fn test_parse_spec_file_invalid_string_field() {
         let mut s = NamedTempFile::new().unwrap();
@@ -692,22 +714,22 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_spec_file_invalid_excludes_type() {
+    fn test_parse_spec_file_invalid_filters_type() {
         let mut s = NamedTempFile::new().unwrap();
         write!(s, r#"
             syncs:
-            - excludes: 0
+            - filters: 0
         "#).unwrap();
-        assert!(parse_spec_file(s.path()).unwrap_err().contains("Unexpected value for 'excludes'"));
+        assert!(parse_spec_file(s.path()).unwrap_err().contains("Unexpected value for 'filters'"));
     }
 
     #[test]
-    fn test_parse_spec_file_invalid_excludes_element() {
+    fn test_parse_spec_file_invalid_filters_element() {
         let mut s = NamedTempFile::new().unwrap();
         write!(s, r#"
             syncs:
-            - excludes: [ 9 ]
+            - filters: [ 9 ]
         "#).unwrap();
-        assert!(parse_spec_file(s.path()).unwrap_err().contains("Unexpected value in 'excludes' array"));
+        assert!(parse_spec_file(s.path()).unwrap_err().contains("Unexpected value in 'filters' array"));
     }
 }

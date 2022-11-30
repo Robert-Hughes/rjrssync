@@ -96,7 +96,7 @@ fn format_root_relative(path: &RootRelativePath, root: &str) -> String {
 pub fn sync(
     src_root: &str,
     mut dest_root: String,
-    exclude_filters: &[String],
+    filters: &[Filter],
     dry_run: bool,
     show_stats: bool,
     src_comms: &mut Comms,
@@ -191,7 +191,7 @@ pub fn sync(
 
     // Fetch all the entries for the source path
     let mut src_entries = Vec::new();
-    src_comms.send_command(Command::GetEntries { exclude_filters: exclude_filters.to_vec() })?;
+    src_comms.send_command(Command::GetEntries { filters: filters.to_vec() })?;
     loop {
         match src_comms.receive_response() {
             Ok(Response::Entry((p, d))) => {
@@ -216,7 +216,7 @@ pub fn sync(
     // The dest might not exist yet, which is fine - continue anyway with an empty array of dest entries
     // and we will create the dest as part of the sync.
     if dest_root_details != RootDetails::None {
-        dest_comms.send_command(Command::GetEntries { exclude_filters: exclude_filters.to_vec() })?;
+        dest_comms.send_command(Command::GetEntries { filters: filters.to_vec() })?;
         loop {
             match dest_comms.receive_response() {
                 Ok(Response::Entry((p, d))) => {

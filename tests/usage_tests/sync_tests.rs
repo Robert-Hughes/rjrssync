@@ -33,8 +33,8 @@ fn test_remove_dest_stuff() {
         "remove me" => file("contents1"),
         "remove me too" => file("contents2"),
         "remove this whole folder" => folder! {
-            "sc" => file("contents3"),        
-            "sc2" => file("contents3"),        
+            "sc" => file("contents3"),
+            "sc2" => file("contents3"),
             "remove this whole folder" => folder! {
                 "sc" => file("contents3"),
             }
@@ -69,7 +69,7 @@ fn test_skip_unchanged() {
         "file3" => file_with_modified("contents3", SystemTime::UNIX_EPOCH),
     };
     // Check that exactly one file was copied (the other two should have been skipped)
-    run_expect_success(&src_folder, &dest_folder, 1); 
+    run_expect_success(&src_folder, &dest_folder, 1);
 }
 
 /// The destination is inside several folders that don't exist yet - they should be created.
@@ -95,6 +95,93 @@ fn test_dest_ancestors_dont_exist() {
     });
 }
 
+#[test]
+fn test_filters() {
+    let src_folder = folder! {
+        "c1" => file_with_modified("contents1", SystemTime::UNIX_EPOCH),
+        "c2" => file_with_modified("contents2", SystemTime::UNIX_EPOCH),
+        "c3" => folder! {
+            "sc1" => file_with_modified("contents3", SystemTime::UNIX_EPOCH),
+            "sc2" => file_with_modified("contents3", SystemTime::UNIX_EPOCH),
+        }
+    };
+    // Because of the filter, not everything will get copied
+    let expected_dest_folder = folder! {
+        "c1" => file_with_modified("contents1", SystemTime::UNIX_EPOCH),
+        "c3" => folder! {
+            "sc2" => file_with_modified("contents3", SystemTime::UNIX_EPOCH),
+        }
+    };
+
+    run(TestDesc {
+        setup_filesystem_nodes: vec![
+            ("$TEMP/src", &src_folder),
+        ],
+        args: vec![
+            "$TEMP/src".to_string(),
+            "$TEMP/dest".to_string(),
+            "--filter".to_string(),
+            "+c3.*".to_string(),
+            "--filter".to_string(),
+            "+c1".to_string(),
+            "--filter".to_string(),
+            "-.*/sc1".to_string(),
+       ],
+        expected_exit_code: 0,
+        expected_output_messages: vec![
+            Regex::new(&regex::escape("Copied 2 file(s) and created 2 folder(s)")).unwrap(),
+        ],
+        expected_filesystem_nodes: vec![
+            ("$TEMP/src", Some(&src_folder)), // Source should always be unchanged
+            ("$TEMP/dest", Some(&expected_dest_folder)),
+        ]
+    });
+}
+
+#[test]
+fn test_invalid_filter_prefix() {
+    let src = &file("contents");
+    run(TestDesc {
+        setup_filesystem_nodes: vec![
+            ("$TEMP/src", &src),
+        ],
+        args: vec![
+            "$TEMP/src".to_string(),
+            "$TEMP/dest".to_string(),
+            "--filter".to_string(),
+            "BLARG".to_string(),
+       ],
+        expected_exit_code: 18,
+        expected_output_messages: vec![
+            Regex::new(&regex::escape("Invalid filter 'BLARG'")).unwrap(),
+        ],
+        expected_filesystem_nodes: vec![]
+    });
+}
+
+#[test]
+fn test_invalid_filter_regex() {
+    let src = &file("contents");
+    run(TestDesc {
+        setup_filesystem_nodes: vec![
+            ("$TEMP/src", &src),
+        ],
+        args: vec![
+            "$TEMP/src".to_string(),
+            "$TEMP/dest".to_string(),
+            "--filter".to_string(),
+            "+[[INVALID REGEX".to_string(),
+       ],
+        expected_exit_code: 12,
+        expected_output_messages: vec![
+            Regex::new(&regex::escape("Invalid regex for filter")).unwrap(),
+        ],
+        expected_filesystem_nodes: vec![]
+    });
+}
+
+
+
 /// A folder that needs deleting on the destination has files which have been excluded, and so the folder can't be deleted.
 #[test]
 fn test_remove_dest_folder_with_excluded_files() {
@@ -103,7 +190,7 @@ fn test_remove_dest_folder_with_excluded_files() {
     };
     let dest_folder = folder! {
         "This folder would be removed" => folder! {
-            "But it can't because this file has been excluded from the sync" => file("contents3"),        
+            "EXCLUDED" => file("But it can't because this file has been excluded from the sync"),
         }
     };
     run(TestDesc {
@@ -114,8 +201,8 @@ fn test_remove_dest_folder_with_excluded_files() {
         args: vec![
             "$TEMP/src".to_string(),
             "$TEMP/dest".to_string(),
-            "--exclude".to_string(),
-            "this file has been excluded".to_string(),
+            "--filter".to_string(),
+            "-.*/EXCLUDED".to_string(),
         ],
         expected_exit_code: 12,
         expected_output_messages: vec![

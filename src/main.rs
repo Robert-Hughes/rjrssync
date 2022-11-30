@@ -10,7 +10,7 @@ use boss_launch::*;
 use boss_frontend::*;
 use doer::*;
 
-pub const VERSION: i32 = 50;
+pub const VERSION: i32 = 51;
 
 // Message printed by a doer copy of the program to indicate that it has loaded and is ready
 // to receive data over its stdin. Once the boss receives this, it knows that ssh has connected

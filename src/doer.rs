@@ -79,8 +79,12 @@ impl RootRelativePath {
     /// Rather than exposing the inner string, expose just regex matching.
     /// This reduces the risk of incorrect usage of the raw string value (e.g. by using
     /// local-platform Path functions).
-    pub fn matches_regex(&self, r: &Regex) -> bool {
-        r.find(&self.inner).is_some()
+    pub fn matches_regex_full(&self, r: &Regex) -> bool {
+        match r.find(&self.inner) {
+            None => false,
+            // Must match the entire path, not just part of it
+            Some(m) => m.start() == 0 && m.end() == self.inner.len()
+        }
     }
 }
 impl Display for RootRelativePath {
@@ -93,6 +97,12 @@ impl Display for RootRelativePath {
     }
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum Filter {
+    Include(String),
+    Exclude(String),
+}
+
 /// Commands are sent from the boss to the doer, to request something to be done.
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Command {
@@ -102,7 +112,7 @@ pub enum Command {
         root: String, // Note this doesn't use a RootRelativePath as it isn't relative to the root - it _is_ the root!
     },
     GetEntries {
-        exclude_filters: Vec<String>,
+        filters: Vec<Filter>,
     },
     CreateRootAncestors,
     GetFileContent {
@@ -428,8 +438,8 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) 
                 }
             }
         }
-        Command::GetEntries { exclude_filters } => {
-            if let Err(e) = handle_get_entries(comms, context, &exclude_filters) {
+        Command::GetEntries { filters } => {
+            if let Err(e) = handle_get_entries(comms, context, &filters) {
                 comms.send_response(Response::Error(e)).unwrap();
             }
         }
@@ -509,11 +519,78 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) 
     Ok(true)
 }
 
-fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, exclude_filters: &[String]) -> Result<(), String> {
+enum CompiledFilter {
+    Include(Regex),
+    Exclude(Regex)
+}
+
+#[derive(PartialEq, Debug)]
+enum FilterResult {
+    Include,
+    Exclude
+}
+
+fn apply_filters(path: &RootRelativePath, filters: &[CompiledFilter]) -> FilterResult {
+    if path.is_root() {
+        // The root is always included, otherwise it would be difficult to write filter lists that start with include,
+        // because you'd need to include the root (empty string) explicitly
+        return FilterResult::Include;
+    }
+
+    let mut result = match filters.get(0) {
+        Some(CompiledFilter::Include(_)) => FilterResult::Exclude,
+        Some(CompiledFilter::Exclude(_)) => FilterResult::Include,
+        None => FilterResult::Include
+    };
+
+    for f in filters {
+        match result {
+            FilterResult::Include => {
+                match f {
+                    CompiledFilter::Include(_) => (), // No point checking - we are already including this file
+                    CompiledFilter::Exclude(f) => {
+                        // trace!("match to exclude: {}, {}, {}", path, f, path.matches_regex_full(f));
+                        if path.matches_regex_full(f) {
+                            result = FilterResult::Exclude;
+                        }
+                    }
+                }
+            },
+            FilterResult::Exclude => {
+                match f {
+                    CompiledFilter::Include(f) => {
+                        // trace!("match to include: {}, {}, {}", path, f, path.matches_regex_full(f));
+                        if path.matches_regex_full(f) {
+                            result = FilterResult::Include;
+                        }
+                    }
+                    CompiledFilter::Exclude(_) => (), // No point checking - we are already excluding this file
+                }
+            }
+        };
+    }
+
+    result
+}
+
+fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, filters: &[Filter]) -> Result<(), String> {
     // Compile filter regexes up-front
-    //TODO: ideally we do this on the boss, not on both doers?
-    //TODO: handle regex errors
-    let exclude_regexes: Vec<Regex> = exclude_filters.iter().map(|f| Regex::new(f).unwrap()).collect();
+    let mut compiled_filters: Vec<CompiledFilter> = vec![];
+    for f in filters {
+        let r =  match f {
+            Filter::Include(s) | Filter::Exclude(s) => Regex::new(s),
+        };
+        match r {
+            Ok(r) => {
+                let c = match f {
+                    Filter::Include(_) => CompiledFilter::Include(r),
+                    Filter::Exclude(_) => CompiledFilter::Exclude(r),
+                };
+                compiled_filters.push(c);
+            }
+            Err(e) => return Err(format!("Invalid regex for filter '{:?}': {e}", f)),
+        };
+    }
 
     let start = Instant::now();
     // Due to the way the WalkDir API works, we unfortunately need to do the iter loop manually
@@ -543,7 +620,7 @@ fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, exclude_filt
                     Err(e) => return Err(format!("normalize_path failed on '{}': {e}", path.display())),
                 };
 
-                if exclude_regexes.iter().any(|r| path.matches_regex(r)) {
+                if apply_filters(&path, &compiled_filters) == FilterResult::Exclude {
                     trace!("Skipping '{}' due to filter", path);
                     if e.file_type().is_dir() {
                         // Filtering a folder prevents iterating into child files/folders, so this is efficient.
@@ -621,5 +698,69 @@ mod tests {
     #[test]
     fn test_normalize_path_multiple_components() {
         assert_eq!(normalize_path(Path::new("one/two/three")), Ok(RootRelativePath { inner: "one/two/three".to_string() }));
+    }
+
+    #[test]
+    fn test_apply_filters_root() {
+        // Filters specify to exclude everything
+        let filters = vec![
+            CompiledFilter::Exclude(Regex::new(".*").unwrap())
+        ];
+        assert_eq!(apply_filters(&RootRelativePath { inner: "will be excluded".to_string() }, &filters), FilterResult::Exclude);
+        // But the root is always included anyway
+        assert_eq!(apply_filters(&RootRelativePath { inner: "".to_string() }, &filters), FilterResult::Include);
+    }
+
+    #[test]
+    fn test_apply_filters_no_filters() {
+        let filters = vec![];
+        assert_eq!(apply_filters(&RootRelativePath { inner: "yes".to_string() }, &filters), FilterResult::Include);
+        assert_eq!(apply_filters(&RootRelativePath { inner: "no".to_string() }, &filters), FilterResult::Include);
+    }
+
+    #[test]
+    fn test_apply_filters_single_include() {
+        let filters = vec![
+            CompiledFilter::Include(Regex::new("yes").unwrap())
+        ];
+        assert_eq!(apply_filters(&RootRelativePath { inner: "yes".to_string() }, &filters), FilterResult::Include);
+        assert_eq!(apply_filters(&RootRelativePath { inner: "no".to_string() }, &filters), FilterResult::Exclude);
+    }
+
+    #[test]
+    fn test_apply_filters_single_exclude() {
+        let filters = vec![
+            CompiledFilter::Exclude(Regex::new("no").unwrap())
+        ];
+        assert_eq!(apply_filters(&RootRelativePath { inner: "yes".to_string() }, &filters), FilterResult::Include);
+        assert_eq!(apply_filters(&RootRelativePath { inner: "no".to_string() }, &filters), FilterResult::Exclude);
+    }
+
+    /// Checks that the regex must match the full path, not just part of it.
+    #[test]
+    fn test_apply_filters_partial_match() {
+        let filters = vec![
+            CompiledFilter::Include(Regex::new("a").unwrap())
+        ];
+        assert_eq!(apply_filters(&RootRelativePath { inner: "a".to_string() }, &filters), FilterResult::Include);
+        assert_eq!(apply_filters(&RootRelativePath { inner: "aa".to_string() }, &filters), FilterResult::Exclude);
+    }
+
+    #[test]
+    fn test_apply_filters_complex() {
+        let filters = vec![
+            CompiledFilter::Include(Regex::new(".*").unwrap()),
+            CompiledFilter::Exclude(Regex::new("build/.*").unwrap()),
+            CompiledFilter::Exclude(Regex::new("git/.*").unwrap()),
+            CompiledFilter::Include(Regex::new("build/output.exe").unwrap()),
+            CompiledFilter::Exclude(Regex::new("src/build/.*").unwrap()),
+        ];
+        assert_eq!(apply_filters(&RootRelativePath { inner: "README".to_string() }, &filters), FilterResult::Include);
+        assert_eq!(apply_filters(&RootRelativePath { inner: "build/file.o".to_string() }, &filters), FilterResult::Exclude);
+        assert_eq!(apply_filters(&RootRelativePath { inner: "git/hash".to_string() }, &filters), FilterResult::Exclude);
+        assert_eq!(apply_filters(&RootRelativePath { inner: "build/rob".to_string() }, &filters), FilterResult::Exclude);
+        assert_eq!(apply_filters(&RootRelativePath { inner: "build/output.exe".to_string() }, &filters), FilterResult::Include);
+        assert_eq!(apply_filters(&RootRelativePath { inner: "src/build/file.o".to_string() }, &filters), FilterResult::Exclude);
+        assert_eq!(apply_filters(&RootRelativePath { inner: "src/source.cpp".to_string() }, &filters), FilterResult::Include);
     }
 }

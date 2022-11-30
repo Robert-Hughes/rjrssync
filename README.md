@@ -173,15 +173,11 @@ TODO:
 Interface
 ----------
 
-* Each folder to be synced has list of include/exclude filters, applied in order (can mix and match include/exclude however you want)
-* --include X --exclude Y --include Z (what about spec file though?)
-* CHange filters so that they must match the whole path, not just any part
 * Could have some kind of hierarchy of filters, so can exclude something without continuing to evaluate other filters?
 * Perhaps could have hard/soft includes/excludes - soft would keep evaluating other filters which may change the decision, hard would stop evaluating and keep that as the final decision.
 * If a dir is excluded by the filters (after resolving all filters), then we don't walk inside that dir, so stuff inside it will be excluded *even if the filters would have matched them*. Document this?
 * --dry-run (and the same for -v) should make it clearer exactly what is being copied to where, e.g. give absolute paths. If there is a long path up to the root (or afterwards), could shorten it with ellipses, e.g. "Copying T:\work\...\bob\folder\...\thing.txt to X:\backups\...\newbackup\folder\...\thing.txt"
 * Option to override the "dest file is newer" error
-* Usage test for --spec file
 * Should filters expect to see trailing slashes on folder names or not?
 
 Remote launching
@@ -245,7 +241,7 @@ but they should just be for testing/investigation. Maybe should be a separate cr
 * On work PC this fails:
 `cargo run D:\TempSource\ robhug01@localhost:/home/robhug01/TempDest -v`
 ERROR | rjrssync::boss_frontend: Sync error: Unexpected response from dest GetEntries: Ok(Error("normalize_path failed: Illegal characters in path"))
-
+* Improve compile times. Is it the RustEmbed crate?
 
 
 Idea for filters, with re-usable "functions":
