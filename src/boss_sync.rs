@@ -81,11 +81,11 @@ struct Stats {
 
 /// Formats a path which is relative to the root, so that it is easier to understand for the user.
 /// Especially if path is empty (i.e. referring to the root itself)
-fn format_root_relative(path: &str, root: &str) -> String {
+fn format_root_relative(path: &RootRelativePath, root: &str) -> String {
     //TODO: include something that says whether this is the source or dest, rather than relying on outside code to do it?
     //TODO: limit length of string using ellipses e.g. "Copying T:\work\...\bob\folder\...\thing.txt to X:\backups\...\newbackup\folder\...\thing.txt"
     //TODO: the formatting here isn't quite right yet
-    if path.is_empty() {
+    if path.is_root() {
         format!("'({root})'")
     } else {
         format!("'({root}/){path}'")
@@ -265,13 +265,13 @@ pub fn sync(
                     stats.num_files_deleted += 1;
                     stats.num_bytes_deleted += dest_entry.size;
                     Command::DeleteFile {
-                        path: dest_entry.path.to_string(),
+                        path: dest_entry.path.clone(),
                     }
                 }
                 EntryType::Folder => {
                     stats.num_folders_deleted += 1;
                     Command::DeleteFolder {
-                        path: dest_entry.path.to_string(),
+                        path: dest_entry.path.clone(),
                     }
                 }
             };
@@ -338,7 +338,7 @@ pub fn sync(
                     if !dry_run {
                         dest_comms
                             .send_command(Command::CreateFolder {
-                                path: src_entry.path.to_string(),
+                                path: src_entry.path.clone(),
                             })
                             ?;
                         match dest_comms.receive_response() {
@@ -413,7 +413,7 @@ fn copy_file(
         trace!("Fetching from src {}", format_root_relative(&src_file.path, &src_root));
         src_comms
             .send_command(Command::GetFileContent {
-                path: src_file.path.to_string(),
+                path: src_file.path.clone(),
             })?;
         let data = match src_comms.receive_response() {
             Ok(Response::FileContent { data }) => data,
@@ -422,7 +422,7 @@ fn copy_file(
         trace!("Create/update on dest {}", format_root_relative(&src_file.path, &dest_root));
         dest_comms
             .send_command(Command::CreateOrUpdateFile {
-                path: src_file.path.to_string(),
+                path: src_file.path.clone(),
                 data,
                 set_modified_time: Some(src_file.modified_time),
             })?;

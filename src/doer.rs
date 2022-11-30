@@ -31,13 +31,7 @@ struct DoerCliArgs {
     log_filter: String,
 }
 
-/// Converts a platform-specific relative path (inside the source or dest root)
-/// to something that can be sent over our comms. We can't simply use PathBuf
-/// because the syntax of this path might differ between the boss and doer
-/// platforms (e.g. Windows vs Linux), and so the type might have different
-/// meaning/behaviour on each side.
-/// We instead convert a normalized representation using forward slashes (i.e. Unix-style).
-fn normalize_path(p: &Path) -> Result<String, String> {
+fn normalize_path(p: &Path) -> Result<RootRelativePath, String> {
     if p.is_absolute() {
         return Err("Must be relative".to_string());
     }
@@ -58,42 +52,72 @@ fn normalize_path(p: &Path) -> Result<String, String> {
         result += cs;
     }
 
-    Ok(result)
+    Ok(RootRelativePath { inner: result })
+}
+
+/// Converts a platform-specific relative path (inside the source or dest root)
+/// to something that can be sent over our comms. We can't simply use PathBuf
+/// because the syntax of this path might differ between the boss and doer
+/// platforms (e.g. Windows vs Linux), and so the type might have different
+/// meaning/behaviour on each side.
+/// We instead convert to a normalized representation using forward slashes (i.e. Unix-style).
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct RootRelativePath {
+    inner: String,
+}
+impl RootRelativePath {
+    /// Does this path refer to the root itself?
+    pub fn is_root(&self) -> bool {
+        self.inner.is_empty()
+    }
+
+    /// Gets the full path consisting of the root and this root-relative path.
+    pub fn get_full_path(&self, root: &Path) -> PathBuf {
+        if self.is_root() { root.to_path_buf() } else { root.join(&self.inner) }
+    }
+
+    /// Rather than exposing the inner string, expose just regex matching.
+    /// This reduces the risk of incorrect usage of the raw string value (e.g. by using
+    /// local-platform Path functions).
+    pub fn matches_regex(&self, r: &Regex) -> bool {
+        r.find(&self.inner).is_some()
+    }
+}
+impl Display for RootRelativePath {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.inner)
+    }
 }
 
 /// Commands are sent from the boss to the doer, to request something to be done.
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Command {
-    // Note we shouldn't use PathBufs, because the syntax of this path might differ between the boss and doer
-    // platforms (e.g. Windows vs Linux), and so the type might have different meaning/behaviour on each side.
-    //TODO: what format do we use then, do we need to convert between them??
-    
     // Checks the root file/folder and send back information about it,
     // as the boss may need to do something before we send it all the rest of the entries
     SetRoot {
-        root: String,
+        root: String, // Note this doesn't use a RootRelativePath as it isn't relative to the root - it _is_ the root!
     },
     GetEntries {
         exclude_filters: Vec<String>,
     },
     CreateRootAncestors,
     GetFileContent {
-        path: String,
+        path: RootRelativePath,
     },
     CreateOrUpdateFile {
-        path: String,
+        path: RootRelativePath,
         data: Vec<u8>,
         set_modified_time: Option<SystemTime>, //TODO: is this compatible between platforms, time zone changes, precision differences, etc. etc.
                                                //TODO: can we safely serialize this on one platform and deserialize on another?
     },
     CreateFolder {
-        path: String,
+        path: RootRelativePath,
     },
     DeleteFile {
-        path: String,
+        path: RootRelativePath,
     },
     DeleteFolder {
-        path: String,
+        path: RootRelativePath,
     },
     Shutdown,
 }
@@ -108,7 +132,7 @@ pub enum EntryType {
 //TODO: use an enum as folders don't have modified_time or size!
 #[derive(Serialize, Deserialize, Debug)]
 pub struct EntryDetails {
-    pub path: String,
+    pub path: RootRelativePath,
     pub entry_type: EntryType,
     pub modified_time: SystemTime, //TODO: is this compatible between platforms, time zone changes, precision differences, etc. etc.
     //TODO: can we safely serialize this on one platform and deserialize on another?
@@ -389,7 +413,7 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) 
             }
         }  
         Command::GetFileContent { path } => {
-            let full_path = if path.is_empty() { context.root.clone() } else { context.root.join(&path) };
+            let full_path =  path.get_full_path(&context.root);
             match std::fs::read(full_path) {
                 Ok(data) => comms.send_response(Response::FileContent { data }).unwrap(),
                 Err(e) => comms.send_response(Response::Error(format!("Error getting file content: {e}"))).unwrap(),
@@ -400,7 +424,7 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) 
             data,
             set_modified_time,
         } => {
-            let full_path = if path.is_empty() { context.root.clone() } else { context.root.join(&path) };
+            let full_path = path.get_full_path(&context.root);
             let r = std::fs::write(&full_path, data);
             if let Err(e) = r {
                 comms.send_response(Response::Error(format!("Error writing file contents to {}: {e}", full_path.display()))).unwrap();
@@ -421,21 +445,21 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) 
             comms.send_response(Response::Ack).unwrap();
         }
         Command::CreateFolder { path } => {
-            let full_path = if path.is_empty() { context.root.clone() } else { context.root.join(&path) };
+            let full_path =  path.get_full_path(&context.root);
             match std::fs::create_dir(full_path) {
                 Ok(()) => comms.send_response(Response::Ack).unwrap(),
                 Err(e) => comms.send_response(Response::Error(format!("Error creating folder: {e}"))).unwrap(),
             }
         }
         Command::DeleteFile { path } => {
-            let full_path = if path.is_empty() { context.root.clone() } else { context.root.join(&path) };
+            let full_path =  path.get_full_path(&context.root);
             match std::fs::remove_file(full_path) {
                 Ok(()) => comms.send_response(Response::Ack).unwrap(),
                 Err(e) => comms.send_response(Response::Error(format!("Error deleting file: {e}"))).unwrap(),
             }
         }
         Command::DeleteFolder { path } => {
-            let full_path = if path.is_empty() { context.root.clone() } else { context.root.join(&path) };
+            let full_path =  path.get_full_path(&context.root);
             match std::fs::remove_dir(full_path) {
                 Ok(()) => comms.send_response(Response::Ack).unwrap(),
                 Err(e) => comms.send_response(Response::Error(format!("Error deleting folder: {e}"))).unwrap(),
@@ -480,7 +504,7 @@ fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, exclude_filt
                     Err(e) => return Err(format!("normalize_path failed: {e}")),
                 };
 
-                if exclude_regexes.iter().any(|r| r.find(&path).is_some()) {
+                if exclude_regexes.iter().any(|r| path.matches_regex(r)) {
                     trace!("Skipping {} due to filter", path);
                     if e.file_type().is_dir() {
                         // Filtering a folder prevents iterating into child files/folders, so this is efficient.
@@ -509,7 +533,7 @@ fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, exclude_filt
                 };
 
                 let d = EntryDetails {
-                    path: path.to_string(),
+                    path,
                     entry_type,
                     modified_time,
                     size: metadata.len(),

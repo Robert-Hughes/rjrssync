@@ -174,6 +174,8 @@ Interface
 ----------
 
 * Each folder to be synced has list of include/exclude filters, applied in order (can mix and match include/exclude however you want)
+* --include X --exclude Y --include Z (what about spec file though?)
+* CHange filters so that they must match the whole path, not just any part
 * Could have some kind of hierarchy of filters, so can exclude something without continuing to evaluate other filters?
 * Perhaps could have hard/soft includes/excludes - soft would keep evaluating other filters which may change the decision, hard would stop evaluating and keep that as the final decision.
 * If a dir is excluded by the filters (after resolving all filters), then we don't walk inside that dir, so stuff inside it will be excluded *even if the filters would have matched them*. Document this?
