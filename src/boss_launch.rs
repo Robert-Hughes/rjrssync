@@ -7,6 +7,7 @@ use std::net::{TcpStream};
 use std::str::FromStr;
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
+use std::thread;
 use std::{
     fmt::{self, Display},
     io::{BufRead, BufReader, Write},
@@ -46,7 +47,7 @@ pub enum Comms {
 impl Comms {
     pub fn send_command(&mut self, c: Command) -> Result<(), String> {
         trace!("Sending command {:?} to {}", c, &self);
-        let res = 
+        let res =
             match self {
                 Comms::Local { sender, .. } => {
                     sender.send(c).map_err(|e| "Error sending on channel: ".to_string() + &e.to_string())
@@ -116,9 +117,10 @@ pub fn setup_comms(
         debug!("Spawning local thread for {} doer", debug_name);
         let (command_sender, command_receiver) = mpsc::channel();
         let (response_sender, response_receiver) = mpsc::channel();
-        let thread = std::thread::spawn(move || {
+        let thread_builder = thread::Builder::new().name(debug_name.clone());
+        let thread = thread_builder.spawn(move || {
             doer_thread_running_on_boss(command_receiver, response_sender)
-        });
+        }).unwrap();
         return Some(Comms::Local {
             debug_name: "Local ".to_string() + &debug_name + " doer",
             thread,
@@ -184,7 +186,7 @@ pub fn setup_comms(
                     }
                     Err(e) => {
                         error!("Failed to connect to network port: {}", e);
-                        return None;        
+                        return None;
                     }
                 };
 
@@ -219,7 +221,7 @@ fn remote_doer_logging_thread(mut stderr: BufReader<ChildStderr>) {
                         match log::Level::from_str(level_str) {
                             Ok(level) => log!(target: "remote doer", level, "{}", msg),
                             Err(_) => debug!(target: "remote doer", "{}", l),
-                        }                                        
+                        }
                     }
                     None => debug!(target: "remote doer", "{}", l),
                 }
@@ -380,7 +382,7 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str, remote_port_for
     // will be correct (relative to their ssh default dir, e.g. home dir)
     let doer_args = format!("--doer {} --port {}", log_arg, remote_port_for_comms);
     // Try launching using both Unix and Windows paths, as we don't know what the remote system is
-    // uname and ver are used to check the OS before attempting to run using that path, but we pipe 
+    // uname and ver are used to check the OS before attempting to run using that path, but we pipe
     // their result to /dev/null (or equivalent) so they don't appear in the output.
     // We run a command that doesn't print out anything on both Windows and Linux, so we don't pollute the output
     // (we show all output from ssh, in case it contains prompts etc. that are useful/required for the user to see).
@@ -425,18 +427,20 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str, remote_port_for
         Receiver<(OutputReaderStreamType, OutputReaderThreadMsg)>,
     ) = mpsc::channel();
     let sender2 = sender1.clone();
-    std::thread::spawn(move || {
+    let thread_builder = thread::Builder::new().name("ssh_stdout_reader".to_string());
+    thread_builder.spawn(move || {
         output_reader_thread_main(
             OutputReaderStream::Stdout(BufReader::new(ssh_stdout)),
             sender1,
         )
-    });
-    std::thread::spawn(move || {
+    }).unwrap();
+    let thread_builder = thread::Builder::new().name("ssh_stderr_reader".to_string());
+    thread_builder.spawn(move || {
         output_reader_thread_main(
             OutputReaderStream::Stderr(BufReader::new(ssh_stderr)),
             sender2,
         )
-    });
+    }).unwrap();
 
     // Wait for messages from the background threads which are reading stdout and stderr
     #[derive(Default)]
@@ -476,7 +480,7 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str, remote_port_for
                 // Generate and send a secret key, so that we can authenticate/encrypt the network connection
                 // Only do this once (when stdout has passed the version check, not on stderr too)
                 if stream_type == OutputReaderStreamType::Stdout {
-                    debug!("Sending secret key");                    
+                    debug!("Sending secret key");
                     // Note that we generate a new key for each doer, otherwise the nonces would be re-used with the same key
                     let key = Aes128Gcm::generate_key(&mut OsRng);
                     let mut msg = base64::encode(key).as_bytes().to_vec();
@@ -500,8 +504,8 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str, remote_port_for
                     return SshDoerLaunchResult::Success {
                         ssh_process,
                         stdin: ssh_stdin,
-                        stdout, 
-                        stderr, 
+                        stdout,
+                        stderr,
                         secret_key,
                     };
                 };
