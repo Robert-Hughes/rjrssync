@@ -121,30 +121,49 @@ pub enum Command {
     Shutdown,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
-pub enum EntryType {
-    File,
+/// Details of a file or folder.
+/// Note that this representation is consistent with the approach described in the README,
+/// and so doesn't consider the name of the node to be part of the node itself.
+#[derive(Serialize, Deserialize, Debug)]
+pub enum EntryDetails {
+    File {
+        modified_time: SystemTime,
+        size: u64
+    },
     Folder,
 }
+impl EntryDetails {
+    pub fn is_same_type(&self, other: &EntryDetails) -> bool {
+        match self {
+            EntryDetails::File { .. } => match other {
+                EntryDetails::File { .. } => true,
+                EntryDetails::Folder => false,
+            },
+            EntryDetails::Folder => match other {
+                EntryDetails::File { .. } => false,
+                EntryDetails::Folder => true,
+            },
+        }
+    }
+}
 
-/// Details of a file or folder.
-//TODO: use an enum as folders don't have modified_time or size!
-#[derive(Serialize, Deserialize, Debug)]
-pub struct EntryDetails {
-    pub path: RootRelativePath,
-    pub entry_type: EntryType,
-    pub modified_time: SystemTime,
-    pub size: u64
+/// Details of the root, returned from SetRoot.
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub enum RootDetails {
+    File,
+    Folder,
+    None
 }
 
 /// Responses are sent back from the doer to the boss to report on something, usually
 /// the result of a Command.
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Response {
-    RootDetails(Option<EntryType>),
+    RootDetails(RootDetails),
+
     // The result of GetEntries is split into lots of individual messages (rather than one big list)
     // so that the boss can start doing stuff before receiving the full list.
-    Entry(EntryDetails),
+    Entry((RootRelativePath, EntryDetails)),
     EndOfEntries,
 
     FileContent { data: Vec<u8> },
@@ -171,7 +190,7 @@ enum Comms {
 impl Comms {
     pub fn send_response(&mut self, r: Response) -> Result<(), String> {
         trace!("Sending response {:?} to {}", r, &self);
-        let res = 
+        let res =
             match self {
                 Comms::Local { sender, .. } => {
                     sender.send(r).map_err(|e| "Error sending on channel: ".to_string() + &e.to_string())
@@ -216,7 +235,7 @@ pub fn doer_main() -> ExitCode {
     let args = DoerCliArgs::parse();
 
     // Configure logging.
-    // Because the doer is launched via SSH, and on Windows there isn't an easy way of setting the 
+    // Because the doer is launched via SSH, and on Windows there isn't an easy way of setting the
     // RUST_LOG environment variable, we support configuring logging via a command-line arg, passed
     // from the boss.
     // Note that we can't use stdout as that is our communication channel with the boss.
@@ -283,7 +302,7 @@ pub fn doer_main() -> ExitCode {
     // We need to do this on both stdout and stderr, because both those streams need to be synchronised on the receiving end.
     println!("{}", HANDSHAKE_COMPLETED_MSG);
     eprintln!("{}", HANDSHAKE_COMPLETED_MSG);
-   
+
     // Wait for a connection from the boss
     let tcp_connection = match listener.accept() {
         Ok((socket, addr)) => {
@@ -365,12 +384,14 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) 
             // Store the root path for future operations
             context.root = PathBuf::from(root);
 
+            // Respond to the boss with what type of file/folder the root is, as it makes some decisions
+            // based on this.
             match std::fs::metadata(&context.root) {
                 Ok(m) => {
-                    let root_type = if m.file_type().is_dir() {
-                        EntryType::Folder
+                    let root_details = if m.file_type().is_dir() {
+                        RootDetails::Folder
                     } else if m.file_type().is_file() {
-                        EntryType::File
+                        RootDetails::File
                     } else {
                         comms.send_response(Response::Error(format!(
                                 "root has unknown type: {:?}", m
@@ -379,11 +400,11 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) 
                         return true;
                     };
 
-                    comms.send_response(Response::RootDetails(Some(root_type))).unwrap();
+                    comms.send_response(Response::RootDetails(root_details)).unwrap();
                 },
                 Err(e) if e.kind() == ErrorKind::NotFound => {
                     // Report this as a special error, as we handle it differently on the boss side
-                    comms.send_response(Response::RootDetails(None)).unwrap();
+                    comms.send_response(Response::RootDetails(RootDetails::None)).unwrap();
                     return true;
                 }
                 Err(e) => {
@@ -407,9 +428,9 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) 
                 match std::fs::create_dir_all(p) {
                     Ok(()) => comms.send_response(Response::Ack).unwrap(),
                     Err(e) => comms.send_response(Response::Error(format!("Error creating folder: {e}"))).unwrap(),
-                }           
+                }
             }
-        }  
+        }
         Command::GetFileContent { path } => {
             let full_path =  path.get_full_path(&context.root);
             match std::fs::read(full_path) {
@@ -511,33 +532,29 @@ fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, exclude_filt
                     continue;
                 }
 
-                let entry_type;
+                let d;
                 if e.file_type().is_dir() {
-                    entry_type = EntryType::Folder;
+                    d = EntryDetails::Folder;
                 } else if e.file_type().is_file() {
-                    entry_type = EntryType::File;
+                    let metadata = match e.metadata() {
+                        Ok(m) => m,
+                        Err(e) => return Err(format!("Unable to get metadata: {e}")),
+                    };
+
+                    let modified_time = match metadata.modified() {
+                        Ok(m) => m,
+                        Err(e) => return Err(format!("Unknown modified time: {e}")),
+                    };
+
+                    d = EntryDetails::File {
+                        modified_time,
+                        size: metadata.len(),
+                    };
                 } else {
                     return Err(format!("Unknown file type for {}: {:?}", path, e.file_type()));
                 }
 
-                let metadata = match e.metadata() {
-                    Ok(m) => m,
-                    Err(e) => return Err(format!("Unable to get metadata: {e}")),
-                };
-
-                let modified_time = match metadata.modified() {
-                    Ok(m) => m,
-                    Err(e) => return Err(format!("Unknown modified time: {e}")),
-                };
-
-                let d = EntryDetails {
-                    path,
-                    entry_type,
-                    modified_time,
-                    size: metadata.len(),
-                };
-
-                comms.send_response(Response::Entry(d)).unwrap();
+                comms.send_response(Response::Entry((path, d))).unwrap();
                 //                      if e.file_type().is_file() {
                 //                         let bytes = std::fs::read(e.path()).unwrap();
                 //                         let hash = md5::compute(&bytes);

@@ -1,6 +1,6 @@
 use std::{
     cmp::Ordering,
-    fmt::{Display, Write}, time::Instant,
+    fmt::{Display, Write}, time::{Instant, SystemTime},
 };
 
 use log::{debug, info, trace};
@@ -109,37 +109,36 @@ pub fn sync(
 
     // Source SetRoot
     src_comms.send_command(Command::SetRoot { root: src_root.to_string() })?;
-    let src_root_type = match src_comms.receive_response() {
-        Ok(Response::RootDetails(t)) => {
-            match t {
-                None => return Err(format!("src path '{src_root}' doesn't exist!")),
-                Some(t) => {
-                    if t == EntryType::File {
-                        // Referring to an existing file with a trailing slash is an error, because it implies
-                        // that the user thinks it is a folder, and so could lead to unwanted behaviour.
-                        // In some environments (e.g. Linux), this is caught on the doer side when it attempts to
-                        // get the metadata for the root, but on some environments it isn't caught (Windows, depending on the drive)
-                        // so we have to do our own check here.
-                        // Note that we can't use std::path::is_separator because this might be a remote path, so the current platform
-                        // is irrelevant
-                        if src_root.chars().last().unwrap() == '/' || src_root.chars().last().unwrap() == '\\' {
-                            return Err(format!("src path '{}' is a file but is referred to with a trailing slash.", src_root));
-                        }
+    let src_root_details = match src_comms.receive_response() {
+        Ok(Response::RootDetails(d)) => {
+            match d {
+                RootDetails::None => return Err(format!("src path '{src_root}' doesn't exist!")),
+                RootDetails::File => {
+                    // Referring to an existing file with a trailing slash is an error, because it implies
+                    // that the user thinks it is a folder, and so could lead to unwanted behaviour.
+                    // In some environments (e.g. Linux), this is caught on the doer side when it attempts to
+                    // get the metadata for the root, but on some environments it isn't caught (Windows, depending on the drive)
+                    // so we have to do our own check here.
+                    // Note that we can't use std::path::is_separator because this might be a remote path, so the current platform
+                    // is irrelevant
+                    if src_root.chars().last().unwrap() == '/' || src_root.chars().last().unwrap() == '\\' {
+                        return Err(format!("src path '{}' is a file but is referred to with a trailing slash.", src_root));
                     }
-                    t
-                }
-            }
+                },
+                RootDetails::Folder => (),  // Nothing special to do
+            };
+            d
         }
         r => return Err(format!("Unexpected response getting root details from src: {:?}", r)),
     };
 
     // Dest SetRoot
     dest_comms.send_command(Command::SetRoot { root: dest_root.to_string() })?;
-    let mut dest_root_type = match dest_comms.receive_response() {
-        Ok(Response::RootDetails(t)) => {
-            match t {
-                None => (), // Dest root doesn't exist, but that's fine (we will create it later)
-                Some(EntryType::File) => {
+    let mut dest_root_details = match dest_comms.receive_response() {
+        Ok(Response::RootDetails(d)) => {
+            match d {
+                RootDetails::None => (), // Dest root doesn't exist, but that's fine (we will create it later)
+                RootDetails::File => {
                     // Referring to an existing file with a trailing slash is an error, because it implies
                     // that the user thinks it is a folder, and so could lead to unwanted behaviour
                     // In some environments (e.g. Linux), this is caught on the doer side when it attempts to
@@ -151,9 +150,9 @@ pub fn sync(
                         return Err(format!("dest path '{}' is a file but is referred to with a trailing slash.", dest_root));
                     }
                 }
-                Some(EntryType::Folder) => (), // Nothing special to do
+                RootDetails::Folder => (), // Nothing special to do
             }
-            t
+            d
         }
         r => return Err(format!("Unexpected response getting root details from dest: {:?}", r)),
     };
@@ -166,14 +165,14 @@ pub fn sync(
     // Note that we can't use std::path::is_separator (or similar) because this might be a remote path, so the current platform
     // isn't appropriate.
     let dest_trailing_slash = last_dest_char == Some('/') || last_dest_char == Some('\\');
-    if src_root_type == EntryType::File && dest_trailing_slash {
+    if src_root_details == RootDetails::File && dest_trailing_slash {
         let src_filename = src_root.split(|c| c == '/' || c == '\\').last();
         if let Some(c) = src_filename {
             dest_root = dest_root.to_string() + c;
             debug!("Modified dest path to {}", dest_root);
 
             dest_comms.send_command(Command::SetRoot { root: dest_root.clone() })?;
-            dest_root_type = match dest_comms.receive_response() {
+            dest_root_details = match dest_comms.receive_response() {
                 Ok(Response::RootDetails(t)) => t,
                 r => return Err(format!("Unexpected response getting root details from dest: {:?}", r)),
             }
@@ -182,7 +181,7 @@ pub fn sync(
 
     // If the dest doesn't yet exist, make sure that all its ancestors are created, so that
     // when we come to create the dest path itself, it can succeed
-    if dest_root_type.is_none() {
+    if dest_root_details == RootDetails::None {
         dest_comms.send_command(Command::CreateRootAncestors)?;
         match dest_comms.receive_response() {
             Ok(Response::Ack) => (),
@@ -195,17 +194,17 @@ pub fn sync(
     src_comms.send_command(Command::GetEntries { exclude_filters: exclude_filters.to_vec() })?;
     loop {
         match src_comms.receive_response() {
-            Ok(Response::Entry(d)) => {
-                trace!("{:?}", d);
-                match d.entry_type {
-                    EntryType::File => {
+            Ok(Response::Entry((p, d))) => {
+                trace!("{}: {:?}", p, d);
+                match d {
+                    EntryDetails::File { size, .. } => {
                         stats.num_src_files += 1;
-                        stats.src_total_bytes += d.size;
-                        stats.src_file_size_hist.add(d.size);
+                        stats.src_total_bytes += size;
+                        stats.src_file_size_hist.add(size);
                     }
-                    EntryType::Folder => stats.num_src_folders += 1,
+                    EntryDetails::Folder => stats.num_src_folders += 1,
                 }
-                src_entries.push(d);
+                src_entries.push((p, d));
             }
             Ok(Response::EndOfEntries) => break,
             r => return Err(format!("Unexpected response getting entries from src: {:?}", r)),
@@ -216,20 +215,20 @@ pub fn sync(
     let mut dest_entries = Vec::new();
     // The dest might not exist yet, which is fine - continue anyway with an empty array of dest entries
     // and we will create the dest as part of the sync.
-    if dest_root_type.is_some() {
+    if dest_root_details != RootDetails::None {
         dest_comms.send_command(Command::GetEntries { exclude_filters: exclude_filters.to_vec() })?;
         loop {
             match dest_comms.receive_response() {
-                Ok(Response::Entry(d)) => {
-                    trace!("{:?}", d);
-                    match d.entry_type {
-                        EntryType::File => {
+                Ok(Response::Entry((p, d))) => {
+                    trace!("{}: {:?}", p, d);
+                    match d {
+                        EntryDetails::File { size, .. } => {
                             stats.num_dest_files += 1;
-                            stats.dest_total_bytes += d.size;
+                            stats.dest_total_bytes += size;
                         }
-                        EntryType::Folder => stats.num_dest_folders += 1,
+                        EntryDetails::Folder => stats.num_dest_folders += 1,
                     }
-                    dest_entries.push(d);
+                    dest_entries.push((p, d));
                 }
                 Ok(Response::EndOfEntries) => break,
                 r => return Err(format!("Unexpected response getting entries from dest: {:?}", r)),
@@ -255,24 +254,24 @@ pub fn sync(
     // (otherwise deleting the parent is harder/more risky - possibly would also have problems with
     // files being filtered so the folder is needed still as there are filtered-out files in there,
     // see test_remove_dest_folder_with_excluded_files())
-    for dest_entry in dest_entries.iter().rev() {
+    for (dest_path, dest_details) in dest_entries.iter().rev() {
         if !src_entries
             .iter()
-            .any(|f| f.path == dest_entry.path && f.entry_type == dest_entry.entry_type)
+            .any(|(p, d)| p == dest_path && d.is_same_type(dest_details))
         {
-            debug!("Deleting from dest {}", format_root_relative(&dest_entry.path, &dest_root));
-            let c = match dest_entry.entry_type {
-                EntryType::File => {
+            debug!("Deleting from dest {}", format_root_relative(&dest_path, &dest_root));
+            let c = match dest_details {
+                EntryDetails::File { size, .. } => {
                     stats.num_files_deleted += 1;
-                    stats.num_bytes_deleted += dest_entry.size;
+                    stats.num_bytes_deleted += size;
                     Command::DeleteFile {
-                        path: dest_entry.path.clone(),
+                        path: dest_path.clone(),
                     }
                 }
-                EntryType::Folder => {
+                EntryDetails::Folder => {
                     stats.num_folders_deleted += 1;
                     Command::DeleteFolder {
-                        path: dest_entry.path.clone(),
+                        path: dest_path.clone(),
                     }
                 }
             };
@@ -280,75 +279,81 @@ pub fn sync(
                 dest_comms.send_command(c)?;
                 match dest_comms.receive_response() {
                     Ok(doer::Response::Ack) => (),
-                    r => return Err(format!("Unexpected response from deletion of {} on dest: {:?}", 
-                        format_root_relative(&dest_entry.path, &dest_root), r)),
+                    r => return Err(format!("Unexpected response from deletion of {} on dest: {:?}",
+                        format_root_relative(&dest_path, &dest_root), r)),
                 };
             } else {
                 // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be deleted
-                info!("Would delete from dest {}", format_root_relative(&dest_entry.path, &dest_root));
+                info!("Would delete from dest {}", format_root_relative(&dest_path, &dest_root));
             }
         }
     }
 
     // Copy entries that don't exist, or do exist but are out-of-date.
     let copy_start = Instant::now();
-    for src_entry in src_entries {
+    for (src_path, src_details) in src_entries {
         match dest_entries
             .iter()
-            .find(|f| f.path == src_entry.path && f.entry_type == src_entry.entry_type)
+            .find(|(p, d)| *p == src_path && d.is_same_type(&src_details))
         {
-            Some(dest_entry) => {
+            Some((dest_path, dest_details)) => {
                 // Dest already has this entry - check if it is up-to-date
-                match src_entry.entry_type {
-                    EntryType::File => match src_entry.modified_time.cmp(&dest_entry.modified_time) {
-                        Ordering::Less => {
-                            return Err(format!(
-                                "Dest file {} is newer than src file {}. Will not overwrite.",
-                                format_root_relative(&dest_entry.path, &dest_root),
-                                format_root_relative(&src_entry.path, src_root)
-                            ));
-                        }
-                        Ordering::Equal => {
-                            trace!("Dest file {} has same modified time as src file {}. Will not update.",
-                                format_root_relative(&dest_entry.path, &dest_root),
-                                format_root_relative(&src_entry.path, src_root));
-                        }
-                        Ordering::Greater => {
-                            debug!("Source file {} is newer than dest file {}. Will copy.",
-                                format_root_relative(&src_entry.path, &src_root),
-                                format_root_relative(&dest_entry.path, &dest_root));
-                            copy_file(&src_entry, src_comms, dest_comms, &mut stats, dry_run, &src_root, &dest_root)?
+                match src_details {
+                    EntryDetails::File { size, modified_time: src_modified_time } => {
+                        let dest_modified_time = match dest_details {
+                            EntryDetails::File { modified_time, .. } => modified_time,
+                            _ => panic!("Wrong entry type"), // This should never happen as we check the type in the .find() above
+                        };
+                        match src_modified_time.cmp(&dest_modified_time) {
+                            Ordering::Less => {
+                                return Err(format!(
+                                    "Dest file {} is newer than src file {}. Will not overwrite.",
+                                    format_root_relative(&dest_path, &dest_root),
+                                    format_root_relative(&src_path, src_root)
+                                ));
+                            }
+                            Ordering::Equal => {
+                                trace!("Dest file {} has same modified time as src file {}. Will not update.",
+                                    format_root_relative(&dest_path, &dest_root),
+                                    format_root_relative(&src_path, src_root));
+                            }
+                            Ordering::Greater => {
+                                debug!("Source file {} is newer than dest file {}. Will copy.",
+                                    format_root_relative(&src_path, &src_root),
+                                    format_root_relative(&dest_path, &dest_root));
+                                copy_file(&src_path, size, src_modified_time, src_comms, dest_comms, &mut stats, dry_run, &src_root, &dest_root)?
+                            }
                         }
                     },
-                    EntryType::Folder => {
+                    EntryDetails::Folder => {
                         // Folders are always up-to-date
-                        trace!("Source folder {} already exists on dest {} - nothing to do", 
-                            format_root_relative(&src_entry.path, &src_root),
-                            format_root_relative(&dest_entry.path, &dest_root))
+                        trace!("Source folder {} already exists on dest {} - nothing to do",
+                            format_root_relative(&src_path, &src_root),
+                            format_root_relative(&dest_path, &dest_root))
                     }
                 }
             },
-            None => match src_entry.entry_type {
-                EntryType::File => {
-                    debug!("Source file {} file doesn't exist on dest - copying", format_root_relative(&src_entry.path, &src_root));
-                    copy_file(&src_entry, src_comms, dest_comms, &mut stats, dry_run, &src_root, &dest_root)?
+            None => match src_details {
+                EntryDetails::File { size, modified_time: src_modified_time } => {
+                    debug!("Source file {} file doesn't exist on dest - copying", format_root_relative(&src_path, &src_root));
+                    copy_file(&src_path, size, src_modified_time, src_comms, dest_comms, &mut stats, dry_run, &src_root, &dest_root)?
                 }
-                EntryType::Folder => {
-                    debug!("Source folder {} doesn't exist on dest - creating", format_root_relative(&src_entry.path, &src_root));
+                EntryDetails::Folder => {
+                    debug!("Source folder {} doesn't exist on dest - creating", format_root_relative(&src_path, &src_root));
                     stats.num_folders_created += 1;
                     if !dry_run {
                         dest_comms
                             .send_command(Command::CreateFolder {
-                                path: src_entry.path.clone(),
+                                path: src_path.clone(),
                             })
                             ?;
                         match dest_comms.receive_response() {
                             Ok(doer::Response::Ack) => (),
-                            x => return Err(format!("Unexpected response creating on dest {}: {:?}", format_root_relative(&src_entry.path, &dest_root), x)),
+                            x => return Err(format!("Unexpected response creating on dest {}: {:?}", format_root_relative(&src_path, &dest_root), x)),
                         };
                     } else {
                         // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be copied
-                        info!("Would create dest folder {}", format_root_relative(&src_entry.path, &dest_root));
+                        info!("Would create dest folder {}", format_root_relative(&src_path, &dest_root));
                     }
                 }
             },
@@ -402,7 +407,9 @@ pub fn sync(
 }
 
 fn copy_file(
-    src_file: &EntryDetails,
+    path: &RootRelativePath,
+    size: u64,
+    modified_time: SystemTime,
     src_comms: &mut Comms,
     dest_comms: &mut Comms,
     stats: &mut Stats,
@@ -411,36 +418,36 @@ fn copy_file(
     dest_root: &str,
 ) -> Result<(), String> {
     if !dry_run {
-        trace!("Fetching from src {}", format_root_relative(&src_file.path, &src_root));
+        trace!("Fetching from src {}", format_root_relative(&path, &src_root));
         src_comms
             .send_command(Command::GetFileContent {
-                path: src_file.path.clone(),
+                path: path.clone(),
             })?;
         let data = match src_comms.receive_response() {
             Ok(Response::FileContent { data }) => data,
-            x => return Err(format!("Unexpected response fetching {} from src: {:?}", format_root_relative(&src_file.path, &src_root), x)),
+            x => return Err(format!("Unexpected response fetching {} from src: {:?}", format_root_relative(&path, &src_root), x)),
         };
-        trace!("Create/update on dest {}", format_root_relative(&src_file.path, &dest_root));
+        trace!("Create/update on dest {}", format_root_relative(&path, &dest_root));
         dest_comms
             .send_command(Command::CreateOrUpdateFile {
-                path: src_file.path.clone(),
+                path: path.clone(),
                 data,
-                set_modified_time: Some(src_file.modified_time),
+                set_modified_time: Some(modified_time),
             })?;
         match dest_comms.receive_response() {
             Ok(doer::Response::Ack) => (),
-            x => return Err(format!("Unexpected response response creeating/updating on dest {}: {:?}", format_root_relative(&src_file.path, &dest_root), x)),
+            x => return Err(format!("Unexpected response response creeating/updating on dest {}: {:?}", format_root_relative(&path, &dest_root), x)),
         };
     } else {
         // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be copied
         info!("Would copy {} => {}",
-            format_root_relative(&src_file.path, &src_root),
-            format_root_relative(&src_file.path, &dest_root));
+            format_root_relative(&path, &src_root),
+            format_root_relative(&path, &dest_root));
     }
 
     stats.num_files_copied += 1;
-    stats.num_bytes_copied += src_file.size;
-    stats.copied_file_size_hist.add(src_file.size);
+    stats.num_bytes_copied += size;
+    stats.copied_file_size_hist.add(size);
 
     Ok(())
 }
