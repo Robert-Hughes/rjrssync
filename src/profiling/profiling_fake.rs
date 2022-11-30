@@ -13,7 +13,7 @@ macro_rules! profile_this {
 pub struct ProfilingData {
 }
 
+
 #[allow(dead_code)]
-fn dump_profiling_to_chrome(_: &ProfilingData, _: String) {
-    panic!();
+pub fn dump_all_profiling() {
 }

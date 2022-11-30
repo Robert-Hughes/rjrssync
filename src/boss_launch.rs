@@ -20,15 +20,13 @@ use tempdir::TempDir;
 
 use crate::*;
 
-use profiling::profiling::ProfilingData;
-
 /// Abstraction of two-way communication channel between this boss and a doer, which might be
 /// remote (communicating over an encrypted TCP connection) or local (communicating via a channel to a background thread).
 #[allow(clippy::large_enum_variant)]
 pub enum Comms {
     Local {
         debug_name: String, // To identify this Comms against others for debugging, when there are several
-        thread: Option<JoinHandle<ProfilingData>>,
+        thread: Option<JoinHandle<()>>,
         sender: Sender<Command>,
         receiver: Receiver<Response>,
     },
