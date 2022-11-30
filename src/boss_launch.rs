@@ -25,7 +25,7 @@ use crate::*;
 pub enum Comms {
     Local {
         debug_name: String, // To identify this Comms against others for debugging, when there are several
-        thread: JoinHandle<()>,
+        thread: Option<JoinHandle<()>>,
         sender: Sender<Command>,
         receiver: Receiver<Response>,
     },
@@ -63,6 +63,7 @@ impl Comms {
     }
 
     pub fn receive_response(&mut self) -> Result<Response, String> {
+        profile_this!();
         trace!("Waiting for response from {}", &self);
         let res = match self {
             Comms::Local { receiver, .. } => {
@@ -94,6 +95,10 @@ impl Drop for Comms {
     fn drop(&mut self) {
         // There's not much we can do about an error here, other than log it, which send_command already does, so we ignore any error.
         let _ = self.send_command(Command::Shutdown);
+        // Join threads so that they're properly cleaned up including the profiling data
+        if let Comms::Local { thread , ..} = self {
+            thread.take().unwrap().join().unwrap();
+        }
     }
 }
 
@@ -123,7 +128,7 @@ pub fn setup_comms(
         }).unwrap();
         return Some(Comms::Local {
             debug_name: "Local ".to_string() + &debug_name + " doer",
-            thread,
+            thread: Some(thread),
             sender: command_sender,
             receiver: response_receiver,
         });

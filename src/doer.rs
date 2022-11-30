@@ -16,6 +16,7 @@ use std::{
 use walkdir::WalkDir;
 
 use crate::*;
+use crate::profile_this;
 
 #[derive(clap::Parser)]
 struct DoerCliArgs {
@@ -439,6 +440,7 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) 
             }
         }
         Command::GetEntries { filters } => {
+            profile_this!("GetEntries");
             if let Err(e) = handle_get_entries(comms, context, &filters) {
                 comms.send_response(Response::Error(e)).unwrap();
             }
@@ -447,6 +449,7 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) 
             let path_to_create = context.root.parent();
             trace!("Creating {:?} and all its ancestors", path_to_create);
             if let Some(p) = path_to_create {
+                profile_this!("CreateRootAncestors", p.to_str().unwrap().to_string());
                 match std::fs::create_dir_all(p) {
                     Ok(()) => comms.send_response(Response::Ack).unwrap(),
                     Err(e) => comms.send_response(Response::Error(format!("Error creating folder and ancestors for '{}': {e}", p.display()))).unwrap(),
@@ -456,6 +459,7 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) 
         Command::GetFileContent { path } => {
             let full_path = path.get_full_path(&context.root);
             trace!("Getting content of '{}'", full_path.display());
+            profile_this!("GetFileContent", path.to_string());
             match std::fs::read(&full_path) {
                 Ok(data) => comms.send_response(Response::FileContent { data }).unwrap(),
                 Err(e) => comms.send_response(Response::Error(format!("Error getting file content of '{}': {e}", full_path.display()))).unwrap(),
@@ -468,6 +472,7 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) 
         } => {
             let full_path = path.get_full_path(&context.root);
             trace!("Creating/updating content of '{}'", full_path.display());
+            profile_this!("CreateOrUpdateFile", path.to_string());
             let r = std::fs::write(&full_path, data);
             if let Err(e) = r {
                 comms.send_response(Response::Error(format!("Error writing file contents to '{}': {e}", full_path.display()))).unwrap();
@@ -491,6 +496,7 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) 
         Command::CreateFolder { path } => {
             let full_path =  path.get_full_path(&context.root);
             trace!("Creating folder '{}'", full_path.display());
+            profile_this!("CreateFolder", full_path.to_str().unwrap().to_string());
             match std::fs::create_dir(&full_path) {
                 Ok(()) => comms.send_response(Response::Ack).unwrap(),
                 Err(e) => comms.send_response(Response::Error(format!("Error creating folder '{}': {e}", full_path.display()))).unwrap(),
@@ -499,6 +505,7 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) 
         Command::DeleteFile { path } => {
             let full_path =  path.get_full_path(&context.root);
             trace!("Deleting file '{}'", full_path.display());
+            profile_this!("DeleteFile", path.to_string());
             match std::fs::remove_file(&full_path) {
                 Ok(()) => comms.send_response(Response::Ack).unwrap(),
                 Err(e) => comms.send_response(Response::Error(format!("Error deleting file '{}': {e}", full_path.display()))).unwrap(),
@@ -507,6 +514,7 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) 
         Command::DeleteFolder { path } => {
             let full_path =  path.get_full_path(&context.root);
             trace!("Deleting folder '{}'", full_path.display());
+            profile_this!("DeleteFolder", path.to_string());
             match std::fs::remove_dir(&full_path) {
                 Ok(()) => comms.send_response(Response::Ack).unwrap(),
                 Err(e) => comms.send_response(Response::Error(format!("Error deleting folder '{}': {e}", full_path.display()))).unwrap(),

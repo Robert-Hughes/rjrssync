@@ -5,6 +5,7 @@ mod boss_frontend;
 mod boss_sync;
 mod doer;
 mod encrypted_comms;
+mod profiling;
 
 use boss_launch::*;
 use boss_frontend::*;
