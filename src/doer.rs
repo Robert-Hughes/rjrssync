@@ -31,7 +31,6 @@ struct DoerCliArgs {
     log_filter: String,
 }
 
-//TODO: unit tests for this
 fn normalize_path(p: &Path) -> Result<RootRelativePath, String> {
     if p.is_absolute() {
         return Err("Must be relative".to_string());
@@ -570,5 +569,26 @@ mod tests {
         let x = normalize_path(Path::new(""));
         assert_eq!(x, Ok(RootRelativePath { inner: "".to_string() }));
         assert_eq!(x.unwrap().is_root(), true);
+    }
+
+    #[test]
+    fn test_normalize_path_absolute() {
+        let x = if cfg!(windows) {
+            "C:\\Windows"
+        } else {
+            "/etc/hello"
+        };
+        assert_eq!(normalize_path(Path::new(x)), Err("Must be relative".to_string()));
+    }
+
+    #[cfg(unix)] // This test isn't possible on Windows, because both kinds of slashes are valid separators
+    #[test]
+    fn test_normalize_path_slashes_in_component() {
+        assert_eq!(normalize_path(Path::new("a path with\\backslashes/adsa")), Err("Illegal characters in path".to_string()));
+    }
+
+    #[test]
+    fn test_normalize_path_multiple_components() {
+        assert_eq!(normalize_path(Path::new("one/two/three")), Ok(RootRelativePath { inner: "one/two/three".to_string() }));
     }
 }
