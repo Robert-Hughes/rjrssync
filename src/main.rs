@@ -19,9 +19,9 @@ pub const VERSION: i32 = 49;
 // Note that this format needs to always be backwards-compatible, so is very basic.
 pub const HANDSHAKE_STARTED_MSG: &str = "rjrssync doer v"; // Version number will be appended
 
-// Message sent by the doer back to the boss to indicate that it has received the secret key and 
+// Message sent by the doer back to the boss to indicate that it has received the secret key and
 // is listening on a network port for a connection,
-pub const HANDSHAKE_COMPLETED_MSG: &str = "Waiting for incoming network connection"; 
+pub const HANDSHAKE_COMPLETED_MSG: &str = "Waiting for incoming network connection";
 
 pub const REMOTE_TEMP_UNIX: &str = "/tmp/";
 pub const REMOTE_TEMP_WINDOWS: &str = r"%TEMP%\";
