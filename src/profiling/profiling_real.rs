@@ -276,7 +276,8 @@ fn map_profiling_to_string() -> HashMap<&'static str, u32> {
         ("exec_command DeleteFolder", 7),
         ("send Serialize", 8),
         ("send Encrypt", 9),
-        ("send Tcp_Write", 10),
+        ("send Tcp Write", 10),
         ("receive_response", 11),
+        ("send", 12),
     ])
 }
