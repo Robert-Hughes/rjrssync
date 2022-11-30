@@ -667,6 +667,7 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> 
     match std::process::Command::new("ssh")
         .arg("-t") // This fixes issues with line endings getting messed up after ssh exits 
         //TODO: but it seems to mess up line endings etc. when running remote_tests with --nocapture! on windows at least, and breaks the tests entirely!
+        // - maybe should just capture the output (piped) and then re-print it ourselves (like we do for the other ssh command), that might sort all these issues out?
         .arg(user_prefix + remote_hostname)
         .arg(remote_command)
         .status()
