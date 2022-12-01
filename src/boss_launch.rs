@@ -2,6 +2,7 @@ use aes_gcm::aead::{OsRng};
 use aes_gcm::{Aes128Gcm, KeyInit, Key};
 use log::{debug, error, info, warn, log, trace};
 use rust_embed::RustEmbed;
+use std::ffi::OsStr;
 use std::io::LineWriter;
 use std::net::{TcpStream};
 use std::str::FromStr;
@@ -595,27 +596,25 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> 
     }
 
     // Determine if the target system is Windows or Linux, so that we know where to copy our files to
+    // We capture and then forward stdout and stderr, so the user can see what's happening and if there are any errors.
+    // Simply letting the child process inherit out stdout/stderr seems to cause problems with line endings getting messed
+    // up and losing output, and unwanted clearing of the screen.
+    // This is especially important if using --force-redeploy on a broken remote, as you don't see any errors from the initial 
+    // attempt to connect either
     let remote_command = "uname || ver"; // uname for Linux, ver for Windows
     debug!("Running remote command: {}", remote_command);
-    let os_test_output = match std::process::Command::new("ssh")
-        .arg(user_prefix.clone() + remote_hostname)
-        .arg(remote_command)
-        .output()
-    {
+    let os_test_output = match run_process_with_live_output("ssh", &[user_prefix.clone() + remote_hostname, remote_command.to_string()]) {
         Err(e) => {
-            error!("Error launching ssh: {}", e);
+            error!("Error running ssh: {}", e);
             return Err(());
         }
-        Ok(output) if output.status.success() => {
-            String::from_utf8_lossy(&output.stdout).to_string()
-        }
+        Ok(output) if output.exit_status.success() => output.stdout,
         Ok(output) => {
-            //TODO: if this fails, we don't print the stdout or stderr, so the user won't see why.
-            // This is especially important if using --force-redeploy on a broken remote, as you don't see any errors from the initial attempt to connect either
-            error!("Error checking remote OS. Exit status from ssh: {}", output.status);
+            error!("Error checking remote OS. Exit status from ssh: {}", output.exit_status);
             return Err(());
         }
     };
+
     // We could check for "linux" in the string, but there are other Unix systems we might want to supoprt e.g. Mac,
     // so we fall back to Linux as a default
     let is_windows = os_test_output.contains("Windows");
@@ -623,7 +622,9 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> 
     // Deploy to remote target using scp
     // Note we need to deal with the case where the the remote folder doesn't exist, and the case where it does, so
     // we copy into /tmp (which should always exist), rather than directly to /tmp/rjrssync which may or may not
-    // We leave stdout and stderr to inherit, so the user can see what's happening and if there are any errors
+    // We capture and then forward stdout and stderr, so the user can see what's happening and if there are any errors.
+    // Simply letting the child process inherit out stdout/stderr seems to cause problems with line endings getting messed
+    // up and losing output, and unwanted clearing of the screen.
     let source_spec = local_temp_dir.path().join("rjrssync");
     let remote_temp = if is_windows {
         REMOTE_TEMP_WINDOWS
@@ -655,7 +656,9 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> 
     // Note that we could merge this ssh command with the one to run the program once it's built (in launch_doer_via_ssh),
     // but this would make error reporting slightly more difficult as the command in launch_doer_via_ssh is more tricky as
     // we are parsing the stdout, but for the command here we can wait for it to finish easily.
-    // We leave stdout and stderr to inherit, so the user can see what's happening and if there are any errors
+    // We capture and then forward stdout and stderr, so the user can see what's happening and if there are any errors.
+    // Simply letting the child process inherit out stdout/stderr seems to cause problems with line endings getting messed
+    // up and losing output, and unwanted clearing of the screen.
     let cargo_command = "cargo build --release";
     let remote_command = if is_windows {
         format!("cd /d {REMOTE_TEMP_WINDOWS}\\rjrssync && {cargo_command}")
@@ -687,3 +690,116 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> 
 
     Ok(())
 }
+
+struct ProcessOutput {
+    exit_status: std::process::ExitStatus,
+    stdout: String,
+    stderr: String,
+}
+
+/// Runs a child processes and waits for it to exit. The stdout and stderr of the child process
+/// are captured and forwarded to our own, with a prefix to indicate that they're from the child.
+fn run_process_with_live_output<I, S>(program: &str, args: I) -> Result<ProcessOutput, String>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr> 
+{
+    let mut child = match std::process::Command::new(program)
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) => return Err(format!("Error launching {}: {}", program, e)),
+    };
+
+    // unwrap is fine here, as the streams should always be available as we piped them all
+    let child_stdout = child.stdout.take().unwrap();
+    let child_stderr = child.stderr.take().unwrap();
+ 
+    // Spawn a background thread for each stdout and stderr, to process messages we get from the child
+    // and forward them to the main thread. This is easier than some kind of async IO stuff.
+    let (sender1, receiver): (
+        Sender<OutputReaderThreadMsg2>,
+        Receiver<OutputReaderThreadMsg2>,
+    ) = mpsc::channel();
+    let sender2 = sender1.clone();
+    let thread_builder = thread::Builder::new().name("child_stdout_reader".to_string());
+    thread_builder.spawn(move || {
+        output_reader_thread_main2(child_stdout, OutputReaderStreamType::Stdout, sender1)
+    }).unwrap();
+    let thread_builder = thread::Builder::new().name("child_stderr_reader".to_string());
+    thread_builder.spawn(move || {
+        output_reader_thread_main2(child_stderr, OutputReaderStreamType::Stderr, sender2)
+    }).unwrap();
+
+    let mut captured_stdout = String::new();
+    let mut captured_stderr = String::new();
+    loop {
+        match receiver.recv() {
+            Ok(OutputReaderThreadMsg2::Line(stream_type, l)) => {
+                // Show output to the user, as this might be useful/necessary
+                info!("{} {}: {}", program, stream_type, l);
+                match stream_type {
+                    OutputReaderStreamType::Stdout => captured_stdout += &(l + "\n"),
+                    OutputReaderStreamType::Stderr => captured_stderr += &(l + "\n"),
+                }
+            }
+            Ok(OutputReaderThreadMsg2::Error(stream_type, e)) => {
+                return Err(format!("Error reading from {} {}: {}", program, stream_type, e));
+            }
+            Ok(OutputReaderThreadMsg2::StreamClosed(stream_type)) => {
+                debug!("{} {} closed", program, stream_type);
+            }
+            Err(RecvError) => {
+                // Both senders have been dropped, i.e. both background threads exited
+                debug!("Both reader threads done, child process must have exited. Waiting for process.");
+                // Wait for the process to exit, to get the exit code
+                let result = match child.wait() {
+                    Ok(r) => r,
+                    Err(e) => return Err(format!("Error waiting for {}: {}", program, e)),
+                };
+                return Ok (ProcessOutput { exit_status: result, stdout: captured_stdout, stderr: captured_stderr });
+            }
+        }
+    }
+}
+
+// Sent from the threads reading stdout and stderr of a child process back to the main thread.
+enum OutputReaderThreadMsg2 {
+    Line(OutputReaderStreamType, String),
+    Error(OutputReaderStreamType, std::io::Error),
+    StreamClosed(OutputReaderStreamType),
+}
+
+fn output_reader_thread_main2<S>(
+    stream: S,
+    stream_type: OutputReaderStreamType,
+    sender: Sender<OutputReaderThreadMsg2>,
+) -> Result<(), SendError<OutputReaderThreadMsg2>> 
+where S : std::io::Read {
+    let mut reader = BufReader::new(stream);
+    loop {
+        let mut l: String = "".to_string();
+        // Note we ignore errors on the sender here, as the other end should never have been dropped while it still cares
+        // about our messages, but may have dropped if they abandon the child process, letting it finish itself.
+        match reader.read_line(&mut l) {
+            Err(e) => {
+                sender.send(OutputReaderThreadMsg2::Error(stream_type, e))?;
+                return Ok(());
+            }
+            Ok(0) => {
+                // end of stream
+                sender.send(OutputReaderThreadMsg2::StreamClosed(stream_type))?;
+                return Ok(());
+            }
+            Ok(_) => {
+                l.pop(); // Remove the trailing newline
+                // A line of other content, for example a prompt or error from ssh itself
+                sender.send(OutputReaderThreadMsg2::Line(stream_type, l))?;
+            }
+        }
+    }
+}
+
