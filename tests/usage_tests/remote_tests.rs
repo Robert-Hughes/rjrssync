@@ -7,6 +7,7 @@ use crate::test_framework::{run, TestDesc, empty_folder};
 /// to be set up (e.g. firewalls configured, remote hosts configured), and
 /// a Windows and Linux remote hostname are required.
 /// One way of achieving this is to use WSL.
+//TODO: default configuration based on WSL? (so it's easier for developers)
 
 /// Tests that rjrssync can be launched on a remote platform, and communication is estabilished.
 /// There is no proper sync performed (just syncing an empty folder), but this checks that

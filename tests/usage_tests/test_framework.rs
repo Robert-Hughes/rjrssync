@@ -1,4 +1,6 @@
-use std::{path::{Path, PathBuf}, time::{SystemTime}, collections::HashMap, os::windows::fs::FileTypeExt};
+use std::{path::{Path, PathBuf}, time::{SystemTime}, collections::HashMap};
+#[cfg(windows)]
+use std::os::windows::fs::FileTypeExt;
 
 use regex::Regex;
 use tempdir::TempDir;
@@ -68,10 +70,15 @@ fn save_filesystem_node_to_disk(node: &FilesystemNode, path: &Path) {
             }
         }
         FilesystemNode::SymlinkFile { target, modified } => {
-            std::os::windows::fs::symlink_file(target, path).expect("Failed to create symlink file");
-            filetime::set_symlink_file_times(path, 
-                filetime::FileTime::from_system_time(*modified), 
-                filetime::FileTime::from_system_time(*modified)).unwrap();
+            #[cfg(windows)]
+            {
+                std::os::windows::fs::symlink_file(target, path).expect("Failed to create symlink file");
+                filetime::set_symlink_file_times(path, 
+                    filetime::FileTime::from_system_time(*modified), 
+                    filetime::FileTime::from_system_time(*modified)).unwrap();
+            }
+            #[cfg(not(windows))]
+            panic!("Not supported on this OS");
         }
     }
 }
@@ -101,6 +108,7 @@ fn load_filesystem_node_from_disk(path: &Path) -> Option<FilesystemNode> {
         Some(FilesystemNode::Folder { children })
     } else if metadata.file_type().is_symlink() {
         // On Windows, symlinks are either file-symlinks or dir-symlinks
+        #[cfg(windows)]
         if metadata.file_type().is_symlink_file() {
             let target = std::fs::read_link(path).expect("Unable to read symlink target");
             let modified = metadata.modified().expect("Unable to get modified time");
@@ -108,6 +116,8 @@ fn load_filesystem_node_from_disk(path: &Path) -> Option<FilesystemNode> {
         } else {
             panic!("Unknown file type");
         }
+        #[cfg(not(windows))]
+        panic!("Not supported on this OS");
     } else {
         panic!("Unknown file type");
     }
