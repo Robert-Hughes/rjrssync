@@ -191,10 +191,10 @@ pub fn sync(
         }
     }
 
-    // Fetch all the entries for the source path.
-    // Do this on a separate thread so it can be done in parallel with fetching the dest entries for speed
-    //TODO: all sorts of proper error handling rather then unwrap
-    let thread_result : Result<(Vec<(doer::RootRelativePath, doer::EntryDetails)>, HashMap<doer::RootRelativePath, doer::EntryDetails>, &mut boss_launch::Comms, Vec<(doer::RootRelativePath, doer::EntryDetails)>, HashMap<doer::RootRelativePath, doer::EntryDetails>, &mut boss_launch::Comms), String> = thread::scope(|scope| {
+    // Fetch all the entries for the source path and the dest path
+    // Do these each on a separate thread so they can be done in parallel with each other
+    let thread_result : Result<_, String> = thread::scope(|scope| {
+        // Source GetEntries
         let src_thread = thread::Builder::new()
             .name("src_entries_fetching_thread".to_string())
             .spawn_scoped(scope, ||
@@ -222,10 +222,9 @@ pub fn sync(
                 }
             }
             Ok((src_entries, src_entries_lookup, src_comms))
-        }).unwrap();
+        }).expect("OS error spawning a thread");
 
-        // Fetch all the entries for the dest path
-        // Do this on a separate thread so it can be done in parallel with fetching the src entries for speed
+        // Dest GetEntries
         let dest_thread = thread::Builder::new()
             .name("dest_entries_fetching_thread".to_string())
             .spawn_scoped(scope, ||
@@ -256,10 +255,11 @@ pub fn sync(
                 }
             }
             Ok((dest_entries, dest_entries_lookup, dest_comms))
-        }).unwrap();
+        }).expect("OS error spawning a thread");
 
-        let (src_entries, src_entries_lookup, src_comms) = src_thread.join().unwrap().unwrap();
-        let (dest_entries, dest_entries_lookup, dest_comms) = dest_thread.join().unwrap().unwrap();
+        // Wait for both threads to finish, and pass the results back to the main thread.
+        let (src_entries, src_entries_lookup, src_comms) = src_thread.join().expect("Thread panicked")?;
+        let (dest_entries, dest_entries_lookup, dest_comms) = dest_thread.join().expect("Thread panicked")?;
 
         Ok((src_entries, src_entries_lookup, src_comms, dest_entries, dest_entries_lookup, dest_comms))
     });
