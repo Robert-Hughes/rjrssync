@@ -61,7 +61,7 @@ fn normalize_path(p: &Path) -> Result<RootRelativePath, String> {
 /// platforms (e.g. Windows vs Linux), and so the type might have different
 /// meaning/behaviour on each side.
 /// We instead convert to a normalized representation using forward slashes (i.e. Unix-style).
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RootRelativePath {
     inner: String,
 }
@@ -138,7 +138,7 @@ pub enum Command {
 /// Details of a file or folder.
 /// Note that this representation is consistent with the approach described in the README,
 /// and so doesn't consider the name of the node to be part of the node itself.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum EntryDetails {
     File {
         modified_time: SystemTime,
