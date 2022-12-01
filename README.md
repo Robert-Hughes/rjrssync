@@ -187,7 +187,6 @@ Remote launching
 * SSH host key verification prompt doesn't echo the user's typing, but it does seem to work anyway
 * Sometimes remote processes are left orphaned, preventing new ones from listening on the same port
 * Using temporary dir means that rebooting the remote will mean we have to rebuild from scratch (on Linux)
-* sshpass seems to cause problems when deploying
 
 
 Syncing logic
