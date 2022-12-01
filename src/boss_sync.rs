@@ -193,8 +193,9 @@ pub fn sync(
 
     // Fetch all the entries for the source path.
     // Do this on a separate thread so it can be done in parallel with fetching the dest entries for speed
-    let thread_result = thread::scope(|scope| {
-        let thread = thread::Builder::new()
+    //TODO: all sorts of proper error handling rather then unwrap
+    let thread_result : Result<(Vec<(doer::RootRelativePath, doer::EntryDetails)>, HashMap<doer::RootRelativePath, doer::EntryDetails>, &mut boss_launch::Comms, Vec<(doer::RootRelativePath, doer::EntryDetails)>, HashMap<doer::RootRelativePath, doer::EntryDetails>, &mut boss_launch::Comms), String> = thread::scope(|scope| {
+        let src_thread = thread::Builder::new()
             .name("src_entries_fetching_thread".to_string())
             .spawn_scoped(scope, ||
         {
@@ -222,15 +223,10 @@ pub fn sync(
             }
             Ok((src_entries, src_entries_lookup, src_comms))
         }).unwrap();
-        thread.join()
-    });
-    let (src_entries, src_entries_lookup, src_comms) = thread_result.unwrap()?;
 
-
-    // Fetch all the entries for the dest path
-    // Do this on a separate thread so it can be done in parallel with fetching the src entries for speed
-    let thread_result = thread::scope(|scope| {
-        let thread = thread::Builder::new()
+        // Fetch all the entries for the dest path
+        // Do this on a separate thread so it can be done in parallel with fetching the src entries for speed
+        let dest_thread = thread::Builder::new()
             .name("dest_entries_fetching_thread".to_string())
             .spawn_scoped(scope, ||
         {
@@ -261,9 +257,13 @@ pub fn sync(
             }
             Ok((dest_entries, dest_entries_lookup, dest_comms))
         }).unwrap();
-        thread.join()
+
+        let (src_entries, src_entries_lookup, src_comms) = src_thread.join().unwrap().unwrap();
+        let (dest_entries, dest_entries_lookup, dest_comms) = dest_thread.join().unwrap().unwrap();
+
+        Ok((src_entries, src_entries_lookup, src_comms, dest_entries, dest_entries_lookup, dest_comms))
     });
-    let (dest_entries, dest_entries_lookup, dest_comms) = thread_result.unwrap()?;
+    let (src_entries, src_entries_lookup, src_comms, dest_entries, dest_entries_lookup, dest_comms) = thread_result?;
 
 
     let query_elapsed = sync_start.elapsed().as_secs_f32();
