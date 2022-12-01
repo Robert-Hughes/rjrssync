@@ -10,7 +10,7 @@ mod profiling;
 use boss_frontend::*;
 use boss_launch::*;
 use doer::*;
-use profiling::profiling::*;
+use profiling::*;
 
 pub const VERSION: i32 = 51;
 
