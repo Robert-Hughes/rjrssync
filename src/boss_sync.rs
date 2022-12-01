@@ -104,6 +104,8 @@ pub fn sync(
 ) -> Result<(), String> {
     let mut stats = Stats::default();
 
+    let sync_start = Instant::now();
+
     // First get details of the root file/folder etc. of each side, as this might affect the sync
     // before we start it (e.g. errors, or changing the dest root)
 
@@ -236,6 +238,8 @@ pub fn sync(
         }
     }
 
+    let query_elapsed = sync_start.elapsed().as_secs_f32();
+
     if show_stats {
         info!("Source: {} file(s) totalling {} bytes and {} folder(s) => Dest: {} file(s) totalling {} bytes and {} folder(s)",
             stats.num_src_files.separate_with_commas(),
@@ -246,6 +250,7 @@ pub fn sync(
             stats.num_dest_folders.separate_with_commas());
         info!("Source file size distribution:");
         info!("{}", stats.src_file_size_hist);
+        info!("Queried in {} seconds", query_elapsed);
     }
 
     // Delete dest entries that don't exist on the source. This needs to be done first in case there
@@ -254,6 +259,7 @@ pub fn sync(
     // (otherwise deleting the parent is harder/more risky - possibly would also have problems with
     // files being filtered so the folder is needed still as there are filtered-out files in there,
     // see test_remove_dest_folder_with_excluded_files())
+    let delete_start = Instant::now();
     for (dest_path, dest_details) in dest_entries.iter().rev() {
         if !src_entries
             .iter()
@@ -288,6 +294,7 @@ pub fn sync(
             }
         }
     }
+    let delete_elapsed = delete_start.elapsed().as_secs_f32();
 
     // Copy entries that don't exist, or do exist but are out-of-date.
     let copy_start = Instant::now();
@@ -365,16 +372,19 @@ pub fn sync(
     // Note that we print all the stats at the end (even though we could print the delete stats earlier),
     // so that they are together in the output (e.g. for dry run or --verbose, they could be a lot of other
     // messages between them)
-    if stats.num_files_deleted + stats.num_folders_deleted > 0 {
+    if (stats.num_files_deleted + stats.num_folders_deleted > 0) || show_stats {
         info!(
-            "{} {} file(s){} and {} folder(s)",
+            "{} {} file(s){} and {} folder(s){}",
             if !dry_run { "Deleted" } else { "Would delete" },
             stats.num_files_deleted.separate_with_commas(),
             if show_stats { format!(" totalling {} bytes", stats.num_bytes_deleted.separate_with_commas()) } else { "".to_string() },
-            stats.num_folders_deleted.separate_with_commas()
+            stats.num_folders_deleted.separate_with_commas(),
+            if !dry_run && show_stats {
+                format!(", in {:.1} seconds", delete_elapsed)
+            } else { "".to_string() },
         );
     }
-    if stats.num_files_copied + stats.num_folders_created > 0 {
+    if (stats.num_files_copied + stats.num_folders_created > 0) || show_stats {
         info!(
             "{} {} file(s){} and {} {} folder(s){}",
             if !dry_run { "Copied" } else { "Would copy" },
