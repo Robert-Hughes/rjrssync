@@ -4,7 +4,6 @@ use std::{
     cell::RefCell,
     collections::HashMap,
     fs::File,
-    io::Write,
     sync::Mutex,
     time::{Duration, Instant},
 };
@@ -120,22 +119,23 @@ impl Drop for Timer {
 impl Drop for ProfilingData {
     fn drop(&mut self) {
         let thread_name = std::thread::current().name().unwrap().to_string();
-        trace!(
-            "Dumping profiling data to profiling_data/{}.json",
-            thread_name
-        );
-        std::fs::create_dir_all("profiling_data")
-            .expect("Failed to create profiling data directory");
-        let file = File::create("profiling_data/".to_string() + &thread_name + ".json").unwrap();
-        serde_json::to_writer_pretty(file, self).expect(&format!(
-            "Failed to save profiling data for {}",
-            thread_name.clone() + ".json"
-        ));
+        trace!("Copying local profiling data to global");
         GLOBAL_PROFILING_DATA
             .lock()
             .unwrap()
             .append(self, &thread_name);
     }
+}
+
+#[derive(Serialize)]
+struct ChromeTracing {
+    name: String,
+    cat: String,
+    ph: &'static str,
+    ts: u128,
+    pid: u32,
+    tid: u32,
+    args: HashMap<String, serde_json::Value>,
 }
 
 impl GlobalProfilingData {
@@ -159,8 +159,9 @@ impl GlobalProfilingData {
     pub fn dump_profiling_to_chrome(&self, file_name: String) {
         // TODO: Clean this up its pretty disgusting
         assert!(self.entries.len() > 0 && self.last_entry_with_name.len() > 0);
-        let mut file = File::create(&file_name).unwrap();
-        write!(file, "[").unwrap();
+        let file = File::create(&file_name).unwrap();
+
+        let mut json_entries = vec![];
 
         // Use pid to mark the different threads because why not
         // Keep track of which pid maps to which thread name
@@ -182,8 +183,8 @@ impl GlobalProfilingData {
                 }
             }
             let entry = &self.entries[i];
-            let name = &entry.detailed_name;
-            let cat = &entry.category_name;
+            let name = entry.detailed_name.clone();
+            let cat = entry.category_name.clone();
             let pid = current_pid;
             let tid = *map_profiling_to_string()
                 .get(&entry.category_name as &str)
@@ -191,85 +192,59 @@ impl GlobalProfilingData {
                     "mapping profiling string failed: {}",
                     &entry.category_name
                 ));
-            let beginning = {
-                let ts = entry.start.as_nanos();
-                format!(
-                    r#"{{"name": "{name}",
-                    "cat": "{cat}",
-                    "ph": "B",
-                    "ts": {ts},
-                    "pid": {pid},
-                    "tid": {tid},
-                    "args": {{
-                    }}
-                }},"#
-                )
+            let ts = entry.start.as_nanos();
+            let beginning = ChromeTracing {
+                name,
+                cat,
+                ph: "B",
+                ts,
+                pid,
+                tid,
+                args: HashMap::new(),
             };
-            let end = {
-                let ts = entry.end.as_nanos();
-                format!(
-                    r#"{{
-                    "name": "{name}",
-                    "cat": "{cat}",
-                    "ph": "E",
-                    "ts": {ts},
-                    "pid": {pid},
-                    "tid": {tid},
-                    "args": {{
-                    }}
-                }},"#
-                )
+            json_entries.push(beginning);
+            let end_ts = entry.end.as_nanos();
+            let name = entry.detailed_name.clone();
+            let cat = entry.category_name.clone();
+            let end = ChromeTracing {
+                name,
+                cat,
+                ph: "E",
+                ts: end_ts,
+                pid,
+                tid,
+                args: HashMap::new(),
             };
-            file.write_all(&beginning.as_bytes()).expect(&format!(
-                "Failed to save beginning converted profiling data {}",
-                &name
-            ));
-            file.write_all(&end.as_bytes()).expect(&format!(
-                "Failed to save end converted profiling data for {}",
-                &name
-            ));
+            json_entries.push(end);
         }
         for i in 0..=current_pid {
             for (k, v) in map_profiling_to_string() {
-                write!(
-                    file,
-                    r#"
-                {{
-                    "name": "thread_name", "ph": "M", "pid": {i}, "tid": {v},
-                    "args": {{
-                        "name" : "{k}"
-                    }}
-                }},"#
-                )
-                .unwrap();
+                let entry = ChromeTracing {
+                    name: "thread_name".to_string(),
+                    cat: "None".to_string(),
+                    ph: "M",
+                    ts: 0,
+                    pid: i,
+                    tid: v,
+                    args: HashMap::from([("name".to_string(), k.into())]),
+                };
+                json_entries.push(entry);
             }
         }
         for (k, v) in name_to_pid {
-            write!(
-                file,
-                r#"
-            {{
-                "name": "process_name", "ph": "M", "pid": {v}, "tid": 0,
-                "args": {{
-                    "name" : "{k}"
-                }}
-            }},"#
-            )
-            .unwrap();
+            let entry = ChromeTracing {
+                name: "process_name".to_string(),
+                cat: "None".to_string(),
+                ph: "M",
+                ts: 0,
+                pid: v,
+                tid: 0,
+                args: HashMap::from([("name".to_string(), k.into())]),
+            };
+            json_entries.push(entry);
         }
-        write!(
-            file,
-            r#"
-            {{
-                "name": "thread_name", "ph": "M", "pid": 0, "tid": 0,
-                "args": {{
-                    "name" : "PLEASE UPDATE PROFILING MAP"
-                }}
-            }}"#
-        )
-        .unwrap();
-
-        write!(file, "]").unwrap();
+        serde_json::to_writer_pretty(&file, &json_entries)
+            .expect(&format!("Failed to save end converted profiling data"));
     }
 }
 
@@ -290,18 +265,18 @@ pub fn dump_all_profiling() {
         .dump_profiling_to_chrome("profiling_data/".to_string() + "all_trace.json");
 }
 
-fn map_profiling_to_string() -> HashMap<&'static str, &'static str> {
+fn map_profiling_to_string() -> HashMap<&'static str, u32> {
     HashMap::from([
-        ("exec_command GetEntries", "1"),
-        ("exec_command CreateRootAncestors", "2"),
-        ("exec_command GetFileContent", "3"),
-        ("exec_command CreateOrUpdateFile", "4"),
-        ("exec_command CreateFolder", "5"),
-        ("exec_command DeleteFile", "6"),
-        ("exec_command DeleteFolder", "7"),
-        ("send Serialize", "8"),
-        ("send Encrypt", "9"),
-        ("send Tcp_Write", "10"),
-        ("receive_response", "11"),
+        ("exec_command GetEntries", 1),
+        ("exec_command CreateRootAncestors", 2),
+        ("exec_command GetFileContent", 3),
+        ("exec_command CreateOrUpdateFile", 4),
+        ("exec_command CreateFolder", 5),
+        ("exec_command DeleteFile", 6),
+        ("exec_command DeleteFolder", 7),
+        ("send Serialize", 8),
+        ("send Encrypt", 9),
+        ("send Tcp_Write", 10),
+        ("receive_response", 11),
     ])
 }
