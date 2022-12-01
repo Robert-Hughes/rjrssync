@@ -604,8 +604,9 @@ fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, filters: &[F
     // so that we can avoid normalizing the path twice (once for the filter, once for the conversion
     // of the entry to our representation).
     let mut walker_it = WalkDir::new(&context.root)
-        // Don't follow symlinks - we want to sync the links themselves
-        .follow_links(false)
+        // For now we only support symlink "unaware" mode, so we follow the links as if they were the target.
+        .follow_links(true) 
+        //TODO: i think WalkDir always follows symlinks for the root itself, which might not be the behaviour we want when using the "aware" mode
         .into_iter();
     let mut count = 0;
     loop {

@@ -145,10 +145,20 @@ the path being synced itself (`a/b/symlink`), or as one of the items inside a fo
 Symlinks can point to either a file, a folder, nothing (broken), or another symlink, which itself could point to
 any of those.
 
-Symlinks can cause cycles.
+Symlinks can cause cycles and DAGs, including pointing to itself.
 
 On Windows, a symlink is either a "file symlink" or "directory symlink" (specified on creation),
-whereas on Linux it is simply a symlink.
+whereas on Linux it is simply a symlink. A "directory symlink" that points to a file (possibly via other symlinks)
+or a "file symlinks" that points to a directory is considered broken (similar to the target not existing at all).
+It is possible to create an invalid symlink (target is the wrong 'type' or doesn't exist)
+
+Symlink targets can be specified as relative or absolute.
+
+Symlinks have their own modified time (which is when the link path was changed, not equal to the target's modified time).
+
+rjrssync has two modes, as to whether it ignores the symlinks or syncs them as the links (see SymlinkMode enum).
+
+TODO: clarify/document/test the program's behaviour in all these cases...
 
 Example spec file
 ===================

@@ -1,4 +1,4 @@
-use std::{path::{Path, PathBuf}, time::{SystemTime}, collections::HashMap};
+use std::{path::{Path, PathBuf}, time::{SystemTime}, collections::HashMap, os::windows::fs::FileTypeExt};
 
 use regex::Regex;
 use tempdir::TempDir;
@@ -13,6 +13,10 @@ pub enum FilesystemNode {
     },
     File {
         contents: Vec<u8>,     
+        modified: SystemTime,
+    },
+    SymlinkFile {
+        target: PathBuf,
         modified: SystemTime,
     }
 }
@@ -42,6 +46,9 @@ pub fn file(contents: &str) -> FilesystemNode {
 pub fn file_with_modified(contents: &str, modified: SystemTime) -> FilesystemNode {
     FilesystemNode::File{ contents: contents.as_bytes().to_vec(), modified }       
 }
+pub fn symlink_file(target: &str) -> FilesystemNode {
+    FilesystemNode::SymlinkFile { target: PathBuf::from(target), modified: SystemTime::now() }
+}
 
 /// Mirrors the given file/folder and its descendants onto disk, at the given path.
 fn save_filesystem_node_to_disk(node: &FilesystemNode, path: &Path) { 
@@ -60,13 +67,21 @@ fn save_filesystem_node_to_disk(node: &FilesystemNode, path: &Path) {
                 save_filesystem_node_to_disk(child, &path.join(child_name));
             }
         }
+        FilesystemNode::SymlinkFile { target, modified } => {
+            std::os::windows::fs::symlink_file(target, path).expect("Failed to create symlink file");
+            filetime::set_symlink_file_times(path, 
+                filetime::FileTime::from_system_time(*modified), 
+                filetime::FileTime::from_system_time(*modified)).unwrap();
+        }
     }
 }
 
 /// Creates an in-memory representation of the file/folder and its descendents at the given path.
 /// Returns None if the path doesn't point to anything.
 fn load_filesystem_node_from_disk(path: &Path) -> Option<FilesystemNode> {
-    let metadata = match std::fs::metadata(path) {
+    // Note using symlink_metadata, so that we see the metadata for a symlink,
+    // not the thing that it points to.
+    let metadata = match std::fs::symlink_metadata(path) {
         Ok(m) => m,
         Err(_) => return None, // Non-existent
     };
@@ -84,8 +99,17 @@ fn load_filesystem_node_from_disk(path: &Path) -> Option<FilesystemNode> {
                 load_filesystem_node_from_disk(&path.join(entry.file_name())).unwrap());
         }        
         Some(FilesystemNode::Folder { children })
+    } else if metadata.file_type().is_symlink() {
+        // On Windows, symlinks are either file-symlinks or dir-symlinks
+        if metadata.file_type().is_symlink_file() {
+            let target = std::fs::read_link(path).expect("Unable to read symlink target");
+            let modified = metadata.modified().expect("Unable to get modified time");
+            Some(FilesystemNode::SymlinkFile { target, modified })
+        } else {
+            panic!("Unknown file type");
+        }
     } else {
-        panic!("Unsuppoted file type");
+        panic!("Unknown file type");
     }
 }
 
@@ -119,9 +143,15 @@ pub struct TestDesc<'a> {
 pub fn run(desc: TestDesc) {
     // Create a temporary folder to store test files/folders,
     let temp_folder = TempDir::new("rjrssync-test").unwrap();
+    let mut temp_folder = temp_folder.path().to_path_buf();
+    if let Ok(o) = std::env::var("RJRSSYNC_TEST_TEMP_OVERRIDE") {
+        // For keeping test data around afterwards
+        std::fs::create_dir_all(&o).expect("Failed to create override dir");
+        temp_folder = PathBuf::from(o); 
+    }
 
     // All paths provided in TestDesc have $TEMP replaced with the temporary folder.
-    let substitute_temp = |p: &str| PathBuf::from(p.replace("$TEMP", &temp_folder.path().to_string_lossy()));
+    let substitute_temp = |p: &str| PathBuf::from(p.replace("$TEMP", &temp_folder.to_string_lossy()));
 
     // Setup initial filesystem
     for (p, n) in desc.setup_filesystem_nodes {
@@ -131,7 +161,7 @@ pub fn run(desc: TestDesc) {
     // Run rjrssync with the specified paths
     let rjrssync_path = env!("CARGO_BIN_EXE_rjrssync");
     let output = std::process::Command::new(rjrssync_path)
-        .current_dir(temp_folder.path()) // So that any relative paths are inside the test folder
+        .current_dir(&temp_folder) // So that any relative paths are inside the test folder
         .args(desc.args.iter().map(|a| substitute_temp(a)))
         .output().expect("Failed to launch rjrssync");
 

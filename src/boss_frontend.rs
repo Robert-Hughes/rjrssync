@@ -2,7 +2,7 @@ use std::path::Path;
 use std::process::ExitCode;
 use std::io::Write;
 
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use env_logger::{Env, fmt::Color};
 use log::info;
 use log::{debug, error};
@@ -11,6 +11,15 @@ use yaml_rust::{YamlLoader, Yaml};
 use crate::boss_launch::*;
 use crate::boss_sync::*;
 use crate::doer::Filter;
+
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
+pub enum SymlinkMode {
+    /// Symlinks are treated as if they are the target that they point to. No special treatment is given.
+    Unaware,
+    /// Symlinks are treated as if they were simple text files containing their target address.
+    /// Therefore the link is not followed.
+    TreatAsLink,
+}
 
 #[derive(clap::Parser)]
 pub struct BossCliArgs {
@@ -47,6 +56,8 @@ pub struct BossCliArgs {
     /// Override the port used to connect to hostnames specified in src or dest.
     #[arg(long, default_value_t = 40129)]
     pub remote_port: u16,
+    #[arg(value_enum, long, default_value_t=SymlinkMode::Unaware)]
+    pub symlinks : SymlinkMode, //TODO: add this to spec file too
 
     #[arg(long)]
     pub dry_run: bool,
@@ -255,6 +266,11 @@ pub fn boss_main() -> ExitCode {
     builder.init();
 
     debug!("Running as boss");
+
+    if args.symlinks != SymlinkMode::Unaware {
+        error!("Symlink mode not supported yet!");
+        return ExitCode::from(19);
+    }
 
     // Decide what to sync - defined either on the command line or in a spec file if provided
     let mut spec = Spec::default();
