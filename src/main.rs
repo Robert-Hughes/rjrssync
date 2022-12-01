@@ -1,14 +1,16 @@
 use std::process::ExitCode;
 
-mod boss_launch;
 mod boss_frontend;
+mod boss_launch;
 mod boss_sync;
 mod doer;
 mod encrypted_comms;
+mod profiling;
 
-use boss_launch::*;
 use boss_frontend::*;
+use boss_launch::*;
 use doer::*;
+use profiling::*;
 
 pub const VERSION: i32 = 51;
 
@@ -31,9 +33,12 @@ fn main() -> ExitCode {
     // a transfer and then exits once complete ("boss"), or as a remote process on either the source
     // or destination computer which responds to commands from the boss (this is a "doer").
     // The boss (CLI) and doer modes have different command-line arguments, so handle them separately.
-    if std::env::args().any(|a| a == "--doer") {
+    let ret = if std::env::args().any(|a| a == "--doer") {
         doer_main()
     } else {
         boss_main()
-    }
+    };
+
+    dump_all_profiling();
+    ret
 }
