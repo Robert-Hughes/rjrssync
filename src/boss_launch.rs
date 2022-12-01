@@ -457,7 +457,7 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str, remote_port_for
                 // Show ssh output to the user, as this might be useful/necessary
                 info!("ssh {}: {}", stream_type, l);
                 // Check for both the Linux (bash) and Windows (cmd) errors
-                if l.contains("No such file or directory") || 
+                if l.contains("No such file or directory") ||
                     l.contains("The system cannot find the path specified") ||
                     l.contains("is not recognized as an internal or external command") {
                     warn!("rjrssync not present on remote computer");
@@ -599,7 +599,7 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> 
     // We capture and then forward stdout and stderr, so the user can see what's happening and if there are any errors.
     // Simply letting the child process inherit out stdout/stderr seems to cause problems with line endings getting messed
     // up and losing output, and unwanted clearing of the screen.
-    // This is especially important if using --force-redeploy on a broken remote, as you don't see any errors from the initial 
+    // This is especially important if using --force-redeploy on a broken remote, as you don't see any errors from the initial
     // attempt to connect either
     let remote_command = "uname || ver"; // uname for Linux, ver for Windows
     debug!("Running remote command: {}", remote_command);
@@ -633,21 +633,16 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> 
     };
     let remote_spec = format!("{user_prefix}{remote_hostname}:{remote_temp}");
     debug!("Copying {} to {}", source_spec.display(), remote_spec);
-    match std::process::Command::new("scp")
-        .arg("-r")
-        .arg(source_spec)
-        .arg(remote_spec)
-        .status()
-    {
+    match run_process_with_live_output("scp", &[OsStr::new("-r"), source_spec.as_os_str(), OsStr::new(&remote_spec)]) {
         Err(e) => {
-            error!("Error launching scp: {}", e);
+            error!("Error running scp: {}", e);
             return Err(());
         }
-        Ok(s) if s.code() == Some(0) => {
+        Ok(s) if s.exit_status.success() => {
             // Good!
         }
         Ok(s) => {
-            error!("Error copying source code. Exit status from scp: {}", s);
+            error!("Error copying source code. Exit status from scp: {}", s.exit_status);
             return Err(());
         }
     };
@@ -667,23 +662,16 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> 
         format!("$SHELL -lc 'cd {REMOTE_TEMP_UNIX}/rjrssync && {cargo_command}'")
     };
     debug!("Running remote command: {}", remote_command);
-    match std::process::Command::new("ssh")
-        .arg("-t") // This fixes issues with line endings getting messed up after ssh exits 
-        //TODO: but it seems to mess up line endings etc. when running remote_tests with --nocapture! on windows at least, and breaks the tests entirely!
-        // - maybe should just capture the output (piped) and then re-print it ourselves (like we do for the other ssh command), that might sort all these issues out?
-        .arg(user_prefix + remote_hostname)
-        .arg(remote_command)
-        .status()
-    {
+    match run_process_with_live_output("ssh", &[user_prefix + remote_hostname, remote_command]) {
         Err(e) => {
-            error!("Error launching ssh: {}", e);
+            error!("Error running ssh: {}", e);
             return Err(());
         }
-        Ok(s) if s.code() == Some(0) => {
+        Ok(s) if s.exit_status.success() => {
             // Good!
         }
         Ok(s) => {
-            error!("Error building on remote. Exit status from ssh: {}", s);
+            error!("Error building on remote. Exit status from ssh: {}", s.exit_status);
             return Err(());
         }
     };
@@ -694,6 +682,7 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> 
 struct ProcessOutput {
     exit_status: std::process::ExitStatus,
     stdout: String,
+    #[allow(unused)]
     stderr: String,
 }
 
@@ -702,7 +691,7 @@ struct ProcessOutput {
 fn run_process_with_live_output<I, S>(program: &str, args: I) -> Result<ProcessOutput, String>
 where
     I: IntoIterator<Item = S>,
-    S: AsRef<OsStr> 
+    S: AsRef<OsStr>
 {
     let mut child = match std::process::Command::new(program)
         .args(args)
@@ -717,7 +706,7 @@ where
     // unwrap is fine here, as the streams should always be available as we piped them all
     let child_stdout = child.stdout.take().unwrap();
     let child_stderr = child.stderr.take().unwrap();
- 
+
     // Spawn a background thread for each stdout and stderr, to process messages we get from the child
     // and forward them to the main thread. This is easier than some kind of async IO stuff.
     let (sender1, receiver): (
@@ -777,7 +766,7 @@ fn output_reader_thread_main2<S>(
     stream: S,
     stream_type: OutputReaderStreamType,
     sender: Sender<OutputReaderThreadMsg2>,
-) -> Result<(), SendError<OutputReaderThreadMsg2>> 
+) -> Result<(), SendError<OutputReaderThreadMsg2>>
 where S : std::io::Read {
     let mut reader = BufReader::new(stream);
     loop {
