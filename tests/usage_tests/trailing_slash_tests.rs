@@ -319,3 +319,5 @@ fn test_non_existent_to_others() {
     run_trailing_slashes_test_expected_failure(None, "/", None, "", Regex::new("doesn't exist").unwrap());
     run_trailing_slashes_test_expected_failure(None, "/", None, "/", Regex::new("doesn't exist").unwrap());
 }
+
+//TODO: add cases for different cases of symlinks too (see README for all the different types/situations)?
