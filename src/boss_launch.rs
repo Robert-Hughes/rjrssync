@@ -601,11 +601,6 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> 
     }
 
     // Determine if the target system is Windows or Linux, so that we know where to copy our files to
-    // We capture and then forward stdout and stderr, so the user can see what's happening and if there are any errors.
-    // Simply letting the child process inherit out stdout/stderr seems to cause problems with line endings getting messed
-    // up and losing output, and unwanted clearing of the screen.
-    // This is especially important if using --force-redeploy on a broken remote, as you don't see any errors from the initial
-    // attempt to connect either
     let remote_command = "uname || ver"; // uname for Linux, ver for Windows
     debug!("Running remote command: {}", remote_command);
     let os_test_output = match run_process_with_live_output("ssh", &[user_prefix.clone() + remote_hostname, remote_command.to_string()]) {
@@ -627,9 +622,6 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> 
     // Deploy to remote target using scp
     // Note we need to deal with the case where the the remote folder doesn't exist, and the case where it does, so
     // we copy into /tmp (which should always exist), rather than directly to /tmp/rjrssync which may or may not
-    // We capture and then forward stdout and stderr, so the user can see what's happening and if there are any errors.
-    // Simply letting the child process inherit out stdout/stderr seems to cause problems with line endings getting messed
-    // up and losing output, and unwanted clearing of the screen.
     let source_spec = local_temp_dir.path().join("rjrssync");
     let remote_temp = if is_windows {
         REMOTE_TEMP_WINDOWS
@@ -656,9 +648,6 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> 
     // Note that we could merge this ssh command with the one to run the program once it's built (in launch_doer_via_ssh),
     // but this would make error reporting slightly more difficult as the command in launch_doer_via_ssh is more tricky as
     // we are parsing the stdout, but for the command here we can wait for it to finish easily.
-    // We capture and then forward stdout and stderr, so the user can see what's happening and if there are any errors.
-    // Simply letting the child process inherit out stdout/stderr seems to cause problems with line endings getting messed
-    // up and losing output, and unwanted clearing of the screen.
     let cargo_command = "cargo build --release";
     let remote_command = if is_windows {
         format!("cd /d {REMOTE_TEMP_WINDOWS}\\rjrssync && {cargo_command}")
@@ -693,6 +682,11 @@ struct ProcessOutput {
 
 /// Runs a child processes and waits for it to exit. The stdout and stderr of the child process
 /// are captured and forwarded to our own, with a prefix to indicate that they're from the child.
+// We capture and then forward stdout and stderr, so the user can see what's happening and if there are any errors.
+// Simply letting the child process inherit out stdout/stderr seems to cause problems with line endings getting messed
+// up and losing output, and unwanted clearing of the screen.
+// This is especially important if using --force-redeploy on a broken remote, as you don't see any errors from the initial
+// attempt to connect either
 fn run_process_with_live_output<I, S>(program: &str, args: I) -> Result<ProcessOutput, String>
 where
     I: IntoIterator<Item = S>,
