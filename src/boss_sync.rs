@@ -1,6 +1,6 @@
 use std::{
     cmp::Ordering,
-    fmt::{Display, Write}, time::{Instant, SystemTime}, collections::HashMap,
+    fmt::{Display, Write}, time::{Instant, SystemTime}, collections::HashMap, thread,
 };
 
 use log::{debug, info, trace};
@@ -191,56 +191,80 @@ pub fn sync(
         }
     }
 
-    // Fetch all the entries for the source path
-    let mut src_entries = Vec::new();
-    let mut src_entries_lookup = HashMap::<RootRelativePath, EntryDetails>::new();
-    src_comms.send_command(Command::GetEntries { filters: filters.to_vec() })?;
-    loop {
-        match src_comms.receive_response() {
-            Ok(Response::Entry((p, d))) => {
-                trace!("Source entry '{}': {:?}", p, d);
-                match d {
-                    EntryDetails::File { size, .. } => {
-                        stats.num_src_files += 1;
-                        stats.src_total_bytes += size;
-                        stats.src_file_size_hist.add(size);
+    // Fetch all the entries for the source path.
+    // Do this on a separate thread so it can be done in parallel with fetching the dest entries for speed
+    let thread_result = thread::scope(|scope| {
+        let thread = thread::Builder::new()
+            .name("src_entries_fetching_thread".to_string())
+            .spawn_scoped(scope, ||
+        {
+            let mut src_entries = Vec::new();
+            let mut src_entries_lookup = HashMap::<RootRelativePath, EntryDetails>::new();
+            src_comms.send_command(Command::GetEntries { filters: filters.to_vec() })?;
+            loop {
+                match src_comms.receive_response() {
+                    Ok(Response::Entry((p, d))) => {
+                        trace!("Source entry '{}': {:?}", p, d);
+                        match d {
+                            EntryDetails::File { size, .. } => {
+                                stats.num_src_files += 1;
+                                stats.src_total_bytes += size;
+                                stats.src_file_size_hist.add(size);
+                            }
+                            EntryDetails::Folder => stats.num_src_folders += 1,
+                        }
+                        src_entries.push((p.clone(), d.clone()));
+                        src_entries_lookup.insert(p, d);
                     }
-                    EntryDetails::Folder => stats.num_src_folders += 1,
+                    Ok(Response::EndOfEntries) => break,
+                    r => return Err(format!("Unexpected response getting entries from src: {:?}", r)),
                 }
-                src_entries.push((p.clone(), d.clone()));
-                src_entries_lookup.insert(p, d);
             }
-            Ok(Response::EndOfEntries) => break,
-            r => return Err(format!("Unexpected response getting entries from src: {:?}", r)),
-        }
-    }
+            Ok((src_entries, src_entries_lookup, src_comms))
+        }).unwrap();
+        thread.join()
+    });
+    let (src_entries, src_entries_lookup, src_comms) = thread_result.unwrap()?;
+
 
     // Fetch all the entries for the dest path
-    let mut dest_entries = Vec::new();
-    let mut dest_entries_lookup = HashMap::<RootRelativePath, EntryDetails>::new();
-    // The dest might not exist yet, which is fine - continue anyway with an empty array of dest entries
-    // and we will create the dest as part of the sync.
-    if dest_root_details != RootDetails::None {
-        dest_comms.send_command(Command::GetEntries { filters: filters.to_vec() })?;
-        loop {
-            match dest_comms.receive_response() {
-                Ok(Response::Entry((p, d))) => {
-                    trace!("Dest entry '{}': {:?}", p, d);
-                    match d {
-                        EntryDetails::File { size, .. } => {
-                            stats.num_dest_files += 1;
-                            stats.dest_total_bytes += size;
+    // Do this on a separate thread so it can be done in parallel with fetching the src entries for speed
+    let thread_result = thread::scope(|scope| {
+        let thread = thread::Builder::new()
+            .name("dest_entries_fetching_thread".to_string())
+            .spawn_scoped(scope, ||
+        {
+            let mut dest_entries = Vec::new();
+            let mut dest_entries_lookup = HashMap::<RootRelativePath, EntryDetails>::new();
+            // The dest might not exist yet, which is fine - continue anyway with an empty array of dest entries
+            // and we will create the dest as part of the sync.
+            if dest_root_details != RootDetails::None {
+                dest_comms.send_command(Command::GetEntries { filters: filters.to_vec() })?;
+                loop {
+                    match dest_comms.receive_response() {
+                        Ok(Response::Entry((p, d))) => {
+                            trace!("Dest entry '{}': {:?}", p, d);
+                            match d {
+                                EntryDetails::File { size, .. } => {
+                                    stats.num_dest_files += 1;
+                                    stats.dest_total_bytes += size;
+                                }
+                                EntryDetails::Folder => stats.num_dest_folders += 1,
+                            }
+                            dest_entries.push((p.clone(), d.clone()));
+                            dest_entries_lookup.insert(p, d);
                         }
-                        EntryDetails::Folder => stats.num_dest_folders += 1,
+                        Ok(Response::EndOfEntries) => break,
+                        r => return Err(format!("Unexpected response getting entries from dest: {:?}", r)),
                     }
-                    dest_entries.push((p.clone(), d.clone()));
-                    dest_entries_lookup.insert(p, d);
-                },
-                Ok(Response::EndOfEntries) => break,
-                r => return Err(format!("Unexpected response getting entries from dest: {:?}", r)),
+                }
             }
-        }
-    }
+            Ok((dest_entries, dest_entries_lookup, dest_comms))
+        }).unwrap();
+        thread.join()
+    });
+    let (dest_entries, dest_entries_lookup, dest_comms) = thread_result.unwrap()?;
+
 
     let query_elapsed = sync_start.elapsed().as_secs_f32();
 
