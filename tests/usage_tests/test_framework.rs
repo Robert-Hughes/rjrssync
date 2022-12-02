@@ -12,7 +12,7 @@ pub enum SymlinkKind {
     #[cfg_attr(unix, allow(unused))]
     Folder, // Windows-only
     #[cfg_attr(windows, allow(unused))]
-    Unspecified, // Unix-only
+    Generic, // Unix-only
 }
 
 /// Simple in-memory representation of a file or folder (including any children), to use for testing.
@@ -59,17 +59,29 @@ pub fn file(contents: &str) -> FilesystemNode {
 pub fn file_with_modified(contents: &str, modified: SystemTime) -> FilesystemNode {
     FilesystemNode::File{ contents: contents.as_bytes().to_vec(), modified }       
 }
-#[cfg_attr(unix, allow(unused))]
+/// Creates a file symlink, but on Linux where all symlinks are generic, this creates a generic symlink instead.
+/// This allows us to write generic test code, but we need to make sure to run the tests on both Linux and Windows.
 pub fn symlink_file(target: &str) -> FilesystemNode {
-    FilesystemNode::Symlink { kind: SymlinkKind::File, target: PathBuf::from(target), modified: SystemTime::now() }
+    if cfg!(windows) {
+        FilesystemNode::Symlink { kind: SymlinkKind::File, target: PathBuf::from(target), modified: SystemTime::now() }
+    } else {
+        FilesystemNode::Symlink { kind: SymlinkKind::Generic, target: PathBuf::from(target), modified: SystemTime::now() }
+    }
 }
-#[cfg_attr(unix, allow(unused))]
+/// Creates a folder symlink, but on Linux where all symlinks are generic, this creates a generic symlink instead.
+/// This allows us to write generic test code, but we need to make sure to run the tests on both Linux and Windows.
 pub fn symlink_folder(target: &str) -> FilesystemNode {
-    FilesystemNode::Symlink { kind: SymlinkKind::Folder, target: PathBuf::from(target), modified: SystemTime::now() }
+    if cfg!(windows) {
+        FilesystemNode::Symlink { kind: SymlinkKind::Folder, target: PathBuf::from(target), modified: SystemTime::now() }
+    } else {
+        FilesystemNode::Symlink { kind: SymlinkKind::Generic, target: PathBuf::from(target), modified: SystemTime::now() }
+    }
 }
+/// Creates a generic symlink, which is only supported on Linux. Attempting to write this to the filesystem on
+/// Windows will panic.
 #[cfg_attr(windows, allow(unused))]
 pub fn symlink_unspecified(target: &str) -> FilesystemNode {
-    FilesystemNode::Symlink { kind: SymlinkKind::Unspecified, target: PathBuf::from(target), modified: SystemTime::now() }
+    FilesystemNode::Symlink { kind: SymlinkKind::Generic, target: PathBuf::from(target), modified: SystemTime::now() }
 }
 
 /// Mirrors the given file/folder and its descendants onto disk, at the given path.
@@ -103,7 +115,7 @@ fn save_filesystem_node_to_disk(node: &FilesystemNode, path: &Path) {
                     #[cfg(not(windows))]
                     panic!("Not supported on this OS");        
                 }
-                SymlinkKind::Unspecified => {
+                SymlinkKind::Generic => {
                     #[cfg(unix)]
                     std::os::unix::fs::symlink(target, path).expect("Failed to create unspecified symlink");
                     #[cfg(not(unix))]
@@ -153,7 +165,7 @@ fn load_filesystem_node_from_disk(path: &Path) -> Option<FilesystemNode> {
             panic!("Unknown symlink type type")
         };
         #[cfg(not(windows))]
-        let kind = SymlinkKind::Unspecified;
+        let kind = SymlinkKind::Generic;
 
         Some(FilesystemNode::Symlink { kind, target, modified })
     } else {

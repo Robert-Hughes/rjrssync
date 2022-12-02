@@ -150,7 +150,7 @@ pub enum Command {
 pub enum SymlinkKind {
     File, // Windows-only
     Folder, // Windows-only
-    Unspecified, // Unix-only
+    Generic, // Unix-only
 }
 
 /// Details of a file or folder.
@@ -542,7 +542,7 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) 
                 SymlinkKind::File => std::fs::remove_file(&full_path),
                 SymlinkKind::Folder => std::fs::remove_dir(&full_path),
                 // Unspecified is only used for Unix, and remove_file is the correct way to delete these.
-                SymlinkKind::Unspecified => std::fs::remove_file(&full_path),
+                SymlinkKind::Generic => std::fs::remove_file(&full_path),
             };
             match res {
                 Ok(()) => comms.send_response(Response::Ack).unwrap(),
@@ -712,7 +712,7 @@ fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, filters: &[F
                         return Err(format!("Unknown symlink type time for '{}'", path));
                     };
                     #[cfg(not(windows))]
-                    let kind = SymlinkKind::Unspecified;
+                    let kind = SymlinkKind::Generic;
             
                     EntryDetails::Symlink { kind, target, modified_time }
                 } else {
@@ -774,7 +774,7 @@ fn handle_create_symlink(path: RootRelativePath, context: &mut DoerContext, kind
                 std::os::unix::fs::symlink(target, &full_path)
             }
         }
-        SymlinkKind::Unspecified => {
+        SymlinkKind::Generic => {
             #[cfg(unix)]
             {
                 std::os::unix::fs::symlink(target, &full_path)

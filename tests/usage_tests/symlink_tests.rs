@@ -7,8 +7,6 @@ use crate::test_framework::FilesystemNode;
 use crate::{test_framework::{symlink_unspecified, run, empty_folder, TestDesc, symlink_file, symlink_folder, folder, file_with_modified}, folder};
 use map_macro::map;
 
-//TODO: make Windows tests work on Linux too, by falling back to generic symlink?
-
 pub fn run_expect_success_unaware(src_node: &FilesystemNode, initial_dest_node: &FilesystemNode, 
     expected_final_dest_node: &FilesystemNode, expected_num_copies: u32) {
     run(TestDesc {
@@ -62,7 +60,6 @@ pub fn run_expect_success_preserve(src_node: &FilesystemNode, dest_node: &Filesy
 /// when running in symlink unaware mode, will sync the contents of the pointed-to file, 
 /// rather than the symlink itself.
 #[test]
-#[cfg(windows)] // file-symlinks are only on Windows
 fn test_symlink_file_unaware() {
     let src = folder! {
         "symlink" => symlink_file("file.txt"),
@@ -80,7 +77,6 @@ fn test_symlink_file_unaware() {
 /// when running in symlink unaware mode, will sync the contents of the pointed-to folder, 
 /// rather than the symlink itself.
 #[test]
-#[cfg(windows)] // file-symlinks are only on Windows
 fn test_symlink_folder_unaware() {
     let src = folder! {
         "symlink" => symlink_folder("target"),
@@ -132,7 +128,6 @@ fn test_symlink_unspecified_unaware() {
 /// Tests that syncing a folder that contains a file symlink to another file in the folder,
 /// when running in symlink preserve mode, will sync the symlink and not the pointed-to file.
 #[test]
-#[cfg(windows)] // file-symlinks are only on Windows
 fn test_symlink_file_preserve() {
     let src = folder! {
         "symlink" => symlink_file("file.txt"),
@@ -144,7 +139,6 @@ fn test_symlink_file_preserve() {
 /// Tests that syncing a folder that contains a folder symlink to another folder,
 /// when running in symlink preserve mode, will sync the symlink and not the pointed-to folder.
 #[test]
-#[cfg(windows)] // file-symlinks are only on Windows
 fn test_symlink_folder_preserve() {
     let src = folder! {
         "symlink" => symlink_folder("target"),
@@ -173,7 +167,6 @@ fn test_symlink_unspecified_preserve() {
 
 /// Tests that symlinks as ancestors of the root path are followed, regardless of the symlink mode.
 #[test]
-#[cfg(windows)] // folder-symlinks are only on Windows
 fn test_symlink_folder_above_root() {
     let src = folder! {
         "symlink" => symlink_folder("target"),
@@ -209,7 +202,6 @@ fn test_symlink_folder_above_root() {
 /// when running in symlink unaware mode, will sync the contents of that pointed-to file, 
 /// rather than the symlink itself.
 #[test]
-#[cfg(windows)] // file-symlinks are only on Windows
 fn test_symlink_file_root_unaware() {
     let src = symlink_file("target.txt");
     run(TestDesc {
