@@ -134,6 +134,7 @@ pub fn sync(
                     }
                 },
                 RootDetails::Folder => (),  // Nothing special to do
+                RootDetails::Symlink => (),  // Nothing special to do //TODO: should we check if it ends in a trailing slash and is a file and make this disallowed?
             };
             d
         }
@@ -159,6 +160,7 @@ pub fn sync(
                     }
                 }
                 RootDetails::Folder => (), // Nothing special to do
+                RootDetails::Symlink => (),  // Nothing special to do //TODO: should we check if it ends in a trailing slash and is a file and make this disallowed?
             }
             d
         }
@@ -173,6 +175,7 @@ pub fn sync(
     // Note that we can't use std::path::is_separator (or similar) because this might be a remote path, so the current platform
     // isn't appropriate.
     let dest_trailing_slash = last_dest_char == Some('/') || last_dest_char == Some('\\');
+    //TODO: about is src root is a symlink to a file, we should probably do the same!
     if src_root_details == RootDetails::File && dest_trailing_slash {
         let src_filename = src_root.split(|c| c == '/' || c == '\\').last();
         if let Some(c) = src_filename {

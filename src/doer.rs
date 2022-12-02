@@ -175,6 +175,7 @@ pub enum EntryDetails {
 pub enum RootDetails {
     File,
     Folder,
+    Symlink,
     None
 }
 
@@ -435,6 +436,8 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut Option<DoerCo
                         RootDetails::Folder
                     } else if m.file_type().is_file() {
                         RootDetails::File
+                    } else if m.file_type().is_symlink() {
+                        RootDetails::Symlink
                     } else {
                         comms.send_response(Response::Error(format!(
                                 "root '{}' has unknown type: {:?}", context.root.display(), m
