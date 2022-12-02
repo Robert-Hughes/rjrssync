@@ -635,7 +635,6 @@ fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, filters: &[F
     // of the entry to our representation).
     let mut walker_it = WalkDir::new(&context.root)
         .follow_links(symlink_mode == SymlinkMode::Unaware) 
-        //TODO: i think WalkDir always follows symlinks for the root itself, which might not be the behaviour we want when using the "aware" mode
         .into_iter();
     let mut count = 0;
     loop {
@@ -721,6 +720,14 @@ fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, filters: &[F
                 };
 
                 comms.send_response(Response::Entry((path, d))).unwrap();
+
+                // If this was the root entry, and is a directory symlink, and we're in preserve mode,
+                // then the WalkDir crate will correctly report the root as a symlink, _but_ it still follows
+                // the symlink and then walks the contents of that directory, which we _don't_ want, so we can
+                // cancel the iteration here
+                if e.depth() == 0 && symlink_mode == SymlinkMode::Preserve && e.file_type().is_symlink() {
+                    break;
+                }
             }
         }
         count += 1;

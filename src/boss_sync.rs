@@ -63,19 +63,24 @@ impl Display for FileSizeHistogram {
 struct Stats {
     pub num_src_files: u32,
     pub num_src_folders: u32,
+    pub num_src_symlinks: u32,
     pub src_total_bytes: u64,
     pub src_file_size_hist: FileSizeHistogram,
 
     pub num_dest_files: u32,
     pub num_dest_folders: u32,
+    pub num_dest_symlinks: u32,
     pub dest_total_bytes: u64,
+
+    pub num_files_deleted: u32,
+    pub num_bytes_deleted: u64,
+    pub num_folders_deleted: u32,
+    pub num_symlinks_deleted: u32,
 
     pub num_files_copied: u32,
     pub num_bytes_copied: u64,
     pub num_folders_created: u32,
-    pub num_files_deleted: u32,
-    pub num_bytes_deleted: u64,
-    pub num_folders_deleted: u32,
+    pub num_symlinks_copied: u32,
     pub copied_file_size_hist: FileSizeHistogram,
 }
 
@@ -214,7 +219,7 @@ pub fn sync(
                                 stats.src_file_size_hist.add(size);
                             }
                             EntryDetails::Folder => stats.num_src_folders += 1,
-                            EntryDetails::Symlink { .. } => (),
+                            EntryDetails::Symlink { .. } => stats.num_src_symlinks += 1,
                         }
                         src_entries.push((p.clone(), d.clone()));
                         src_entries_lookup.insert(p, d);
@@ -247,7 +252,7 @@ pub fn sync(
                                     stats.dest_total_bytes += size;
                                 }
                                 EntryDetails::Folder => stats.num_dest_folders += 1,
-                                EntryDetails::Symlink { .. } => (),
+                                EntryDetails::Symlink { .. } => stats.num_dest_symlinks += 1,
                             }
                             dest_entries.push((p.clone(), d.clone()));
                             dest_entries_lookup.insert(p, d);
@@ -272,13 +277,19 @@ pub fn sync(
     let query_elapsed = sync_start.elapsed().as_secs_f32();
 
     if show_stats {
-        info!("Source: {} file(s) totalling {} bytes and {} folder(s) => Dest: {} file(s) totalling {} bytes and {} folder(s)",
+        info!("Source: {} file(s) totalling {} bytes, {} folder(s) and {} symlink(s)",
             stats.num_src_files.separate_with_commas(),
             stats.src_total_bytes.separate_with_commas(),
             stats.num_src_folders.separate_with_commas(),
+            stats.num_src_symlinks.separate_with_commas(),
+        );
+        info!("  =>");
+        info!("Dest: {} file(s) totalling {} bytes, {} folder(s) and {} symlink(s)",
             stats.num_dest_files.separate_with_commas(),
             stats.dest_total_bytes.separate_with_commas(),
-            stats.num_dest_folders.separate_with_commas());
+            stats.num_dest_folders.separate_with_commas(),
+            stats.num_dest_symlinks.separate_with_commas()
+        );
         info!("Source file size distribution:");
         info!("{}", stats.src_file_size_hist);
         info!("Queried in {} seconds", query_elapsed);
@@ -310,6 +321,7 @@ pub fn sync(
                     }
                 }
                 EntryDetails::Symlink { kind, .. } => {
+                    stats.num_symlinks_deleted += 1;
                     Command::DeleteSymlink {
                         path: dest_path.clone(),
                         kind: *kind,
@@ -399,6 +411,7 @@ pub fn sync(
                 },
                 EntryDetails::Symlink { kind, target, modified_time } => {
                     debug!("Source {} symlink doesn't exist on dest - copying", format_root_relative(&path, &src_root));
+                    stats.num_symlinks_copied += 1;
                     if !dry_run {
                         dest_comms
                             .send_command(Command::CreateSymlink { 
@@ -425,26 +438,29 @@ pub fn sync(
     // Note that we print all the stats at the end (even though we could print the delete stats earlier),
     // so that they are together in the output (e.g. for dry run or --verbose, they could be a lot of other
     // messages between them)
-    if (stats.num_files_deleted + stats.num_folders_deleted > 0) || show_stats {
+    if (stats.num_files_deleted + stats.num_folders_deleted + stats.num_symlinks_deleted > 0) || show_stats {
         info!(
-            "{} {} file(s){} and {} folder(s){}",
+            "{} {} file(s){}, {} folder(s) and {} symlink(s){}",
             if !dry_run { "Deleted" } else { "Would delete" },
             stats.num_files_deleted.separate_with_commas(),
             if show_stats { format!(" totalling {} bytes", stats.num_bytes_deleted.separate_with_commas()) } else { "".to_string() },
             stats.num_folders_deleted.separate_with_commas(),
+            stats.num_symlinks_deleted.separate_with_commas(),
             if !dry_run && show_stats {
                 format!(", in {:.1} seconds", delete_elapsed)
             } else { "".to_string() },
         );
     }
-    if (stats.num_files_copied + stats.num_folders_created > 0) || show_stats {
+    if (stats.num_files_copied + stats.num_folders_created + stats.num_symlinks_copied > 0) || show_stats {
         info!(
-            "{} {} file(s){} and {} {} folder(s){}",
+            "{} {} file(s){}, {} {} folder(s) and {} {} symlink(s){}",
             if !dry_run { "Copied" } else { "Would copy" },
             stats.num_files_copied.separate_with_commas(),
             if show_stats { format!(" totalling {} bytes", stats.num_bytes_copied.separate_with_commas()) } else { "".to_string() },
             if !dry_run { "created" } else { "would create" },
             stats.num_folders_created.separate_with_commas(),
+            if !dry_run { "copied" } else { "would copy" },
+            stats.num_symlinks_copied.separate_with_commas(),
             if !dry_run && show_stats {
                 format!(", in {:.1} seconds ({} bytes/s)",
                     copy_elapsed, (stats.num_bytes_copied as f32 / copy_elapsed as f32).round().separate_with_commas())
@@ -459,8 +475,10 @@ pub fn sync(
     }
     if stats.num_files_deleted
         + stats.num_folders_deleted
+        + stats.num_symlinks_deleted
         + stats.num_files_copied
         + stats.num_folders_created
+        + stats.num_symlinks_copied
         == 0
     {
         info!("Nothing to do!");

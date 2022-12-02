@@ -130,7 +130,7 @@ fn test_filters() {
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
-            Regex::new(&regex::escape("Copied 2 file(s) and created 2 folder(s)")).unwrap(),
+            Regex::new(&regex::escape("Copied 2 file(s), created 2 folder(s)")).unwrap(),
         ],
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&src_folder)), // Source should always be unchanged

@@ -21,6 +21,8 @@ pub enum SymlinkMode {
     /// Symlinks are treated as if they were simple text files containing their target address.
     /// They are not followed or validated. They will be reproduced as accurately as possible on
     /// the destination.
+    /// Note that this only applies to symlinks that are part of the sync - symlinks that are part of 
+    /// the path provided as source or dest will always be followed.
     Preserve,
 }
 
