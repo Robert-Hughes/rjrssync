@@ -154,7 +154,8 @@ It is possible to create an invalid symlink (target is the wrong 'type' or doesn
 
 Symlink targets can be specified as relative or absolute.
 
-Symlinks have their own modified time (which is when the link path was changed, not equal to the target's modified time). TODO: check this.
+Symlinks have their own modified time (which is when the link path was changed, not equal to the target's modified time), but we don't use as we can compare the link target instead (we don't have this luxury when 
+syncing files, because their contents might be huge, but a link target is small).
 
 rjrssync has two modes, as to whether it ignores the symlinks or syncs them as the links (see SymlinkMode enum).
 

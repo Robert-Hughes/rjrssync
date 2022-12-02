@@ -128,7 +128,6 @@ pub enum Command {
         path: RootRelativePath,
         kind: SymlinkKind,
         target: String, // We don't assume anything about this text
-        set_modified_time: Option<SystemTime>,
     },
     CreateFolder {
         path: RootRelativePath,
@@ -166,7 +165,6 @@ pub enum EntryDetails {
     Symlink {
         kind: SymlinkKind,
         target: String, // We don't assume anything about this text
-        modified_time: SystemTime,
     },
 }
 
@@ -522,8 +520,8 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut Option<DoerCo
                 Err(e) => comms.send_response(Response::Error(format!("Error creating folder '{}': {e}", full_path.display()))).unwrap(),
             }
         }
-        Command::CreateSymlink { path, kind, target, set_modified_time } => {
-            match handle_create_symlink(path, context.as_mut().unwrap(), kind, target, set_modified_time) {
+        Command::CreateSymlink { path, kind, target } => {
+            match handle_create_symlink(path, context.as_mut().unwrap(), kind, target) {
                 Ok(()) => comms.send_response(Response::Ack).unwrap(),               
                 Err(e) => comms.send_response(Response::Error(e)).unwrap(),
             }
@@ -707,12 +705,6 @@ fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, filters: &[F
                         Err(err) => return Err(format!("Unable to get metadata for '{}': {err}", path)),
                     };
 
-                     // This will return the symlink modified time, when follow_links is false.
-                     let modified_time = match metadata.modified() {
-                        Ok(m) => m,
-                        Err(err) => return Err(format!("Unknown modified time for '{}': {err}", path)),
-                    };
-
                     // On Windows, symlinks are either file-symlinks or dir-symlinks
                     #[cfg(windows)]
                     let kind = if std::os::windows::fs::FileTypeExt::is_symlink_file(&metadata.file_type()) {
@@ -725,7 +717,7 @@ fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, filters: &[F
                     #[cfg(not(windows))]
                     let kind = SymlinkKind::Generic;
             
-                    EntryDetails::Symlink { kind, target, modified_time }
+                    EntryDetails::Symlink { kind, target }
                 } else {
                     return Err(format!("Unknown file type for '{}': {:?}", path, e.file_type()));
                 };
@@ -756,8 +748,7 @@ fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, filters: &[F
     Ok(())
 }
 
-fn handle_create_symlink(path: RootRelativePath, context: &mut DoerContext, kind: SymlinkKind, target: String, 
-    set_modified_time: Option<SystemTime>) -> Result<(), String> {
+fn handle_create_symlink(path: RootRelativePath, context: &mut DoerContext, kind: SymlinkKind, target: String) -> Result<(), String> {
     let full_path = path.get_full_path(&context.root);
     trace!("Creating symlink at '{}'", full_path.display());
     let res = match kind {
@@ -799,15 +790,6 @@ fn handle_create_symlink(path: RootRelativePath, context: &mut DoerContext, kind
     };
     if let Err(e) = res {
         return Err(format!("Failed to create symlink '{}': {e}", full_path.display()));
-    }
-    if let Some(t) = set_modified_time {
-        trace!("Setting modifited time of '{}'", full_path.display());
-        let r = filetime::set_symlink_file_times(&full_path, 
-            filetime::FileTime::from_system_time(t), 
-            filetime::FileTime::from_system_time(t));
-        if let Err(e) = r {
-            return Err(format!("Error setting modified time of '{}': {e}", full_path.display()));
-        }
     }
     Ok(())
 }

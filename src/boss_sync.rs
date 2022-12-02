@@ -412,7 +412,7 @@ pub fn sync(
                         info!("Would create dest folder {}", format_root_relative(&path, &dest_root));
                     }
                 },
-                EntryDetails::Symlink { kind, target, modified_time } => {
+                EntryDetails::Symlink { kind, target } => {
                     debug!("Source {} symlink doesn't exist on dest - copying", format_root_relative(&path, &src_root));
                     stats.num_symlinks_copied += 1;
                     if !dry_run {
@@ -421,7 +421,6 @@ pub fn sync(
                                 path: path.clone(), 
                                 kind,
                                 target, 
-                                set_modified_time: Some(modified_time) 
                             })?;
                         match dest_comms.receive_response() {
                             Ok(doer::Response::Ack) => (),
