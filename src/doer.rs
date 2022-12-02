@@ -700,19 +700,20 @@ fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, filters: &[F
                         Err(err) => return Err(format!("Unable to read symlink target for '{}': {err}", path)),
                     };
    
-                    let metadata = match e.metadata() {
-                        Ok(m) => m,
-                        Err(err) => return Err(format!("Unable to get metadata for '{}': {err}", path)),
-                    };
-
                     // On Windows, symlinks are either file-symlinks or dir-symlinks
                     #[cfg(windows)]
-                    let kind = if std::os::windows::fs::FileTypeExt::is_symlink_file(&metadata.file_type()) {
-                        SymlinkKind::File
-                    } else if std::os::windows::fs::FileTypeExt::is_symlink_dir(&metadata.file_type()) {
-                        SymlinkKind::Folder
-                    } else {
-                        return Err(format!("Unknown symlink type time for '{}'", path));
+                    let kind = {
+                        let metadata = match e.metadata() {
+                            Ok(m) => m,
+                            Err(err) => return Err(format!("Unable to get metadata for '{}': {err}", path)),
+                        };
+                        if std::os::windows::fs::FileTypeExt::is_symlink_file(&metadata.file_type()) {
+                            SymlinkKind::File
+                        } else if std::os::windows::fs::FileTypeExt::is_symlink_dir(&metadata.file_type()) {
+                            SymlinkKind::Folder
+                        } else {
+                            return Err(format!("Unknown symlink type time for '{}'", path));
+                        }
                     };
                     #[cfg(not(windows))]
                     let kind = SymlinkKind::Generic;

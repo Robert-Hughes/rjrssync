@@ -47,10 +47,14 @@ pub fn run_expect_success_preserve(src_node: &FilesystemNode, dest_node: &Filesy
             "preserve".to_string(),
         ],
         expected_exit_code: 0,
-        expected_output_messages: vec![
-            Regex::new(&regex::escape(&format!("Copied {} file(s)", expected_num_file_copies))).unwrap(),
-            Regex::new(&regex::escape(&format!("copied {} symlink(s)", expected_num_symlink_copies))).unwrap(),
-        ],
+        expected_output_messages: if expected_num_file_copies + expected_num_symlink_copies == 0 {
+            vec![Regex::new(&regex::escape("Nothing to do")).unwrap()]
+        } else {
+            vec![
+                Regex::new(&regex::escape(&format!("Copied {} file(s)", expected_num_file_copies))).unwrap(),
+                Regex::new(&regex::escape(&format!("copied {} symlink(s)", expected_num_symlink_copies))).unwrap(),
+            ]
+        },
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(src_node)), // Source should always be unchanged
             ("$TEMP/dest", Some(src_node)), // Dest should be identical to source
@@ -327,6 +331,15 @@ fn test_symlink_folder_root_preserve() {
     });
 }
 
+/// Tests that syncing a symlink that hasn't changed results in nothing being done.
+#[test]
+fn test_symlink_unchanged_preserve() {
+    let src = folder! {
+        "symlink" => symlink_file("target.txt"),
+        "target.txt" => file_with_modified("contents", SystemTime::UNIX_EPOCH),
+    };
+    run_expect_success_preserve(&src, &src, 0, 0);
+}
 
 
 

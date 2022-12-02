@@ -307,7 +307,7 @@ pub fn sync(
     let delete_start = Instant::now();
     for (dest_path, dest_details) in dest_entries.iter().rev() {
         let s = src_entries_lookup.get(dest_path);
-        if !s.is_some() || !can_be_updated_without_deletion(s.unwrap(), dest_details) {
+        if !s.is_some() || should_delete(s.unwrap(), dest_details) {
             debug!("Deleting from dest {}", format_root_relative(&dest_path, &dest_root));
             let c = match dest_details {
                 EntryDetails::File { size, .. } => {
@@ -351,7 +351,7 @@ pub fn sync(
     for (path, src_details) in src_entries {
         let dest_details = dest_entries_lookup.get(&path);
         match dest_details {
-            Some(dest_details) if can_be_updated_without_deletion (&src_details, dest_details) => {
+            Some(dest_details) if !should_delete (&src_details, dest_details) => {
                 // Dest already has this entry - check if it is up-to-date
                 match src_details {
                     EntryDetails::File { size, modified_time: src_modified_time } => {
@@ -386,7 +386,12 @@ pub fn sync(
                             format_root_relative(&path, &src_root),
                             format_root_relative(&path, &dest_root))
                     },
-                    EntryDetails::Symlink { .. } => panic!("can_be_updated_without_deletion should have returned false"),
+                    EntryDetails::Symlink { .. } => {
+                        // Symlinks are always up-to-date, if should_delete indicated that we shouldn't delete it
+                        trace!("Source symlink {} already exists on dest {} - nothing to do",
+                            format_root_relative(&path, &src_root),
+                            format_root_relative(&path, &dest_root))
+                    },
                 }
             },
             _ => match src_details {
@@ -491,17 +496,26 @@ pub fn sync(
 
 /// Checks if a given src entry could be updated to match the dest, or if it needs
 /// to be deleted and recreated instead.
-pub fn can_be_updated_without_deletion(src: &EntryDetails, dest: &EntryDetails) -> bool {
+pub fn should_delete(src: &EntryDetails, dest: &EntryDetails) -> bool {
     match src {
         EntryDetails::File { .. } => match dest {
-            EntryDetails::File { .. } => true,
-            _ => false,
+            EntryDetails::File { .. } => false,
+            _ => true,
         },
         EntryDetails::Folder => match dest {
-            EntryDetails::Folder => true,
-            _ => false,
+            EntryDetails::Folder => false,
+            _ => true,
         },
-        EntryDetails::Symlink { .. } => false, //TODO: this means that we're always gonna delete and recreate these, even if they're up-to-date!
+        EntryDetails::Symlink { kind: src_kind, target: src_target } => match dest {
+            EntryDetails::Symlink { kind: dest_kind, target: dest_target } => {
+                if src_kind == dest_kind && src_target == dest_target {
+                    false
+                } else {
+                    true
+                }
+            }
+            _ => true,
+        }
     }
 }
 
