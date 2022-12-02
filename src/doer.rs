@@ -66,6 +66,10 @@ pub struct RootRelativePath {
     inner: String,
 }
 impl RootRelativePath {
+    pub fn root() -> RootRelativePath {
+        RootRelativePath { inner: "".to_string() }
+    }
+
     /// Does this path refer to the root itself?
     pub fn is_root(&self) -> bool {
         self.inner.is_empty()
@@ -168,20 +172,53 @@ pub enum EntryDetails {
     },
 }
 
-/// Details of the root, returned from SetRoot.
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
-pub enum RootDetails {
-    File,
-    Folder,
-    Symlink,
-    None
+fn entry_details_from_metadata(m: std::fs::Metadata, path: &Path) -> Result<EntryDetails, String> {
+    if m.is_dir() {
+        Ok(EntryDetails::Folder)
+    } else if m.is_file() {
+        let modified_time = match m.modified() {
+            Ok(m) => m,
+            Err(err) => return Err(format!("Unknown modified time for '{}': {err}", path.display())),
+        };
+
+        Ok(EntryDetails::File {
+            modified_time,
+            size: m.len(),
+        })
+    } else if m.is_symlink() {
+        let target = match std::fs::read_link(path) {
+            Ok(t) => match t.to_str() {
+                Some(t) => t.to_string(),
+                None => return Err(format!("Unable to convert symlink target for '{}' to UTF-8", path.display())),
+            },
+            Err(err) => return Err(format!("Unable to read symlink target for '{}': {err}", path.display())),
+        };
+
+        // On Windows, symlinks are either file-symlinks or dir-symlinks
+        #[cfg(windows)]
+        let kind = {
+            if std::os::windows::fs::FileTypeExt::is_symlink_file(&m.file_type()) {
+                SymlinkKind::File
+            } else if std::os::windows::fs::FileTypeExt::is_symlink_dir(&m.file_type()) {
+                SymlinkKind::Folder
+            } else {
+                return Err(format!("Unknown symlink type time for '{}'", path.display()));
+            }
+        };
+        #[cfg(not(windows))]
+        let kind = SymlinkKind::Generic;
+
+        Ok(EntryDetails::Symlink { kind, target })
+    } else {
+        return Err(format!("Unknown file type for '{}': {:?}", path.display(), m));
+    }
 }
 
 /// Responses are sent back from the doer to the boss to report on something, usually
 /// the result of a Command.
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Response {
-    RootDetails(RootDetails),
+    RootDetails(Option<EntryDetails>), // Option<> because the root might not exist at all
 
     // The result of GetEntries is split into lots of individual messages (rather than one big list)
     // so that the boss can start doing stuff before receiving the full list.
@@ -413,48 +450,8 @@ fn message_loop(mut comms: Comms) -> Result<(), ()> {
 fn exec_command(command: Command, comms: &mut Comms, context: &mut Option<DoerContext>) -> Result<bool, String> {
     match command {
         Command::SetRoot { root, symlink_mode } => {
-            // Store the root path for future operations
-            *context = Some(DoerContext {
-                root: PathBuf::from(root),
-                symlink_mode,
-            });
-            let context = context.as_ref().unwrap();
-
-            // Respond to the boss with what type of file/folder the root is, as it makes some decisions
-            // based on this.
-            // We use symlink_metadata depending on the symlink mode
-            let metadata = match symlink_mode {
-                SymlinkMode::Unaware => std::fs::metadata(&context.root),
-                SymlinkMode::Preserve => std::fs::symlink_metadata(&context.root),
-            };
-
-            match metadata {
-                Ok(m) => {
-                    let root_details = if m.file_type().is_dir() {
-                        RootDetails::Folder
-                    } else if m.file_type().is_file() {
-                        RootDetails::File
-                    } else if m.file_type().is_symlink() {
-                        RootDetails::Symlink
-                    } else {
-                        comms.send_response(Response::Error(format!(
-                                "root '{}' has unknown type: {:?}", context.root.display(), m
-                            )))?;
-                        return Ok(true);
-                    };
-
-                    comms.send_response(Response::RootDetails(root_details))?;
-                },
-                Err(e) if e.kind() == ErrorKind::NotFound => {
-                    // Report this as a special error, as we handle it differently on the boss side
-                    comms.send_response(Response::RootDetails(RootDetails::None))?;
-                }
-                Err(e) => {
-                    comms
-                        .send_response(Response::Error(format!(
-                            "root '{}' can't be read: {}", context.root.display(), e
-                        )))?;
-                }
+            if let Err(e) = handle_set_root(comms, context, root, symlink_mode) {
+                comms.send_response(Response::Error(e)).unwrap();
             }
         }
         Command::GetEntries { filters } => {
@@ -565,6 +562,37 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut Option<DoerCo
     Ok(true)
 }
 
+fn handle_set_root(comms: &mut Comms, context: &mut Option<DoerContext>, root: String, symlink_mode: SymlinkMode) -> Result<(), String> {
+    // Store the root path for future operations
+    *context = Some(DoerContext {
+        root: PathBuf::from(root),
+        symlink_mode,
+    });
+    let context = context.as_ref().unwrap();
+
+    // Respond to the boss with what type of file/folder the root is, as it makes some decisions
+    // based on this.
+    // We use symlink_metadata depending on the symlink mode
+    let metadata = match symlink_mode {
+        SymlinkMode::Unaware => std::fs::metadata(&context.root),
+        SymlinkMode::Preserve => std::fs::symlink_metadata(&context.root),
+    };
+    match metadata {
+        Ok(m) => {
+            let entry_details = entry_details_from_metadata(m, &context.root)?;
+            comms.send_response(Response::RootDetails(Some(entry_details))).unwrap();
+        },
+        Err(e) if e.kind() == ErrorKind::NotFound => {
+            // Report this as a special error, as we handle it differently on the boss side
+            comms.send_response(Response::RootDetails(None)).unwrap();
+        }
+        Err(e) => return Err(format!(
+                    "root '{}' can't be read: {}", context.root.display(), e)),
+    }
+
+    Ok(())
+}
+
 enum CompiledFilter {
     Include(Regex),
     Exclude(Regex)
@@ -642,6 +670,9 @@ fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, filters: &[F
     // Due to the way the WalkDir API works, we unfortunately need to do the iter loop manually
     // so that we can avoid normalizing the path twice (once for the filter, once for the conversion
     // of the entry to our representation).
+    // Note that we can't use this to get metadata for a single root entry when that entry is a broken symlink,
+    // as the walk will fail before we can get the metadata for the broken link. Therefore we only use this
+    // when walking what's known to be a directory (discovered in SetRoot).
     let mut walker_it = WalkDir::new(&context.root)
         .follow_links(context.symlink_mode == SymlinkMode::Unaware) 
         .into_iter();
@@ -652,6 +683,12 @@ fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, filters: &[F
             Some(Err(e)) => return Err(format!("Error fetching entries of root '{}': {e}", context.root.display())),
             Some(Ok(e)) => {
                 trace!("Processing entry {:?}", e);
+
+                // Skip the first entry - the root, as the boss already has details of this from SetRoot.
+                if e.depth() == 0 {
+                    continue;
+                }
+
                 // Check if we should filter this entry.
                 // First normalize the path to our platform-independent representation, so that the filters
                 // apply equally well on both source and dest sides, if they are different platforms.
@@ -674,64 +711,14 @@ fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, filters: &[F
                     continue;
                 }
 
-                let d = if e.file_type().is_dir() {
-                    EntryDetails::Folder
-                } else if e.file_type().is_file() {
-                    let metadata = match e.metadata() {
-                        Ok(m) => m,
-                        Err(err) => return Err(format!("Unable to get metadata for '{}': {err}", path)),
-                    };
-
-                    let modified_time = match metadata.modified() {
-                        Ok(m) => m,
-                        Err(err) => return Err(format!("Unknown modified time for '{}': {err}", path)),
-                    };
-
-                    EntryDetails::File {
-                        modified_time,
-                        size: metadata.len(),
-                    }
-                } else if e.file_type().is_symlink() {
-                    let target = match std::fs::read_link(e.path()) {
-                        Ok(t) => match t.to_str() {
-                            Some(t) => t.to_string(),
-                            None => return Err(format!("Unable to convert symlink target for '{}' to UTF-8", path)),
-                        },
-                        Err(err) => return Err(format!("Unable to read symlink target for '{}': {err}", path)),
-                    };
-   
-                    // On Windows, symlinks are either file-symlinks or dir-symlinks
-                    #[cfg(windows)]
-                    let kind = {
-                        let metadata = match e.metadata() {
-                            Ok(m) => m,
-                            Err(err) => return Err(format!("Unable to get metadata for '{}': {err}", path)),
-                        };
-                        if std::os::windows::fs::FileTypeExt::is_symlink_file(&metadata.file_type()) {
-                            SymlinkKind::File
-                        } else if std::os::windows::fs::FileTypeExt::is_symlink_dir(&metadata.file_type()) {
-                            SymlinkKind::Folder
-                        } else {
-                            return Err(format!("Unknown symlink type time for '{}'", path));
-                        }
-                    };
-                    #[cfg(not(windows))]
-                    let kind = SymlinkKind::Generic;
-            
-                    EntryDetails::Symlink { kind, target }
-                } else {
-                    return Err(format!("Unknown file type for '{}': {:?}", path, e.file_type()));
+                let metadata = match e.metadata() {
+                    Ok(m) => m,
+                    Err(err) => return Err(format!("Unable to get metadata for '{}': {err}", path)),
                 };
+    
+                let d = entry_details_from_metadata(metadata, e.path())?;
 
                 comms.send_response(Response::Entry((path, d))).unwrap();
-
-                // If this was the root entry, and is a directory symlink, and we're in preserve mode,
-                // then the WalkDir crate will correctly report the root as a symlink, _but_ it still follows
-                // the symlink and then walks the contents of that directory, which we _don't_ want, so we can
-                // cancel the iteration here
-                if e.depth() == 0 && context.symlink_mode == SymlinkMode::Preserve && e.file_type().is_symlink() {
-                    break;
-                }
             }
         }
         count += 1;
@@ -802,7 +789,7 @@ mod tests {
     #[test]
     fn test_normalize_path_is_root() {
         let x = normalize_path(Path::new(""));
-        assert_eq!(x, Ok(RootRelativePath { inner: "".to_string() }));
+        assert_eq!(x, Ok(RootRelativePath::root()));
         assert_eq!(x.unwrap().is_root(), true);
     }
 
@@ -835,7 +822,7 @@ mod tests {
         ];
         assert_eq!(apply_filters(&RootRelativePath { inner: "will be excluded".to_string() }, &filters), FilterResult::Exclude);
         // But the root is always included anyway
-        assert_eq!(apply_filters(&RootRelativePath { inner: "".to_string() }, &filters), FilterResult::Include);
+        assert_eq!(apply_filters(&RootRelativePath::root(), &filters), FilterResult::Include);
     }
 
     #[test]

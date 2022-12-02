@@ -57,8 +57,10 @@ pub struct BossCliArgs {
     /// The regexes are matched against a normalized path relative to the root of the source/dest.
     /// Normalized means that forward slashes are always used as directory separators, never backwards slashes.
     /// If a folder does is excluded, then none of the contents of the folder will be seen, even if they would otherwise match.
+    /// The source/dest root is never checked against the filter - this is always considered as included.
     #[arg(name="filter", long, allow_hyphen_values(true))]
     pub filters: Vec<String>,
+    //TODO: "The source/dest root is never checked against the filter - this is always considered as included." - test this!
     /// Override the port used to connect to hostnames specified in src or dest.
     #[arg(long, default_value_t = 40129)]
     pub remote_port: u16,

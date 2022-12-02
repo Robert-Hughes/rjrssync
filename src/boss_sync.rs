@@ -120,8 +120,8 @@ pub fn sync(
     let src_root_details = match src_comms.receive_response() {
         Ok(Response::RootDetails(d)) => {
             match d {
-                RootDetails::None => return Err(format!("src path '{src_root}' doesn't exist!")),
-                RootDetails::File => {
+                None => return Err(format!("src path '{src_root}' doesn't exist!")),
+                Some(EntryDetails::File { .. }) => {
                     // Referring to an existing file with a trailing slash is an error, because it implies
                     // that the user thinks it is a folder, and so could lead to unwanted behaviour.
                     // In some environments (e.g. Linux), this is caught on the doer side when it attempts to
@@ -133,21 +133,22 @@ pub fn sync(
                         return Err(format!("src path '{}' is a file but is referred to with a trailing slash.", src_root));
                     }
                 },
-                RootDetails::Folder => (),  // Nothing special to do
-                RootDetails::Symlink => (),  // Nothing special to do //TODO: should we check if it ends in a trailing slash and is a file and make this disallowed?
+                Some(EntryDetails::Folder) => (),  // Nothing special to do
+                Some(EntryDetails::Symlink { .. }) => (),  // Nothing special to do //TODO: should we check if it ends in a trailing slash and is a file symlink and make this disallowed?
             };
             d
         }
         r => return Err(format!("Unexpected response getting root details from src: {:?}", r)),
     };
+    let src_root_details = src_root_details.unwrap();
 
     // Dest SetRoot
     dest_comms.send_command(Command::SetRoot { root: dest_root.to_string(), symlink_mode })?;
     let mut dest_root_details = match dest_comms.receive_response() {
         Ok(Response::RootDetails(d)) => {
             match d {
-                RootDetails::None => (), // Dest root doesn't exist, but that's fine (we will create it later)
-                RootDetails::File => {
+                None => (), // Dest root doesn't exist, but that's fine (we will create it later)
+                Some(EntryDetails::File { .. }) => {
                     // Referring to an existing file with a trailing slash is an error, because it implies
                     // that the user thinks it is a folder, and so could lead to unwanted behaviour
                     // In some environments (e.g. Linux), this is caught on the doer side when it attempts to
@@ -159,8 +160,8 @@ pub fn sync(
                         return Err(format!("dest path '{}' is a file but is referred to with a trailing slash.", dest_root));
                     }
                 }
-                RootDetails::Folder => (), // Nothing special to do
-                RootDetails::Symlink => (),  // Nothing special to do //TODO: should we check if it ends in a trailing slash and is a file and make this disallowed?
+                Some(EntryDetails::Folder) => (), // Nothing special to do
+                Some(EntryDetails::Symlink { .. }) => (),  // Nothing special to do //TODO: should we check if it ends in a trailing slash and is a file symlink and make this disallowed?
             }
             d
         }
@@ -176,7 +177,7 @@ pub fn sync(
     // isn't appropriate.
     let dest_trailing_slash = last_dest_char == Some('/') || last_dest_char == Some('\\');
     //TODO: about is src root is a symlink to a file, we should probably do the same!
-    if src_root_details == RootDetails::File && dest_trailing_slash {
+    if matches!(src_root_details, EntryDetails::File {..}) && dest_trailing_slash {
         let src_filename = src_root.split(|c| c == '/' || c == '\\').last();
         if let Some(c) = src_filename {
             dest_root = dest_root.to_string() + c;
@@ -192,7 +193,7 @@ pub fn sync(
 
     // If the dest doesn't yet exist, make sure that all its ancestors are created, so that
     // when we come to create the dest path itself, it can succeed
-    if dest_root_details == RootDetails::None {
+    if dest_root_details.is_none() {
         dest_comms.send_command(Command::CreateRootAncestors)?;
         match dest_comms.receive_response() {
             Ok(Response::Ack) => (),
@@ -200,7 +201,7 @@ pub fn sync(
         }
     }
 
-    // Fetch all the entries for the source path and the dest path
+    // Fetch all the entries for the source path and the dest path, if they are folders
     // Do these each on a separate thread so they can be done in parallel with each other
     let thread_result : Result<_, String> = thread::scope(|scope| {
         // Source GetEntries
@@ -210,25 +211,32 @@ pub fn sync(
         {
             let mut src_entries = Vec::new();
             let mut src_entries_lookup = HashMap::<RootRelativePath, EntryDetails>::new();
-            src_comms.send_command(Command::GetEntries { filters: filters.to_vec() })?;
-            loop {
-                match src_comms.receive_response() {
-                    Ok(Response::Entry((p, d))) => {
-                        trace!("Source entry '{}': {:?}", p, d);
-                        match d {
-                            EntryDetails::File { size, .. } => {
-                                stats.num_src_files += 1;
-                                stats.src_total_bytes += size;
-                                stats.src_file_size_hist.add(size);
+
+            // Add the root entry - we already got the details for this before
+            src_entries.push((RootRelativePath::root(), src_root_details.clone()));
+            src_entries_lookup.insert(RootRelativePath::root(), src_root_details.clone());
+
+            if matches!(src_root_details, EntryDetails::Folder) {
+                src_comms.send_command(Command::GetEntries { filters: filters.to_vec() })?;
+                loop {
+                    match src_comms.receive_response() {
+                        Ok(Response::Entry((p, d))) => {
+                            trace!("Source entry '{}': {:?}", p, d);
+                            match d {
+                                EntryDetails::File { size, .. } => {
+                                    stats.num_src_files += 1;
+                                    stats.src_total_bytes += size;
+                                    stats.src_file_size_hist.add(size);
+                                }
+                                EntryDetails::Folder => stats.num_src_folders += 1,
+                                EntryDetails::Symlink { .. } => stats.num_src_symlinks += 1,
                             }
-                            EntryDetails::Folder => stats.num_src_folders += 1,
-                            EntryDetails::Symlink { .. } => stats.num_src_symlinks += 1,
+                            src_entries.push((p.clone(), d.clone()));
+                            src_entries_lookup.insert(p, d);
                         }
-                        src_entries.push((p.clone(), d.clone()));
-                        src_entries_lookup.insert(p, d);
+                        Ok(Response::EndOfEntries) => break,
+                        r => return Err(format!("Unexpected response getting entries from src: {:?}", r)),
                     }
-                    Ok(Response::EndOfEntries) => break,
-                    r => return Err(format!("Unexpected response getting entries from src: {:?}", r)),
                 }
             }
             Ok((src_entries, src_entries_lookup, src_comms))
@@ -241,9 +249,14 @@ pub fn sync(
         {
             let mut dest_entries = Vec::new();
             let mut dest_entries_lookup = HashMap::<RootRelativePath, EntryDetails>::new();
-            // The dest might not exist yet, which is fine - continue anyway with an empty array of dest entries
-            // and we will create the dest as part of the sync.
-            if dest_root_details != RootDetails::None {
+
+            // Add the root entry - we already got the details for this before
+            if dest_root_details.is_some() {
+                dest_entries.push((RootRelativePath::root(), dest_root_details.clone().unwrap()));
+                dest_entries_lookup.insert(RootRelativePath::root(), dest_root_details.clone().unwrap());
+            }
+
+            if matches!(dest_root_details, Some(EntryDetails::Folder)) {
                 dest_comms.send_command(Command::GetEntries { filters: filters.to_vec() })?;
                 loop {
                     match dest_comms.receive_response() {

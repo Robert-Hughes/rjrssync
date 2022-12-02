@@ -159,7 +159,8 @@ syncing files, because their contents might be huge, but a link target is small)
 
 rjrssync has two modes, as to whether it ignores the symlinks or syncs them as the links (see SymlinkMode enum).
 
-There can be multiple symlinks followed in a path being synced, e.g. <ROOT>/symlink1/folder2/symlink3/file
+There can be multiple symlinks followed in a path being synced, e.g. <ROOT>/symlink1/folder2/symlink3/file,
+but this would only be observed if rjrssync was unaware of symlinks (otherwise it would never walk into the first symlink).
 
 See https://crates.io/crates/symlink
 
@@ -234,6 +235,10 @@ Performance
 * Investigate if pipelining some stages would speed it up, e.g. sending file list while also sending it
 * Probably better to batch together File() Responses, to avoid overhead from sending loads of messages
 * Perf comparison with regular rsync (for cases where there are zero or few changes, and for cases with more changes)
+* Performance tests, so we know if we've made something slower
+  - Syncing large tree when nothing has changed
+  - Copying single large file
+  - Copying lots of small files
 
 
 Misc

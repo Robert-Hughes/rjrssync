@@ -386,5 +386,35 @@ fn test_symlink_delete_from_dest() {
     run_expect_success_preserve(&src, &dest, 1, 0);
 }
 
+/// Tests that syncing a symlink as the root which is a broken symlink still works in preserve mode.
+/// This is relevant because the WalkDir crate doesn't handle this.
+#[test]
+fn test_symlink_root_broken_preserve() {
+    let src = symlink_file("target doesn't exist");
+    run_expect_success_preserve(&src, &empty_folder(), 0, 1);
+}
+
+/// Tests that syncing a symlink as the root which is a broken symlink fails in unaware mode,
+/// because the (apparent) file doesn't exist.
+#[test]
+fn test_symlink_root_broken_unaware() {
+    let src = symlink_file("target doesn't exist");
+    run(TestDesc {
+        setup_filesystem_nodes: vec![
+            ("$TEMP/src", &src),
+        ],
+        args: vec![
+            "$TEMP/src".to_string(),
+            "$TEMP/dest".to_string(),
+            "--symlinks".to_string(),
+            "unaware".to_string(),
+        ],
+        expected_exit_code: 12,
+        expected_output_messages: vec![
+            Regex::new(&regex::escape("doesn't exist")).unwrap(),
+        ],
+        ..Default::default()
+    });
+}
+
 //TODO: test cross-platform syncing - e.g. trying to create file symlink on unix, or vice versa
-//TODO: syncing a broken symlink should work in preserve mode, but not in unaware mode

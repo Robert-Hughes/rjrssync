@@ -163,7 +163,7 @@ fn test_invalid_filter_prefix() {
 
 #[test]
 fn test_invalid_filter_regex() {
-    let src = &file("contents");
+    let src = &empty_folder(); // Note that we need a folder, not a file, as files don't ever get walked and so we would never check the filter!
     run(TestDesc {
         setup_filesystem_nodes: vec![
             ("$TEMP/src", &src),
