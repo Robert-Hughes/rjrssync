@@ -246,7 +246,6 @@ Performance
 Misc
 -----
 
-* Fix intermittent github actions failing because of RustEmbed
 * Make GitHub actions run on both Windows and Linux.
 * Configure GitHub actions to run with remote hosts somehow
 * piper and tcper maybe shouldn't be in the `bin/` folder, as then they count as part of the proper program,

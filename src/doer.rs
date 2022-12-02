@@ -411,6 +411,7 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) 
 
             // Respond to the boss with what type of file/folder the root is, as it makes some decisions
             // based on this.
+            //TODO: use symlink_metadata instead depending on settings?
             match std::fs::metadata(&context.root) {
                 Ok(m) => {
                     let root_details = if m.file_type().is_dir() {

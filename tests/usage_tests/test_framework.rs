@@ -5,6 +5,16 @@ use std::os::windows::fs::FileTypeExt;
 use regex::Regex;
 use tempdir::TempDir;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SymlinkKind {
+    #[cfg_attr(unix, allow(unused))]
+    File, // Windows-only
+    #[cfg_attr(unix, allow(unused))]
+    Folder, // Windows-only
+    #[cfg_attr(windows, allow(unused))]
+    Unspecified, // Unix-only
+}
+
 /// Simple in-memory representation of a file or folder (including any children), to use for testing.
 /// Note that this representation is consistent with the approach described in the README,
 /// and so doesn't consider the name of the node to be part of the node itself.
@@ -17,10 +27,11 @@ pub enum FilesystemNode {
         contents: Vec<u8>,     
         modified: SystemTime,
     },
-    SymlinkFile {
+    Symlink {
+        kind: SymlinkKind,
         target: PathBuf,
         modified: SystemTime,
-    }
+    },
 }
 
 /// Macro to ergonomically create a folder with a list of children.
@@ -48,8 +59,17 @@ pub fn file(contents: &str) -> FilesystemNode {
 pub fn file_with_modified(contents: &str, modified: SystemTime) -> FilesystemNode {
     FilesystemNode::File{ contents: contents.as_bytes().to_vec(), modified }       
 }
+#[cfg_attr(unix, allow(unused))]
 pub fn symlink_file(target: &str) -> FilesystemNode {
-    FilesystemNode::SymlinkFile { target: PathBuf::from(target), modified: SystemTime::now() }
+    FilesystemNode::Symlink { kind: SymlinkKind::File, target: PathBuf::from(target), modified: SystemTime::now() }
+}
+#[cfg_attr(unix, allow(unused))]
+pub fn symlink_folder(target: &str) -> FilesystemNode {
+    FilesystemNode::Symlink { kind: SymlinkKind::Folder, target: PathBuf::from(target), modified: SystemTime::now() }
+}
+#[cfg_attr(windows, allow(unused))]
+pub fn symlink_unspecified(target: &str) -> FilesystemNode {
+    FilesystemNode::Symlink { kind: SymlinkKind::Unspecified, target: PathBuf::from(target), modified: SystemTime::now() }
 }
 
 /// Mirrors the given file/folder and its descendants onto disk, at the given path.
@@ -69,16 +89,30 @@ fn save_filesystem_node_to_disk(node: &FilesystemNode, path: &Path) {
                 save_filesystem_node_to_disk(child, &path.join(child_name));
             }
         }
-        FilesystemNode::SymlinkFile { target, modified } => {
-            #[cfg(windows)]
-            {
-                std::os::windows::fs::symlink_file(target, path).expect("Failed to create symlink file");
-                filetime::set_symlink_file_times(path, 
-                    filetime::FileTime::from_system_time(*modified), 
-                    filetime::FileTime::from_system_time(*modified)).unwrap();
+        FilesystemNode::Symlink { kind, target, modified } => {
+            match kind {
+                SymlinkKind::File => {
+                    #[cfg(windows)]
+                    std::os::windows::fs::symlink_file(target, path).expect("Failed to create symlink file");
+                    #[cfg(not(windows))]
+                    panic!("Not supported on this OS");
+                },
+                SymlinkKind::Folder => {
+                    #[cfg(windows)]
+                    std::os::windows::fs::symlink_dir(target, path).expect("Failed to create symlink dir");
+                    #[cfg(not(windows))]
+                    panic!("Not supported on this OS");        
+                }
+                SymlinkKind::Unspecified => {
+                    #[cfg(unix)]
+                    std::os::unix::fs::symlink(target, path).expect("Failed to create unspecified symlink");
+                    #[cfg(not(unix))]
+                    panic!("Not supported on this OS");        
+                },
             }
-            #[cfg(not(windows))]
-            panic!("Not supported on this OS");
+            filetime::set_symlink_file_times(path, 
+                filetime::FileTime::from_system_time(*modified), 
+                filetime::FileTime::from_system_time(*modified)).unwrap();
         }
     }
 }
@@ -107,17 +141,21 @@ fn load_filesystem_node_from_disk(path: &Path) -> Option<FilesystemNode> {
         }        
         Some(FilesystemNode::Folder { children })
     } else if metadata.file_type().is_symlink() {
+        let target = std::fs::read_link(path).expect("Unable to read symlink target");
+        let modified = metadata.modified().expect("Unable to get modified time");
         // On Windows, symlinks are either file-symlinks or dir-symlinks
         #[cfg(windows)]
-        if metadata.file_type().is_symlink_file() {
-            let target = std::fs::read_link(path).expect("Unable to read symlink target");
-            let modified = metadata.modified().expect("Unable to get modified time");
-            Some(FilesystemNode::SymlinkFile { target, modified })
+        let kind = if metadata.file_type().is_symlink_file() {
+            SymlinkKind::File
+        } else if metadata.file_type().is_symlink_dir() {
+            SymlinkKind::Folder
         } else {
-            panic!("Unknown file type");
-        }
+            panic!("Unknown symlink type type")
+        };
         #[cfg(not(windows))]
-        panic!("Not supported on this OS");
+        let kind = SymlinkKind::Unspecified;
+
+        Some(FilesystemNode::Symlink { kind, target, modified })
     } else {
         panic!("Unknown file type");
     }
