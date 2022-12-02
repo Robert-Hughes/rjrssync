@@ -9,7 +9,8 @@ use map_macro::map;
 /// when running in symlink unaware mode, will sync the contents of the pointed-to file, 
 /// rather than the symlink itself.
 #[test]
-fn test_symlink_file_unaware() {
+#[cfg(windows)] // file-symlinks are only on Windows
+fn test_file_symlink_unaware() {
     let src = folder! {
         "symlink" => symlink_file("file.txt"),
         "file.txt" => file_with_modified("contents", SystemTime::UNIX_EPOCH),
@@ -39,5 +40,7 @@ fn test_symlink_file_unaware() {
         ..Default::default()
     });
 }
+
+//TODO: add symlink DIR (windows) and unspecified symlink (linux) variants of this test
 
 //TODO: symlink modified time - update existing symlink with new target path
