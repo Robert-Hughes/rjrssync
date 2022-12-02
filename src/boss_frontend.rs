@@ -17,8 +17,9 @@ pub enum SymlinkMode {
     /// Symlinks are treated as if they are the target that they point to. No special treatment is given.
     Unaware,
     /// Symlinks are treated as if they were simple text files containing their target address.
-    /// Therefore the link is not followed.
-    TreatAsLink,
+    /// They are not followed or validated. They will be reproduced as accurately as possible on
+    /// the destination.
+    Preserve,
 }
 
 #[derive(clap::Parser)]

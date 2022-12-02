@@ -160,6 +160,8 @@ rjrssync has two modes, as to whether it ignores the symlinks or syncs them as t
 
 TODO: clarify/document/test the program's behaviour in all these cases...
 
+There can be multiple symlinks followed in a path being synced, e.g. <ROOT>/symlink1/folder2/symlink3/file
+
 Example spec file
 ===================
 
