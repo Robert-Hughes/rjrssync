@@ -23,6 +23,7 @@ pub fn run_expect_success_unaware(src_node: &FilesystemNode, initial_dest_node: 
         expected_exit_code: 0,
         expected_output_messages: vec![
             Regex::new(&regex::escape(&format!("Copied {} file(s)", expected_num_copies))).unwrap(),
+            Regex::new(&regex::escape("copied 0 symlink(s)")).unwrap(), // No symlinks should ever be copied, as it's unaware
         ],
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(src_node)), // Source should always be unchanged
@@ -32,7 +33,8 @@ pub fn run_expect_success_unaware(src_node: &FilesystemNode, initial_dest_node: 
     });
 }
 
-pub fn run_expect_success_preserve(src_node: &FilesystemNode, dest_node: &FilesystemNode, expected_num_copies: u32) {
+pub fn run_expect_success_preserve(src_node: &FilesystemNode, dest_node: &FilesystemNode, 
+    expected_num_file_copies: u32, expected_num_symlink_copies: u32) {
     run(TestDesc {
         setup_filesystem_nodes: vec![
             ("$TEMP/src", src_node),
@@ -46,7 +48,8 @@ pub fn run_expect_success_preserve(src_node: &FilesystemNode, dest_node: &Filesy
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
-            Regex::new(&regex::escape(&format!("Copied {} file(s)", expected_num_copies))).unwrap(),
+            Regex::new(&regex::escape(&format!("Copied {} file(s)", expected_num_file_copies))).unwrap(),
+            Regex::new(&regex::escape(&format!("copied {} symlink(s)", expected_num_symlink_copies))).unwrap(),
         ],
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(src_node)), // Source should always be unchanged
@@ -133,7 +136,7 @@ fn test_symlink_file_preserve() {
         "symlink" => symlink_file("file.txt"),
         "file.txt" => file_with_modified("contents", SystemTime::UNIX_EPOCH),
     };
-    run_expect_success_preserve(&src, &empty_folder(), 1);
+    run_expect_success_preserve(&src, &empty_folder(), 1, 1);
 }
 
 /// Tests that syncing a folder that contains a folder symlink to another folder,
@@ -147,7 +150,7 @@ fn test_symlink_folder_preserve() {
             "file2.txt" => file_with_modified("contents2", SystemTime::UNIX_EPOCH),
         }
     };
-    run_expect_success_preserve(&src, &empty_folder(), 2);
+    run_expect_success_preserve(&src, &empty_folder(), 2, 1);
 }
 
 /// Tests that syncing a folder that contains a symlink (unspecified) to another folder,
@@ -162,7 +165,7 @@ fn test_symlink_unspecified_preserve() {
             "file2.txt" => file_with_modified("contents2", SystemTime::UNIX_EPOCH),
         }
     };
-    run_expect_success_preserve(&src, &empty_folder(), 2);
+    run_expect_success_preserve(&src, &empty_folder(), 2, 1);
 }
 
 /// Tests that symlinks as ancestors of the root path are followed, regardless of the symlink mode.
@@ -188,7 +191,8 @@ fn test_symlink_folder_above_root() {
             expected_exit_code: 0,
             expected_output_messages: vec![
                 Regex::new(&regex::escape(&format!("Copied {} file(s)", 1))).unwrap(),
-            ],
+                Regex::new(&regex::escape("copied 0 symlink(s)")).unwrap(),
+                ],
             expected_filesystem_nodes: vec![
                 ("$TEMP/src", Some(&src)), // Source should always be unchanged
                 ("$TEMP/dest.txt", Some(&file_with_modified("contents1", SystemTime::UNIX_EPOCH))),
@@ -218,6 +222,7 @@ fn test_symlink_file_root_unaware() {
         expected_exit_code: 0,
         expected_output_messages: vec![
             Regex::new(&regex::escape(&format!("Copied {} file(s)", 1))).unwrap(),
+            Regex::new(&regex::escape("copied 0 symlink(s)")).unwrap(),
         ],
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&src)), // Source should always be unchanged
@@ -230,7 +235,6 @@ fn test_symlink_file_root_unaware() {
 /// Tests that specifying a root which is itself a file symlink symlink to another file,
 /// when running in symlink preserve mode, will sync the symlink itself rather than the pointed-to file.
 #[test]
-#[cfg(windows)] // file-symlinks are only on Windows
 fn test_symlink_file_root_preserve() {
     let src = symlink_file("target.txt");
     run(TestDesc {
@@ -246,6 +250,8 @@ fn test_symlink_file_root_preserve() {
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
+            Regex::new(&regex::escape("Copied 0 file(s)")).unwrap(),
+            Regex::new(&regex::escape("copied 1 symlink(s)")).unwrap(),
         ],
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&src)), // Source should always be unchanged
@@ -259,7 +265,6 @@ fn test_symlink_file_root_preserve() {
 /// when running in symlink unaware mode, will sync the contents of that pointed-to folder, 
 /// rather than the symlink itself.
 #[test]
-#[cfg(windows)] // folder-symlinks are only on Windows
 fn test_symlink_folder_root_unaware() {
     let src = symlink_folder("target");
     let target_folder = folder! {
@@ -278,7 +283,8 @@ fn test_symlink_folder_root_unaware() {
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
-            Regex::new(&regex::escape(&format!("Copied {} file(s)", 1))).unwrap(),
+            Regex::new(&regex::escape("Copied 1 file(s)")).unwrap(),
+            Regex::new(&regex::escape("copied 0 symlink(s)")).unwrap(),
         ],
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&src)), // Source should always be unchanged
@@ -291,7 +297,6 @@ fn test_symlink_folder_root_unaware() {
 /// Tests that specifying a root which is itself a folder symlink symlink to another folder,
 /// when running in symlink preserve mode, will sync the symlink itself, not the contents of the pointed-to folder.
 #[test]
-#[cfg(windows)] // folder-symlinks are only on Windows
 fn test_symlink_folder_root_preserve() {
     let src = symlink_folder("target");
     let target_folder = folder! {
