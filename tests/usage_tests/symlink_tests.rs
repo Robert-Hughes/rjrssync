@@ -7,6 +7,31 @@ use crate::test_framework::FilesystemNode;
 use crate::{test_framework::{symlink_unspecified, run, empty_folder, TestDesc, symlink_file, symlink_folder, folder, file_with_modified}, folder};
 use map_macro::map;
 
+pub fn run_expect_success_unaware(src_node: &FilesystemNode, initial_dest_node: &FilesystemNode, 
+    expected_final_dest_node: &FilesystemNode, expected_num_copies: u32) {
+    run(TestDesc {
+        setup_filesystem_nodes: vec![
+            ("$TEMP/src", src_node),
+            ("$TEMP/dest", initial_dest_node),
+        ],
+        args: vec![
+            "$TEMP/src".to_string(),
+            "$TEMP/dest".to_string(),
+            "--symlinks".to_string(),
+            "unaware".to_string(),
+        ],
+        expected_exit_code: 0,
+        expected_output_messages: vec![
+            Regex::new(&regex::escape(&format!("Copied {} file(s)", expected_num_copies))).unwrap(),
+        ],
+        expected_filesystem_nodes: vec![
+            ("$TEMP/src", Some(src_node)), // Source should always be unchanged
+            ("$TEMP/dest", Some(expected_final_dest_node)), // Dest won't be identical to source, because symlinks have been followed.
+        ],
+        ..Default::default()
+    });
+}
+
 pub fn run_expect_success_preserve(src_node: &FilesystemNode, dest_node: &FilesystemNode, expected_num_copies: u32) {
     run(TestDesc {
         setup_filesystem_nodes: vec![
@@ -41,30 +66,12 @@ fn test_symlink_file_unaware() {
         "symlink" => symlink_file("file.txt"),
         "file.txt" => file_with_modified("contents", SystemTime::UNIX_EPOCH),
     };
+    // Dest should get a copy of the file, rather than a symlink
     let expected_dest = folder! {
         "symlink" => file_with_modified("contents", SystemTime::UNIX_EPOCH),
         "file.txt" => file_with_modified("contents", SystemTime::UNIX_EPOCH),
     };
-    run(TestDesc {
-        setup_filesystem_nodes: vec![
-            ("$TEMP/src", &src),
-        ],
-        args: vec![
-            "--symlinks".to_string(),
-            "unaware".to_string(),
-            "$TEMP/src".to_string(),
-            "$TEMP/dest".to_string(),
-        ],
-        expected_exit_code: 0,
-        expected_output_messages: vec![
-            Regex::new(&regex::escape("Copied 2 file(s)")).unwrap(),
-        ],
-        expected_filesystem_nodes: vec! [
-            ("$TEMP/src", Some(&src)), // Source is unchanged (still a symlink)
-            ("$TEMP/dest", Some(&expected_dest)), // Dest has a copy of the file, rather than a symlink
-        ],
-        ..Default::default()
-    });
+    run_expect_success_unaware(&src, &empty_folder(), &expected_dest, 2);
 }
 
 /// Tests that syncing a folder that contains a folder symlink to another folder,
@@ -80,6 +87,7 @@ fn test_symlink_folder_unaware() {
             "file2.txt" => file_with_modified("contents2", SystemTime::UNIX_EPOCH),
         }
     };
+    // Dest should get a copy of the folder, rather than a symlink
     let expected_dest = folder! {
         "symlink" => folder! {
             "file1.txt" => file_with_modified("contents1", SystemTime::UNIX_EPOCH),
@@ -90,26 +98,7 @@ fn test_symlink_folder_unaware() {
             "file2.txt" => file_with_modified("contents2", SystemTime::UNIX_EPOCH),
         }
     };
-    run(TestDesc {
-        setup_filesystem_nodes: vec![
-            ("$TEMP/src", &src),
-        ],
-        args: vec![
-            "--symlinks".to_string(),
-            "unaware".to_string(),
-            "$TEMP/src".to_string(),
-            "$TEMP/dest".to_string(),
-        ],
-        expected_exit_code: 0,
-        expected_output_messages: vec![
-            Regex::new(&regex::escape("Copied 4 file(s)")).unwrap(),
-        ],
-        expected_filesystem_nodes: vec! [
-            ("$TEMP/src", Some(&src)), // Source is unchanged (still a symlink)
-            ("$TEMP/dest", Some(&expected_dest)), // Dest has a copy of the folder, rather than a symlink
-        ],
-        ..Default::default()
-    });
+    run_expect_success_unaware(&src, &empty_folder(), &expected_dest, 4);
 }
 
 /// Tests that syncing a folder that contains a symlink (unspecified) to another folder,
@@ -135,26 +124,7 @@ fn test_symlink_unspecified_unaware() {
             "file2.txt" => file_with_modified("contents2", SystemTime::UNIX_EPOCH),
         }
     };
-    run(TestDesc {
-        setup_filesystem_nodes: vec![
-            ("$TEMP/src", &src),
-        ],
-        args: vec![
-            "--symlinks".to_string(),
-            "unaware".to_string(),
-            "$TEMP/src".to_string(),
-            "$TEMP/dest".to_string(),
-        ],
-        expected_exit_code: 0,
-        expected_output_messages: vec![
-            Regex::new(&regex::escape("Copied 4 file(s)")).unwrap(),
-        ],
-        expected_filesystem_nodes: vec! [
-            ("$TEMP/src", Some(&src)), // Source is unchanged (still a symlink)
-            ("$TEMP/dest", Some(&expected_dest)), // Dest has a copy of the folder, rather than a symlink
-        ],
-        ..Default::default()
-    });
+    run_expect_success_unaware(&src, &empty_folder(), &expected_dest, 4);
 }
 
 /// Tests that syncing a folder that contains a file symlink to another file in the folder,
