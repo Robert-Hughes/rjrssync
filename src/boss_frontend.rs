@@ -6,15 +6,17 @@ use clap::{Parser, ValueEnum};
 use env_logger::{Env, fmt::Color};
 use log::info;
 use log::{debug, error};
+use serde::{Serialize, Deserialize};
 use yaml_rust::{YamlLoader, Yaml};
 
 use crate::boss_launch::*;
 use crate::boss_sync::*;
 use crate::doer::Filter;
 
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Serialize, Deserialize, Debug)]
 pub enum SymlinkMode {
-    /// Symlinks are treated as if they are the target that they point to. No special treatment is given.
+    /// Symlinks are treated as if they are the target that they point to. 
+    /// No special treatment is given - the OS is responsible for following symlinks automatically.
     Unaware,
     /// Symlinks are treated as if they were simple text files containing their target address.
     /// They are not followed or validated. They will be reproduced as accurately as possible on
@@ -38,6 +40,7 @@ pub struct BossCliArgs {
     /// Instead of specifying SRC and DEST, this can be used to perform a sync defined by a config file.
     #[arg(long)]
     pub spec: Option<String>,
+    //TODO: clarify what happens if command-line options like filters are provided as well as a spec.
 
     /// If set, forces redeployment of rjrssync to any remote targets, even if they already have an
     /// up-to-date copy.
@@ -59,6 +62,7 @@ pub struct BossCliArgs {
     pub remote_port: u16,
     #[arg(value_enum, long, default_value_t=SymlinkMode::Unaware)]
     pub symlinks : SymlinkMode, //TODO: add this to spec file too
+    //TODO: change default to preserve?
 
     #[arg(long)]
     pub dry_run: bool,
@@ -268,11 +272,6 @@ pub fn boss_main() -> ExitCode {
 
     debug!("Running as boss");
 
-    if args.symlinks != SymlinkMode::Unaware {
-        error!("Symlink mode not supported yet!");
-        return ExitCode::from(19);
-    }
-
     // Decide what to sync - defined either on the command line or in a spec file if provided
     let mut spec = Spec::default();
     if let Some(s) = args.spec {
@@ -350,7 +349,7 @@ pub fn boss_main() -> ExitCode {
             info!("{} => {}:", sync_spec.src, sync_spec.dest);
         }
 
-        let sync_result = sync(&sync_spec.src, sync_spec.dest.clone(), &filters,
+        let sync_result = sync(&sync_spec.src, sync_spec.dest.clone(), &filters, args.symlinks,
             args.dry_run, args.stats, &mut src_comms, &mut dest_comms);
 
         match sync_result {

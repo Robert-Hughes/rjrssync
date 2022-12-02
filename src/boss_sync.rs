@@ -97,6 +97,7 @@ pub fn sync(
     src_root: &str,
     mut dest_root: String,
     filters: &[Filter],
+    symlink_mode: SymlinkMode,
     dry_run: bool,
     show_stats: bool,
     src_comms: &mut Comms,
@@ -201,7 +202,7 @@ pub fn sync(
         {
             let mut src_entries = Vec::new();
             let mut src_entries_lookup = HashMap::<RootRelativePath, EntryDetails>::new();
-            src_comms.send_command(Command::GetEntries { filters: filters.to_vec() })?;
+            src_comms.send_command(Command::GetEntries { filters: filters.to_vec(), symlink_mode })?;
             loop {
                 match src_comms.receive_response() {
                     Ok(Response::Entry((p, d))) => {
@@ -213,6 +214,7 @@ pub fn sync(
                                 stats.src_file_size_hist.add(size);
                             }
                             EntryDetails::Folder => stats.num_src_folders += 1,
+                            EntryDetails::Symlink { .. } => (),
                         }
                         src_entries.push((p.clone(), d.clone()));
                         src_entries_lookup.insert(p, d);
@@ -234,7 +236,7 @@ pub fn sync(
             // The dest might not exist yet, which is fine - continue anyway with an empty array of dest entries
             // and we will create the dest as part of the sync.
             if dest_root_details != RootDetails::None {
-                dest_comms.send_command(Command::GetEntries { filters: filters.to_vec() })?;
+                dest_comms.send_command(Command::GetEntries { filters: filters.to_vec(), symlink_mode })?;
                 loop {
                     match dest_comms.receive_response() {
                         Ok(Response::Entry((p, d))) => {
@@ -245,6 +247,7 @@ pub fn sync(
                                     stats.dest_total_bytes += size;
                                 }
                                 EntryDetails::Folder => stats.num_dest_folders += 1,
+                                EntryDetails::Symlink { .. } => (),
                             }
                             dest_entries.push((p.clone(), d.clone()));
                             dest_entries_lookup.insert(p, d);
@@ -289,8 +292,8 @@ pub fn sync(
     // see test_remove_dest_folder_with_excluded_files())
     let delete_start = Instant::now();
     for (dest_path, dest_details) in dest_entries.iter().rev() {
-        let s = src_entries_lookup.get(dest_path) ;
-        if !s.is_some() || !s.unwrap().is_same_type(dest_details) {
+        let s = src_entries_lookup.get(dest_path);
+        if !s.is_some() || !can_be_updated_without_deletion(s.unwrap(), dest_details) {
             debug!("Deleting from dest {}", format_root_relative(&dest_path, &dest_root));
             let c = match dest_details {
                 EntryDetails::File { size, .. } => {
@@ -304,6 +307,12 @@ pub fn sync(
                     stats.num_folders_deleted += 1;
                     Command::DeleteFolder {
                         path: dest_path.clone(),
+                    }
+                }
+                EntryDetails::Symlink { kind, .. } => {
+                    Command::DeleteSymlink {
+                        path: dest_path.clone(),
+                        kind: *kind,
                     }
                 }
             };
@@ -327,7 +336,7 @@ pub fn sync(
     for (path, src_details) in src_entries {
         let dest_details = dest_entries_lookup.get(&path);
         match dest_details {
-            Some(dest_details) if dest_details.is_same_type(&src_details) => {
+            Some(dest_details) if can_be_updated_without_deletion (&src_details, dest_details) => {
                 // Dest already has this entry - check if it is up-to-date
                 match src_details {
                     EntryDetails::File { size, modified_time: src_modified_time } => {
@@ -361,7 +370,8 @@ pub fn sync(
                         trace!("Source folder {} already exists on dest {} - nothing to do",
                             format_root_relative(&path, &src_root),
                             format_root_relative(&path, &dest_root))
-                    }
+                    },
+                    EntryDetails::Symlink { .. } => panic!("can_be_updated_without_deletion should have returned false"),
                 }
             },
             _ => match src_details {
@@ -385,6 +395,25 @@ pub fn sync(
                     } else {
                         // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be copied
                         info!("Would create dest folder {}", format_root_relative(&path, &dest_root));
+                    }
+                },
+                EntryDetails::Symlink { kind, target, modified_time } => {
+                    debug!("Source {} symlink doesn't exist on dest - copying", format_root_relative(&path, &src_root));
+                    if !dry_run {
+                        dest_comms
+                            .send_command(Command::CreateSymlink { 
+                                path: path.clone(), 
+                                kind,
+                                target, 
+                                set_modified_time: Some(modified_time) 
+                            })?;
+                        match dest_comms.receive_response() {
+                            Ok(doer::Response::Ack) => (),
+                            x => return Err(format!("Unexpected response creating symlink on dest {}: {:?}", format_root_relative(&path, &dest_root), x)),
+                        };
+                    } else {
+                        // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be copied
+                        info!("Would create dest symlink {}", format_root_relative(&path, &dest_root));
                     }
                 }
             },
@@ -438,6 +467,22 @@ pub fn sync(
     }
 
     Ok(())
+}
+
+/// Checks if a given src entry could be updated to match the dest, or if it needs
+/// to be deleted and recreated instead.
+pub fn can_be_updated_without_deletion(src: &EntryDetails, dest: &EntryDetails) -> bool {
+    match src {
+        EntryDetails::File { .. } => match dest {
+            EntryDetails::File { .. } => true,
+            _ => false,
+        },
+        EntryDetails::Folder => match dest {
+            EntryDetails::Folder => true,
+            _ => false,
+        },
+        EntryDetails::Symlink { .. } => false, //TODO: this means that we're always gonna delete and recreate these, even if they're up-to-date!
+    }
 }
 
 fn copy_file(

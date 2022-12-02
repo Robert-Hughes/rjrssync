@@ -113,6 +113,7 @@ pub enum Command {
     },
     GetEntries {
         filters: Vec<Filter>,
+        symlink_mode: SymlinkMode,
     },
     CreateRootAncestors,
     GetFileContent {
@@ -121,6 +122,12 @@ pub enum Command {
     CreateOrUpdateFile {
         path: RootRelativePath,
         data: Vec<u8>,
+        set_modified_time: Option<SystemTime>,
+    },
+    CreateSymlink {
+        path: RootRelativePath,
+        kind: SymlinkKind,
+        target: String, // We don't assume anything about this text
         set_modified_time: Option<SystemTime>,
     },
     CreateFolder {
@@ -132,7 +139,18 @@ pub enum Command {
     DeleteFolder {
         path: RootRelativePath,
     },
+    DeleteSymlink {
+        path: RootRelativePath,
+        kind: SymlinkKind,
+    },
     Shutdown,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SymlinkKind {
+    File, // Windows-only
+    Folder, // Windows-only
+    Unspecified, // Unix-only
 }
 
 /// Details of a file or folder.
@@ -145,20 +163,11 @@ pub enum EntryDetails {
         size: u64
     },
     Folder,
-}
-impl EntryDetails {
-    pub fn is_same_type(&self, other: &EntryDetails) -> bool {
-        match self {
-            EntryDetails::File { .. } => match other {
-                EntryDetails::File { .. } => true,
-                EntryDetails::Folder => false,
-            },
-            EntryDetails::Folder => match other {
-                EntryDetails::File { .. } => false,
-                EntryDetails::Folder => true,
-            },
-        }
-    }
+    Symlink {
+        kind: SymlinkKind,
+        target: String, // We don't assume anything about this text
+        modified_time: SystemTime,
+    },
 }
 
 /// Details of the root, returned from SetRoot.
@@ -439,9 +448,9 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) 
                 }
             }
         }
-        Command::GetEntries { filters } => {
+        Command::GetEntries { filters, symlink_mode } => {
             profile_this!("GetEntries");
-            if let Err(e) = handle_get_entries(comms, context, &filters) {
+            if let Err(e) = handle_get_entries(comms, context, &filters, symlink_mode) {
                 comms.send_response(Response::Error(e)).unwrap();
             }
         }
@@ -502,6 +511,12 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) 
                 Err(e) => comms.send_response(Response::Error(format!("Error creating folder '{}': {e}", full_path.display()))).unwrap(),
             }
         }
+        Command::CreateSymlink { path, kind, target, set_modified_time } => {
+            match handle_create_symlink(path, context, kind, target, set_modified_time) {
+                Ok(()) => comms.send_response(Response::Ack).unwrap(),               
+                Err(e) => comms.send_response(Response::Error(e)).unwrap(),
+            }
+        },
         Command::DeleteFile { path } => {
             let full_path =  path.get_full_path(&context.root);
             trace!("Deleting file '{}'", full_path.display());
@@ -518,6 +533,20 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) 
             match std::fs::remove_dir(&full_path) {
                 Ok(()) => comms.send_response(Response::Ack).unwrap(),
                 Err(e) => comms.send_response(Response::Error(format!("Error deleting folder '{}': {e}", full_path.display()))).unwrap(),
+            }
+        }
+        Command::DeleteSymlink { path, kind } => {
+            let full_path =  path.get_full_path(&context.root);
+            trace!("Deleting symlink '{}'", full_path.display());
+            let res = match kind {
+                SymlinkKind::File => std::fs::remove_file(&full_path),
+                SymlinkKind::Folder => std::fs::remove_dir(&full_path),
+                // Unspecified is only used for Unix, and remove_file is the correct way to delete these.
+                SymlinkKind::Unspecified => std::fs::remove_file(&full_path),
+            };
+            match res {
+                Ok(()) => comms.send_response(Response::Ack).unwrap(),
+                Err(e) => comms.send_response(Response::Error(format!("Error deleting symlink '{}': {e}", full_path.display()))).unwrap(),
             }
         }
         Command::Shutdown => {
@@ -581,7 +610,7 @@ fn apply_filters(path: &RootRelativePath, filters: &[CompiledFilter]) -> FilterR
     result
 }
 
-fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, filters: &[Filter]) -> Result<(), String> {
+fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, filters: &[Filter], symlink_mode: SymlinkMode) -> Result<(), String> {
     // Compile filter regexes up-front
     let mut compiled_filters: Vec<CompiledFilter> = vec![];
     for f in filters {
@@ -605,8 +634,7 @@ fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, filters: &[F
     // so that we can avoid normalizing the path twice (once for the filter, once for the conversion
     // of the entry to our representation).
     let mut walker_it = WalkDir::new(&context.root)
-        // For now we only support symlink "unaware" mode, so we follow the links as if they were the target.
-        .follow_links(true) 
+        .follow_links(symlink_mode == SymlinkMode::Unaware) 
         //TODO: i think WalkDir always follows symlinks for the root itself, which might not be the behaviour we want when using the "aware" mode
         .into_iter();
     let mut count = 0;
@@ -655,6 +683,39 @@ fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, filters: &[F
                         modified_time,
                         size: metadata.len(),
                     }
+                } else if e.file_type().is_symlink() {
+                    let target = match std::fs::read_link(e.path()) {
+                        Ok(t) => match t.to_str() {
+                            Some(t) => t.to_string(),
+                            None => return Err(format!("Unable to convert symlink target for '{}' to UTF-8", path)),
+                        },
+                        Err(err) => return Err(format!("Unable to read symlink target for '{}': {err}", path)),
+                    };
+   
+                    let metadata = match e.metadata() {
+                        Ok(m) => m,
+                        Err(err) => return Err(format!("Unable to get metadata for '{}': {err}", path)),
+                    };
+
+                     // This will return the symlink modified time, when follow_links is false.
+                     let modified_time = match metadata.modified() {
+                        Ok(m) => m,
+                        Err(err) => return Err(format!("Unknown modified time for '{}': {err}", path)),
+                    };
+
+                    // On Windows, symlinks are either file-symlinks or dir-symlinks
+                    #[cfg(windows)]
+                    let kind = if std::os::windows::fs::FileTypeExt::is_symlink_file(&metadata.file_type()) {
+                        SymlinkKind::File
+                    } else if std::os::windows::fs::FileTypeExt::is_symlink_dir(&metadata.file_type()) {
+                        SymlinkKind::Folder
+                    } else {
+                        return Err(format!("Unknown symlink type time for '{}'", path));
+                    };
+                    #[cfg(not(windows))]
+                    let kind = SymlinkKind::Unspecified;
+            
+                    EntryDetails::Symlink { kind, target, modified_time }
                 } else {
                     return Err(format!("Unknown file type for '{}': {:?}", path, e.file_type()));
                 };
@@ -674,6 +735,62 @@ fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, filters: &[F
         1000.0 * count as f32 / elapsed as f32
     );
 
+    Ok(())
+}
+
+fn handle_create_symlink(path: RootRelativePath, context: &mut DoerContext, kind: SymlinkKind, target: String, 
+    set_modified_time: Option<SystemTime>) -> Result<(), String> {
+    let full_path = path.get_full_path(&context.root);
+    trace!("Creating symlink at '{}'", full_path.display());
+    let res = match kind {
+        SymlinkKind::File => {
+            #[cfg(windows)]
+            {
+                std::os::windows::fs::symlink_file(target, &full_path)
+            }
+            // Non-windows platforms can't create explicit file symlinks, but we can just create a generic
+            // symlink, which will behave the same.
+            #[cfg(not(windows))] 
+            {
+                std::os::unix::fs::symlink(target, &full_path)
+            }
+        },
+        SymlinkKind::Folder => {
+            #[cfg(windows)]
+            {
+                std::os::windows::fs::symlink_dir(target, &full_path)
+            }
+            // Non-windows platforms can't create explicit folder symlinks, but we can just create a generic
+            // symlink, which will behave the same.
+            #[cfg(not(windows))]
+            {
+                std::os::unix::fs::symlink(target, &full_path)
+            }
+        }
+        SymlinkKind::Unspecified => {
+            #[cfg(unix)]
+            {
+                std::os::unix::fs::symlink(target, &full_path)
+            }
+            #[cfg(not(unix))] // Windows can't create unspecified symlinks - it needs to be either a file or folder symlink
+            {
+                //TODO: we could do a best-effort here by checking the type of the target on the other doer (if it exists), and using that.
+                return Err(format!("Can't create unspecified symlink on this platform '{}'", full_path.display()));
+            }      
+        },
+    };
+    if let Err(e) = res {
+        return Err(format!("Failed to create symlink '{}': {e}", full_path.display()));
+    }
+    if let Some(t) = set_modified_time {
+        trace!("Setting modifited time of '{}'", full_path.display());
+        let r = filetime::set_symlink_file_times(&full_path, 
+            filetime::FileTime::from_system_time(t), 
+            filetime::FileTime::from_system_time(t));
+        if let Err(e) = r {
+            return Err(format!("Error setting modified time of '{}': {e}", full_path.display()));
+        }
+    }
     Ok(())
 }
 

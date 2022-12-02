@@ -162,6 +162,8 @@ TODO: clarify/document/test the program's behaviour in all these cases...
 
 There can be multiple symlinks followed in a path being synced, e.g. <ROOT>/symlink1/folder2/symlink3/file
 
+See https://crates.io/crates/symlink
+
 Example spec file
 ===================
 
