@@ -2,7 +2,7 @@ use std::time::SystemTime;
 
 use regex::Regex;
 
-use crate::test_framework::FilesystemNode;
+use crate::test_framework::{FilesystemNode, file};
 #[allow(unused)]
 use crate::{test_framework::{symlink_unspecified, run, empty_folder, TestDesc, symlink_file, symlink_folder, folder, file_with_modified}, folder};
 use map_macro::map;
@@ -341,10 +341,50 @@ fn test_symlink_unchanged_preserve() {
     run_expect_success_preserve(&src, &src, 0, 0);
 }
 
+/// Tests that syncing a symlink that has a different target link is updated.
+#[test]
+fn test_symlink_new_target_preserve() {
+    let src = folder! {
+        "symlink" => symlink_file("target1.txt"),
+        "target1.txt" => file_with_modified("contents", SystemTime::UNIX_EPOCH),
+    };
+    let dest = folder! {
+        "symlink" => symlink_file("target2.txt"),
+        "target2.txt" => file_with_modified("contents", SystemTime::UNIX_EPOCH),
+    };
+    run_expect_success_preserve(&src, &dest, 1, 1);
+}
 
+/// Tests that an existing symlink (both directory and file) is deleted from the dest 
+/// when it is not present on the source side.
+#[test]
+fn test_symlink_delete_from_dest() {
+    let src = folder! {
+        "file-symlink1" => file("not a symlink!"),
+        "folder-symlink1" => empty_folder(),
+    };
+    let dest = folder! {
+        // This one should be deleted and replaced with a regular file
+        "file-symlink1" => symlink_file("target-file.txt"),
+        "target-file.txt" => file_with_modified("contents", SystemTime::UNIX_EPOCH),
+        // This one should be deleted and replaced with a regular folder
+        "folder-symlink1" => symlink_folder("target-folder"),
+        "target-folder" => folder! {
+            "file1.txt" => file_with_modified("contents1", SystemTime::UNIX_EPOCH),
+            "file2.txt" => file_with_modified("contents2", SystemTime::UNIX_EPOCH),
+        },
+        // This one should be just deleted
+        "file-symlink2" => symlink_file("target-file.txt"),
+        "target-file.txt" => file_with_modified("contents", SystemTime::UNIX_EPOCH),
+        // This one should be just deleted
+        "folder-symlink2" => symlink_folder("target-folder"),
+        "target-folder" => folder! {
+            "file1.txt" => file_with_modified("contents1", SystemTime::UNIX_EPOCH),
+            "file2.txt" => file_with_modified("contents2", SystemTime::UNIX_EPOCH),
+        }
+    };
+    run_expect_success_preserve(&src, &dest, 1, 0);
+}
 
-//TODO: symlink modified time - update existing symlink with new target path if it's newer, otherwise 
-// leave it alone?
-//TODO: test deleting symlinks on dest side if they're no longer needed
 //TODO: test cross-platform syncing - e.g. trying to create file symlink on unix, or vice versa
 //TODO: syncing a broken symlink should work in preserve mode, but not in unaware mode
