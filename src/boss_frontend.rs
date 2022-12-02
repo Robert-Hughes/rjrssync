@@ -60,9 +60,8 @@ pub struct BossCliArgs {
     /// Override the port used to connect to hostnames specified in src or dest.
     #[arg(long, default_value_t = 40129)]
     pub remote_port: u16,
-    #[arg(value_enum, long, default_value_t=SymlinkMode::Unaware)]
+    #[arg(value_enum, long, default_value_t=SymlinkMode::Preserve)]
     pub symlinks : SymlinkMode, //TODO: add this to spec file too
-    //TODO: change default to preserve?
 
     #[arg(long)]
     pub dry_run: bool,

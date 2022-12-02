@@ -140,7 +140,7 @@ Notes on symlinks
 ==================
 
 Symlinks could be present as ancestors in the path(s) being synced (`a/b/symlink/c`),
-the path being synced itself (`a/b/symlink`), or as one of the items inside a folder being synced.
+the path being synced itself (`a/b/symlink`, one or both sides), or as one of the items inside a folder being synced.
 
 Symlinks can point to either a file, a folder, nothing (broken), or another symlink, which itself could point to
 any of those.
@@ -157,8 +157,6 @@ Symlink targets can be specified as relative or absolute.
 Symlinks have their own modified time (which is when the link path was changed, not equal to the target's modified time). TODO: check this.
 
 rjrssync has two modes, as to whether it ignores the symlinks or syncs them as the links (see SymlinkMode enum).
-
-TODO: clarify/document/test the program's behaviour in all these cases...
 
 There can be multiple symlinks followed in a path being synced, e.g. <ROOT>/symlink1/folder2/symlink3/file
 
@@ -216,15 +214,7 @@ Syncing logic
 * Test for --dry-run
 * Test for --stats (maybe just all the command-line options...)
 * Progress bar
-* Support symlinks (see notes on symblinks above)
-  - Support in testing framework
-  - Two modes - symlink unaware (treats the link as the target), and symlink aware (just syncs the link)?
-  - Support/test different 'types' of symlinks (windows types and also different target types?)
-  - Symlink target could be a file, a folder, non-existent, or another symlink (of any of these types...)
-  - Either src or dest itself could be symlink
-  - Symlinks could be present as ancestors as src or dest path (though this shouldn't matter)
-  - Symlinks could be present inside a folder being synced.
-  - Symlinks could be combined with any existing type as src or dest (e.g. symlink => folder, file => symlink etc.)
+* Clarify/document/test the program's behaviour in all the cases described in the above symlink notes
 * What happens if src and dest both point to the same place?
    - Either directly, or via symlink(s)?
 * --no-encryption option, might be faster?

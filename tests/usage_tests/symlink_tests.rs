@@ -201,5 +201,5 @@ fn test_symlink_unspecified_preserve() {
 
 //TODO: symlink modified time - update existing symlink with new target path if it's newer, otherwise 
 // leave it alone?
-//TODO: test deleting symlinks on dest side
+//TODO: test deleting symlinks on dest side if they're no longer needed
 //TODO: test cross-platform syncing - e.g. trying to create file symlink on unix, or vice versa
