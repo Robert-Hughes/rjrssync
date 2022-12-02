@@ -26,8 +26,19 @@ fn get_remote_windows_config() -> (String, String) {
                 NetworkInterface::show().expect("Error getting network interfaces").into_iter()
                     .filter_map(|i| i.addr.and_then(|a| if let V4(V4IfAddr { ip, .. }) = a { Some(ip.to_string()) } else { None }))
                     .filter(|a| a != "127.0.0.1").nth(0).expect("No appropriate network interfaces")
+            } else if cfg!(unix) {
+                // Figure out the IP address of the external host windows system from /etc/resolv.conf
+                let windows_ip = std::fs::read_to_string("/etc/resolv.conf").expect("Failed to read /etc/resolv.conf")
+                    .lines().filter_map(|l| l.split("nameserver ").last()).last().expect("Couldn't find nameserver in /etc/resolv.conf").to_string();
+
+                // Get windows username
+                let output = std::process::Command::new("cmd.exe").arg("/c").arg("echo %USERNAME%").output().expect("Failed to query windows username");
+                assert!(output.status.success());
+                let username = String::from_utf8(output.stdout).expect("Unable to decode utf-8").trim().to_string();
+          
+                format!("{username}@{windows_ip}")
             } else {
-                panic!("Not implemented");
+                panic!("Not implemented for this OS" );
             }
         }
         _ => panic!("Unexpected error"),
@@ -61,13 +72,17 @@ fn get_remote_linux_config() -> (String, String) {
                 // by simply using localhost or 127.0.0.1. If both WSL SSH and windows SSH are both listening,
                 // then WSL takes precedence.
                 // The username is more complicated, as the WSL username might differ from Windows username
+                //TODO: running this command messes up terminal line endings briefly :(
                 let output = std::process::Command::new("wsl").arg("echo").arg("$USER").output().expect("Failed to query WSL username");
                 assert!(output.status.success());
                 let username = String::from_utf8(output.stdout).expect("Unable to decode utf-8").trim().to_string();
                    
                 format!("{username}@127.0.0.1")
+            } else if cfg!(unix) {
+                // Simply connect to the current OS, with the current user
+                "127.0.0.1".to_string()
             } else {
-                panic!("Not implemented");
+                panic!("Not implemented for this OS" );
             }
         }
         _ => panic!("Unexpected error"),
