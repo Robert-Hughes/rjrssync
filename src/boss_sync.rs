@@ -116,7 +116,7 @@ pub fn sync(
     // before we start it (e.g. errors, or changing the dest root)
 
     // Source SetRoot
-    src_comms.send_command(Command::SetRoot { root: src_root.to_string() })?;
+    src_comms.send_command(Command::SetRoot { root: src_root.to_string(), symlink_mode })?;
     let src_root_details = match src_comms.receive_response() {
         Ok(Response::RootDetails(d)) => {
             match d {
@@ -141,7 +141,7 @@ pub fn sync(
     };
 
     // Dest SetRoot
-    dest_comms.send_command(Command::SetRoot { root: dest_root.to_string() })?;
+    dest_comms.send_command(Command::SetRoot { root: dest_root.to_string(), symlink_mode })?;
     let mut dest_root_details = match dest_comms.receive_response() {
         Ok(Response::RootDetails(d)) => {
             match d {
@@ -179,7 +179,7 @@ pub fn sync(
             dest_root = dest_root.to_string() + c;
             debug!("Modified dest path to {}", dest_root);
 
-            dest_comms.send_command(Command::SetRoot { root: dest_root.clone() })?;
+            dest_comms.send_command(Command::SetRoot { root: dest_root.clone(), symlink_mode })?;
             dest_root_details = match dest_comms.receive_response() {
                 Ok(Response::RootDetails(t)) => t,
                 r => return Err(format!("Unexpected response getting root details from dest: {:?}", r)),
@@ -207,7 +207,7 @@ pub fn sync(
         {
             let mut src_entries = Vec::new();
             let mut src_entries_lookup = HashMap::<RootRelativePath, EntryDetails>::new();
-            src_comms.send_command(Command::GetEntries { filters: filters.to_vec(), symlink_mode })?;
+            src_comms.send_command(Command::GetEntries { filters: filters.to_vec() })?;
             loop {
                 match src_comms.receive_response() {
                     Ok(Response::Entry((p, d))) => {
@@ -241,7 +241,7 @@ pub fn sync(
             // The dest might not exist yet, which is fine - continue anyway with an empty array of dest entries
             // and we will create the dest as part of the sync.
             if dest_root_details != RootDetails::None {
-                dest_comms.send_command(Command::GetEntries { filters: filters.to_vec(), symlink_mode })?;
+                dest_comms.send_command(Command::GetEntries { filters: filters.to_vec() })?;
                 loop {
                     match dest_comms.receive_response() {
                         Ok(Response::Entry((p, d))) => {

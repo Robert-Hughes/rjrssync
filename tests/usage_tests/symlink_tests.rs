@@ -329,3 +329,4 @@ fn test_symlink_folder_root_preserve() {
 // leave it alone?
 //TODO: test deleting symlinks on dest side if they're no longer needed
 //TODO: test cross-platform syncing - e.g. trying to create file symlink on unix, or vice versa
+//TODO: syncing a broken symlink should work in preserve mode, but not in unaware mode

@@ -110,10 +110,10 @@ pub enum Command {
     // as the boss may need to do something before we send it all the rest of the entries
     SetRoot {
         root: String, // Note this doesn't use a RootRelativePath as it isn't relative to the root - it _is_ the root!
+        symlink_mode: SymlinkMode,
     },
     GetEntries {
         filters: Vec<Filter>,
-        symlink_mode: SymlinkMode,
     },
     CreateRootAncestors,
     GetFileContent {
@@ -374,15 +374,14 @@ pub fn doer_thread_running_on_boss(receiver: Receiver<Command>, sender: Sender<R
 /// (if these are local doers).
 struct DoerContext {
     pub root: PathBuf,
+    pub symlink_mode: SymlinkMode
 }
 
 // Repeatedly waits for Commands from the boss and processes them (possibly sending back Responses).
 // This function returns when we receive a Shutdown Command, or there is an unrecoverable error
 // (recoverable errors while handling Commands will not stop the loop).
 fn message_loop(mut comms: Comms) -> Result<(), ()> {
-    let mut context = DoerContext {
-        root: PathBuf::new(),
-    };
+    let mut context : Option<DoerContext> = None;
     loop {
         match comms.receive_command() {
             Ok(c) => {
@@ -412,16 +411,25 @@ fn message_loop(mut comms: Comms) -> Result<(), ()> {
 /// to fetch details of a file that doesn't exist), then this is reported back to the boss in a Response::Error,
 /// and this function still returns Ok(). Error() variants returned from this function indicate a more catastrophic
 /// error, like a communication failure.
-fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) -> Result<bool, String> {
+fn exec_command(command: Command, comms: &mut Comms, context: &mut Option<DoerContext>) -> Result<bool, String> {
     match command {
-        Command::SetRoot { root } => {
+        Command::SetRoot { root, symlink_mode } => {
             // Store the root path for future operations
-            context.root = PathBuf::from(root);
+            *context = Some(DoerContext {
+                root: PathBuf::from(root),
+                symlink_mode,
+            });
+            let context = context.as_ref().unwrap();
 
             // Respond to the boss with what type of file/folder the root is, as it makes some decisions
             // based on this.
-            //TODO: use symlink_metadata instead depending on settings?
-            match std::fs::metadata(&context.root) {
+            // We use symlink_metadata depending on the symlink mode
+            let metadata = match symlink_mode {
+                SymlinkMode::Unaware => std::fs::metadata(&context.root),
+                SymlinkMode::Preserve => std::fs::symlink_metadata(&context.root),
+            };
+
+            match metadata {
                 Ok(m) => {
                     let root_details = if m.file_type().is_dir() {
                         RootDetails::Folder
@@ -448,14 +456,14 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) 
                 }
             }
         }
-        Command::GetEntries { filters, symlink_mode } => {
+        Command::GetEntries { filters } => {
             profile_this!("GetEntries");
-            if let Err(e) = handle_get_entries(comms, context, &filters, symlink_mode) {
+            if let Err(e) = handle_get_entries(comms, context.as_mut().unwrap(), &filters) {
                 comms.send_response(Response::Error(e)).unwrap();
             }
         }
         Command::CreateRootAncestors => {
-            let path_to_create = context.root.parent();
+            let path_to_create = context.as_ref().unwrap().root.parent();
             trace!("Creating {:?} and all its ancestors", path_to_create);
             if let Some(p) = path_to_create {
                 profile_this!("CreateRootAncestors", p.to_str().unwrap().to_string());
@@ -466,7 +474,7 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) 
             }
         }
         Command::GetFileContent { path } => {
-            let full_path = path.get_full_path(&context.root);
+            let full_path = path.get_full_path(&context.as_ref().unwrap().root);
             trace!("Getting content of '{}'", full_path.display());
             profile_this!("GetFileContent", path.to_string());
             match std::fs::read(&full_path) {
@@ -479,7 +487,7 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) 
             data,
             set_modified_time,
         } => {
-            let full_path = path.get_full_path(&context.root);
+            let full_path = path.get_full_path(&context.as_ref().unwrap().root);
             trace!("Creating/updating content of '{}'", full_path.display());
             profile_this!("CreateOrUpdateFile", path.to_string());
             let r = std::fs::write(&full_path, data);
@@ -503,7 +511,7 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) 
             comms.send_response(Response::Ack).unwrap();
         }
         Command::CreateFolder { path } => {
-            let full_path =  path.get_full_path(&context.root);
+            let full_path =  path.get_full_path(&context.as_ref().unwrap().root);
             trace!("Creating folder '{}'", full_path.display());
             profile_this!("CreateFolder", full_path.to_str().unwrap().to_string());
             match std::fs::create_dir(&full_path) {
@@ -512,13 +520,13 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) 
             }
         }
         Command::CreateSymlink { path, kind, target, set_modified_time } => {
-            match handle_create_symlink(path, context, kind, target, set_modified_time) {
+            match handle_create_symlink(path, context.as_mut().unwrap(), kind, target, set_modified_time) {
                 Ok(()) => comms.send_response(Response::Ack).unwrap(),               
                 Err(e) => comms.send_response(Response::Error(e)).unwrap(),
             }
         },
         Command::DeleteFile { path } => {
-            let full_path =  path.get_full_path(&context.root);
+            let full_path =  path.get_full_path(&context.as_ref().unwrap().root);
             trace!("Deleting file '{}'", full_path.display());
             profile_this!("DeleteFile", path.to_string());
             match std::fs::remove_file(&full_path) {
@@ -527,7 +535,7 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) 
             }
         }
         Command::DeleteFolder { path } => {
-            let full_path =  path.get_full_path(&context.root);
+            let full_path =  path.get_full_path(&context.as_ref().unwrap().root);
             trace!("Deleting folder '{}'", full_path.display());
             profile_this!("DeleteFolder", path.to_string());
             match std::fs::remove_dir(&full_path) {
@@ -536,7 +544,7 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut DoerContext) 
             }
         }
         Command::DeleteSymlink { path, kind } => {
-            let full_path =  path.get_full_path(&context.root);
+            let full_path =  path.get_full_path(&context.as_ref().unwrap().root);
             trace!("Deleting symlink '{}'", full_path.display());
             let res = match kind {
                 SymlinkKind::File => std::fs::remove_file(&full_path),
@@ -610,7 +618,7 @@ fn apply_filters(path: &RootRelativePath, filters: &[CompiledFilter]) -> FilterR
     result
 }
 
-fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, filters: &[Filter], symlink_mode: SymlinkMode) -> Result<(), String> {
+fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, filters: &[Filter]) -> Result<(), String> {
     // Compile filter regexes up-front
     let mut compiled_filters: Vec<CompiledFilter> = vec![];
     for f in filters {
@@ -634,7 +642,7 @@ fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, filters: &[F
     // so that we can avoid normalizing the path twice (once for the filter, once for the conversion
     // of the entry to our representation).
     let mut walker_it = WalkDir::new(&context.root)
-        .follow_links(symlink_mode == SymlinkMode::Unaware) 
+        .follow_links(context.symlink_mode == SymlinkMode::Unaware) 
         .into_iter();
     let mut count = 0;
     loop {
@@ -725,7 +733,7 @@ fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, filters: &[F
                 // then the WalkDir crate will correctly report the root as a symlink, _but_ it still follows
                 // the symlink and then walks the contents of that directory, which we _don't_ want, so we can
                 // cancel the iteration here
-                if e.depth() == 0 && symlink_mode == SymlinkMode::Preserve && e.file_type().is_symlink() {
+                if e.depth() == 0 && context.symlink_mode == SymlinkMode::Preserve && e.file_type().is_symlink() {
                     break;
                 }
             }
