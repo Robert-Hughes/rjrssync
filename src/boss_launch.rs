@@ -2,6 +2,7 @@ use aes_gcm::aead::{OsRng};
 use aes_gcm::{Aes128Gcm, KeyInit, Key};
 use log::{debug, error, info, warn, log, trace};
 use rust_embed::RustEmbed;
+use std::borrow::Cow;
 use std::ffi::OsStr;
 use std::io::LineWriter;
 use std::net::{TcpStream};
@@ -539,12 +540,20 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str, remote_port_for
     }
 }
 
-// This embeds the source code of the program into the executable, so it can be deployed remotely and built on other platforms
+// This embeds the source code of the program into the executable, so it can be deployed remotely and built on other platforms.
+// We only include the src/ folder using this crate, and the Cargo.toml/lock files are included separately.
+// This is because the RustEmbed crate doesn't handle well including the whole repository and then filtering out the 
+// bits we don't want (e.g. target/, .git/), because it walks the entire directory structure before filtering, which means
+// that it looks through all the .git and target folders first, which is slow and error prone (intermittent errors possibly
+// due to files being deleted partway through the build).
 #[derive(RustEmbed)]
-#[folder = "."]
-#[include = "src/*"]
-#[include = "Cargo.*"]
-struct EmbeddedSource;
+#[folder = "src/"]
+#[prefix = "src/"] // So that these files are placed in a src/ subfolder when extracted
+#[exclude = "bin/*"] // No need to copy testing code
+struct EmbeddedSrcFolder;
+
+const EMBEDDED_CARGO_TOML : &[u8] = include_bytes!("../Cargo.toml");
+const EMBEDDED_CARGO_LOCK : &[u8] = include_bytes!("../Cargo.lock");
 
 /// Deploys the source code of rjrssync to the given remote computer and builds it, ready to be executed.
 fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> {
@@ -573,12 +582,19 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> 
         "Extracting embedded source to local temp dir: {}",
         local_temp_dir.path().display()
     );
-    for file in EmbeddedSource::iter() {
+    // Add cargo.lock/toml to the list of files we're about to extract.
+    // These aren't included in the src/ folder (see EmbeddedSrcFolder comments for reason)
+    let mut all_files_iter : Vec<(Cow<'static, str>, Cow<[u8]>)> = EmbeddedSrcFolder::iter().map(
+        |p| (p.clone(), EmbeddedSrcFolder::get(&p).unwrap().data)
+    ).collect();
+    all_files_iter.push((Cow::from("Cargo.toml"), Cow::from(EMBEDDED_CARGO_TOML)));
+    all_files_iter.push((Cow::from("Cargo.lock"), Cow::from(EMBEDDED_CARGO_LOCK)));
+    for (path, contents) in all_files_iter {
         // Add an extra "rjrssync" folder with a fixed name (as opposed to the temp dir, whose name varies), to work around SCP weirdness below.
-        let local_temp_path = local_temp_dir.path().join("rjrssync").join(&*file);
+        let local_temp_path = local_temp_dir.path().join("rjrssync").join(&*path);
 
         if let Err(e) = std::fs::create_dir_all(local_temp_path.parent().unwrap()) {
-            error!("Error creating folders for local temp file: {}", e);
+            error!("Error creating folders for local temp file '{}': {}", local_temp_path.display(), e);
             return Err(());
         }
 
@@ -594,11 +610,12 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> 
             }
         };
 
-        if let Err(e) = f.write_all(&EmbeddedSource::get(&file).unwrap().data) {
+        if let Err(e) = f.write_all(&contents) {
             error!("Error writing local temp file: {}", e);
             return Err(());
         }
     }
+    
 
     // Determine if the target system is Windows or Linux, so that we know where to copy our files to
     let remote_command = "uname || ver"; // uname for Linux, ver for Windows

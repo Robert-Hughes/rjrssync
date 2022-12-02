@@ -254,7 +254,7 @@ but they should just be for testing/investigation. Maybe should be a separate cr
 * On work PC this fails:
 `cargo run D:\TempSource\ robhug01@localhost:/home/robhug01/TempDest -v`
 ERROR | rjrssync::boss_frontend: Sync error: Unexpected response from dest GetEntries: Ok(Error("normalize_path failed: Illegal characters in path"))
-* Improve compile times. Is it the RustEmbed crate?
+* Improve compile times. Is it the RustEmbed crate? Maybe the debug-embed feature of the crate could help?
 
 
 Idea for filters, with re-usable "functions":
