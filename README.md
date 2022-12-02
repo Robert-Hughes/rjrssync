@@ -164,6 +164,10 @@ but this would only be observed if rjrssync was unaware of symlinks (otherwise i
 
 See https://crates.io/crates/symlink
 
+The link address on Windows might contain backslashes, which would need converting when sending over to Linux.
+The other way round should be fine, because Windows supports forward slashes too.
+TODO: we're currently just copying over the link data exactly as it is, so this probably needs to change!
+
 Example spec file
 ===================
 
