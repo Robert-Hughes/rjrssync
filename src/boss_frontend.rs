@@ -23,7 +23,7 @@ pub enum SymlinkMode {
     /// the destination.
     /// Note that this only applies to symlinks that are part of the sync - symlinks that are part of 
     /// the path provided as source or dest will always be followed.
-    Preserve,
+    Preserve, //TODO: not sure this name is good - sometimes this can result in a dest symlink being _deleted_, so isn't being preserved!
 }
 
 #[derive(clap::Parser)]

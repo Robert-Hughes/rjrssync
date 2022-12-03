@@ -168,6 +168,8 @@ The link address on Windows might contain backslashes, which would need converti
 The other way round should be fine, because Windows supports forward slashes too.
 TODO: we're currently just copying over the link data exactly as it is, so this probably needs to change!
 
+How do symlinks interact with trailing slashes on files/folders (see above section)?
+
 Example spec file
 ===================
 

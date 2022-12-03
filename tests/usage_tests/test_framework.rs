@@ -232,17 +232,20 @@ pub fn run(desc: TestDesc) {
     let actual_output = String::from_utf8(output.stderr).unwrap()
                     + &String::from_utf8(output.stdout).unwrap();
     for m in desc.expected_output_messages {
+        println!("Checking for match against '{}'", m);
         assert!(m.is_match(&actual_output));
     }
 
     // Check for unexpected output messages
     for m in desc.unexpected_output_messages {
+        println!("Checking for NO match against '{}'", m);
         assert!(!m.is_match(&actual_output));
     }
 
     // Check the filesystem is as expected afterwards
     for (p, n) in desc.expected_filesystem_nodes {
         let actual_node = load_filesystem_node_from_disk(&substitute_temp(&p));
+        println!("Checking filesystem contents at '{}'", p);
         assert_eq!(actual_node.as_ref(), n);    
     }
 }

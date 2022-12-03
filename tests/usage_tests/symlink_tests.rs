@@ -1,4 +1,4 @@
-use std::time::SystemTime;
+use std::time::{SystemTime, Duration};
 
 use regex::Regex;
 
@@ -416,5 +416,222 @@ fn test_symlink_root_broken_unaware() {
         ..Default::default()
     });
 }
+
+/// Tests that having a symlink file as the dest root will be replaced by the source
+/// when in preserve mode , but only the symlink itself will be deleted -
+/// the target will remain as it was.
+#[test]
+fn test_file_to_symlink_file_dest_root_preserve() {
+    let src = file_with_modified("just a regular file", SystemTime::UNIX_EPOCH + Duration::from_secs(1));
+    let target = file_with_modified("this is the target", SystemTime::UNIX_EPOCH);
+    let dest = symlink_file("target.txt");
+    run(TestDesc {
+        setup_filesystem_nodes: vec![
+            ("$TEMP/src", &src),
+            ("$TEMP/dest", &dest),
+            ("$TEMP/target.txt", &target),
+        ],
+        args: vec![
+            "$TEMP/src".to_string(),
+            "$TEMP/dest".to_string(),
+            "--symlinks".to_string(),
+            "preserve".to_string(),
+        ],
+        expected_exit_code: 0,
+        expected_output_messages: vec![
+            Regex::new(&regex::escape("Copied 1 file(s)")).unwrap(),
+            Regex::new(&regex::escape("copied 0 symlink(s)")).unwrap(),
+            Regex::new("Deleted .* and 1 symlink").unwrap()
+        ],
+        expected_filesystem_nodes: vec![
+            ("$TEMP/src", Some(&src)), // Source should always be unchanged
+            ("$TEMP/target.txt", Some(&target)), // Target should be unchanged
+            ("$TEMP/dest", Some(&src)), // Dest should be same as source
+        ],
+        ..Default::default()
+    });
+}
+
+/// Tests that syncing a file to a symlink file as the dest root when in unaware mode, will result
+/// in the contents of the link target being replaced by the contents of the source file.
+#[test]
+fn test_file_to_symlink_file_dest_root_unaware() {
+    let src = file_with_modified("just a regular file", SystemTime::UNIX_EPOCH + Duration::from_secs(1));
+    let target = file_with_modified("this is the target", SystemTime::UNIX_EPOCH);
+    let dest = symlink_file("target.txt");
+    run(TestDesc {
+        setup_filesystem_nodes: vec![
+            ("$TEMP/src", &src),
+            ("$TEMP/dest", &dest),
+            ("$TEMP/target.txt", &target),
+        ],
+        args: vec![
+            "$TEMP/src".to_string(),
+            "$TEMP/dest".to_string(),
+            "--symlinks".to_string(),
+            "unaware".to_string(),
+        ],
+        expected_exit_code: 0,
+        expected_output_messages: vec![
+            Regex::new(&regex::escape("Copied 1 file(s)")).unwrap(),
+            Regex::new(&regex::escape("copied 0 symlink(s)")).unwrap(),
+        ],
+        expected_filesystem_nodes: vec![
+            ("$TEMP/src", Some(&src)), // Source should always be unchanged
+            ("$TEMP/target.txt", Some(&src)), // Target should have been updated with the contents of the source
+            ("$TEMP/dest", Some(&dest)), // Dest should still be the same symlink
+        ],
+        ..Default::default()
+    });
+}
+
+/// Tests that syncing a folder to a symlink file as the dest root when in unaware mode, will result
+/// in the dest symlink being deleted and replaced by the source folder. The target of the symlink
+/// will be unaffected.
+#[test]
+fn test_folder_to_symlink_file_dest_root_unaware() {
+    let src = empty_folder();
+    let target = file_with_modified("this is the target", SystemTime::UNIX_EPOCH);
+    let dest = symlink_file("target.txt");
+    run(TestDesc {
+        setup_filesystem_nodes: vec![
+            ("$TEMP/src", &src),
+            ("$TEMP/dest", &dest),
+            ("$TEMP/target.txt", &target),
+        ],
+        args: vec![
+            "$TEMP/src".to_string(),
+            "$TEMP/dest".to_string(),
+            "--symlinks".to_string(),
+            "unaware".to_string(),
+        ],
+        expected_exit_code: 0,
+        expected_output_messages: vec![
+            Regex::new(&regex::escape("created 1 folder(s)")).unwrap(),
+            Regex::new(&regex::escape("copied 0 symlink(s)")).unwrap(),
+            Regex::new(&regex::escape("Deleted 1 file(s)")).unwrap(),
+        ],
+        expected_filesystem_nodes: vec![
+            ("$TEMP/src", Some(&src)), // Source should always be unchanged
+            ("$TEMP/target.txt", Some(&target)), // Target should be unchanged
+            ("$TEMP/dest", Some(&src)), // Dest should be same as source
+        ],
+        ..Default::default()
+    });
+}
+
+
+/// Tests that having a symlink folder as the dest root will be replaced by the source
+/// when in preserve mode, but only the symlink itself will be deleted - 
+/// the target will remain as it was.
+#[test]
+fn test_file_to_symlink_folder_dest_root_preserve() {
+    let src = file_with_modified("just a regular file", SystemTime::UNIX_EPOCH + Duration::from_secs(1));
+    let target = folder! {
+        "inside-target" => file("contents")
+    };
+    let dest = symlink_folder("target-folder");
+    run(TestDesc {
+        setup_filesystem_nodes: vec![
+            ("$TEMP/src", &src),
+            ("$TEMP/dest", &dest),
+            ("$TEMP/target-folder", &target),
+        ],
+        args: vec![
+            "$TEMP/src".to_string(),
+            "$TEMP/dest".to_string(),
+            "--symlinks".to_string(),
+            "preserve".to_string(),
+        ],
+        expected_exit_code: 0,
+        expected_output_messages: vec![
+            Regex::new(&regex::escape("Copied 1 file(s)")).unwrap(),
+            Regex::new(&regex::escape("copied 0 symlink(s)")).unwrap(),
+            Regex::new("Deleted .* and 1 symlink").unwrap()
+        ],
+        expected_filesystem_nodes: vec![
+            ("$TEMP/src", Some(&src)), // Source should always be unchanged
+            ("$TEMP/target-folder", Some(&target)), // Target should be unchanged
+            ("$TEMP/dest", Some(&src)), // Dest should be same as source
+        ],
+        ..Default::default()
+    });
+}
+
+/// Tests that syncing a file to a symlink folder as the dest root will be replaced by the source
+/// when in unaware mode, and the whole symlink target folder will be cleared out too. This is somewhat
+/// surprising, but has to be the case because rjrssync is unaware that it is deleting stuff through a symlink.
+#[test]
+fn test_file_to_symlink_folder_dest_root_unaware() {
+    let src = file_with_modified("just a regular file", SystemTime::UNIX_EPOCH + Duration::from_secs(1));
+    let target = folder! {
+        "inside-target" => file("contents")
+    };
+    let dest = symlink_folder("target-folder");
+    run(TestDesc {
+        setup_filesystem_nodes: vec![
+            ("$TEMP/src", &src),
+            ("$TEMP/dest", &dest),
+            ("$TEMP/target-folder", &target),
+        ],
+        args: vec![
+            "$TEMP/src".to_string(),
+            "$TEMP/dest".to_string(),
+            "--symlinks".to_string(),
+            "unaware".to_string(),
+        ],
+        expected_exit_code: 0,
+        expected_output_messages: vec![
+            Regex::new(&regex::escape("Copied 1 file(s)")).unwrap(),
+            Regex::new(&regex::escape("copied 0 symlink(s)")).unwrap(),
+            Regex::new(&regex::escape("Deleted 1 file(s), 1 folder(s) and 0 symlink(s)")).unwrap()
+        ],
+        expected_filesystem_nodes: vec![
+            ("$TEMP/src", Some(&src)), // Source should always be unchanged
+            ("$TEMP/target-folder", Some(&empty_folder())), // Target folder is left empty
+            ("$TEMP/dest", Some(&src)), // Dest should be same as source
+        ],
+        ..Default::default()
+    });
+}
+
+/// Tests that syncing a folder to a symlink folder as the dest root when in unaware mode, 
+/// will update the targeted symlink folder to match the source folder.
+#[test]
+fn test_folder_to_symlink_folder_dest_root_unaware() {
+    let src = folder! {
+        "file1" => file_with_modified("just a regular file NEWER", SystemTime::UNIX_EPOCH + Duration::from_secs(1)),
+        "file2" => file_with_modified("just another regular file", SystemTime::UNIX_EPOCH + Duration::from_secs(1)),
+    };
+    let target = folder! {
+        "file1" => file_with_modified("just a regular file", SystemTime::UNIX_EPOCH),
+    };
+    let dest = symlink_folder("target-folder");
+    run(TestDesc {
+        setup_filesystem_nodes: vec![
+            ("$TEMP/src", &src),
+            ("$TEMP/dest", &dest),
+            ("$TEMP/target-folder", &target),
+        ],
+        args: vec![
+            "$TEMP/src".to_string(),
+            "$TEMP/dest".to_string(),
+            "--symlinks".to_string(),
+            "unaware".to_string(),
+        ],
+        expected_exit_code: 0,
+        expected_output_messages: vec![
+            Regex::new(&regex::escape("Copied 2 file(s)")).unwrap(),
+            Regex::new(&regex::escape("copied 0 symlink(s)")).unwrap(),
+        ],
+        expected_filesystem_nodes: vec![
+            ("$TEMP/src", Some(&src)), // Source should always be unchanged
+            ("$TEMP/target-folder", Some(&src)), // Target folder is updated to match the src folder
+            ("$TEMP/dest", Some(&dest)), // Dest should remain a symlink
+        ],
+        ..Default::default()
+    });
+}
+
 
 //TODO: test cross-platform syncing - e.g. trying to create file symlink on unix, or vice versa
