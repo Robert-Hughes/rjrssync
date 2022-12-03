@@ -1,0 +1,53 @@
+# This workflow builds and runs unit tests on both Windows and Linux, as well as running
+# WSL to test remote connection between OSes.
+
+name: Post-Commit
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # This job builds and runs unit tests on both Windows and Linux (natively, no WSL).
+  # No remote platforms are available for testing, so tests that require that are not run.
+  native:
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ native.os }}
+    steps:
+    - uses: actions/checkout@v3
+    - name: Build
+      run: cargo build --verbose
+    - name: Run tests
+      # Skip tests that require a remote, as this isn't available in this workflow.
+      # The "windows-with-wsl" workflow tests remote connection by using WSL.
+      run: cargo test --verbose -- --skip "remote_tests::"
+
+  # This job sets up a Windows runner with WSL, so that tests that require remote
+  # platforms (e.g. a Linux to Windows sync) can be tested.
+  remote_platforms:
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - uses: Vampire/setup-wsl@v1
+    
+    - name: run something in WSL
+      shell: wsl-bash {0}
+      run: uname -a
+    - name: run something else in WSL
+      shell: wsl-bash {0}
+      run: ifconfig
+    
+    - name: run from windows
+      run: wsl echo testing from linux
+    - name: run from windows
+      run: wsl uname -a
+
+  #TODO: run both ways (from Linux connecting to remote windows, and from Windows to remote linux)
