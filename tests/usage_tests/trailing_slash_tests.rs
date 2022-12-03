@@ -79,11 +79,12 @@ fn run_trailing_slashes_test_expected_failure(src_node: Option<&FilesystemNode>,
     });
 }
 
-// In some environments (e.g. Linux), a file with a trailing slash  is caught on the doer side when it attempts to
+// In some environments (e.g. Linux), a file with a trailing slash is caught on the doer side when it attempts to
 // get the metadata for the root, but on some environments it isn't caught (Windows, depending on the drive)
-// so do our own check here, so the error message could be either.
+// so do our own check here, so the error message could be either. Note that different versions of Windows 
+// seem to report this differently (observed different behaviour locally vs on GitHub Actions).
 fn get_file_trailing_slash_error() -> Regex {
-    return Regex::new("(is a file but is referred to with a trailing slash)|(can't be read: Not a directory)").unwrap();
+    return Regex::new("(is a file but is referred to with a trailing slash)|(can't be read)").unwrap();
 }
 
 // ====================================================================================

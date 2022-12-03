@@ -43,7 +43,7 @@ jobs:
       run: uname -a
     - name: run something else in WSL
       shell: wsl-bash {0}
-      run: ifconfig
+      run: ifconfig || true
     
     - name: run from windows
       run: wsl echo testing from linux
