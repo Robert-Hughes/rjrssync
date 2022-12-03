@@ -45,17 +45,26 @@ jobs:
     - uses: actions/checkout@v3
     - uses: Vampire/setup-wsl@v1
 
-    - name: Setup tmate session for debugging (only if enabled)
+    - name: Setup SSH server 1
+      shell: pwsh
+      run: |
+        choco install openssh
+
+   - name: Setup tmate session for debugging (only if enabled)
       if: ${{ github.event_name == 'workflow_dispatch' && inputs.tmate_enabled }}
       uses: mxschmitt/action-tmate@v3
 
-    - name: Setup SSH server
+   - name: Setup SSH server 2
       shell: pwsh
       run: |
-        Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0
-        Start-Service -Name "wuauserv"
-        Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
-        Start-Service -Name "sshd"
+        mkdir C:\ssh-server-config
+        ssh-keygen  -f C:\ssh-server-config\id_rsa -q -N '""'
+        Start-Job -WorkingDirectory . -ScriptBlock { sshd -h /c/ssh-server-config/id_rsa -o AuthorizedKeysFile=/c/ssh-server-config/authorized_keys }
+        ssh-keygen -f C:\Users\runneradmin/.ssh/id_rsa -q -N '""'
+        type C:\Users\runneradmin/.ssh/id_rsa.pub > C:\ssh-server-config\authorized_keys
+        ssh localhost echo hi
+
+   #TODO: seems like sshd is already installed! just needs setting up
     #TODO: fails,possibly because the windows update service isn't running. But can't seem to  start this service - maybe need to run as "admin"?
     # Perhaps running as admin would solve the original issue too? Can test locally, as i can't seem to start services on my local powershell either.
     
