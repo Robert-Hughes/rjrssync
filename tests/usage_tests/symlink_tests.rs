@@ -638,4 +638,6 @@ fn test_folder_to_symlink_folder_dest_root_unaware() {
 }
 
 
-//TODO: test cross-platform syncing - e.g. trying to create file symlink on unix, or vice versa
+//TODO: test cross-platform syncing - e.g. trying to create file symlink on unix, or vice versa.
+// Need to possibly replace backwards slashes with forward slashes in the link when going Windows -> Linux
+

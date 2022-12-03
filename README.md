@@ -222,7 +222,7 @@ Syncing logic
 * Test for --dry-run
 * Test for --stats (maybe just all the command-line options...)
 * Progress bar
-* Clarify/document/test the program's behaviour in all the cases described in the above symlink notes
+* symlinks - Clarify/document/test the program's behaviour in all the cases described in the above symlink notes
 * What happens if src and dest both point to the same place?
    - Either directly, or via symlink(s)?
 * --no-encryption option, might be faster?
