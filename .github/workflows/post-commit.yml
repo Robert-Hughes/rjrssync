@@ -40,7 +40,10 @@ jobs:
 
     - name: Setup SSH server
       shell: pwsh
-      run: Start-Service -Name "sshd"
+      run: |
+        Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0
+        Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
+        Start-Service -Name "sshd"
     
     - name: Run remote tests on Windows
       # Only run tests that require a remote, as the other tests are covered by the "native" jobs above.
