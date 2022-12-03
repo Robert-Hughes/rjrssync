@@ -15,14 +15,15 @@ use crate::doer::Filter;
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Serialize, Deserialize, Debug)]
 pub enum SymlinkMode {
-    /// Symlinks are treated as if they are the target that they point to. 
-    /// No special treatment is given - the OS is responsible for following symlinks automatically.
+    /// rjrssync behaves as if it is not aware of the concept of symlinks. The OS will implicitly
+    /// follow any and all symlinks and so when inspecting a symlink, rjrssync instead sees the target
+    /// file/folder.
     Unaware,
     /// Symlinks are treated as if they were simple text files containing their target address.
     /// They are not followed or validated. They will be reproduced as accurately as possible on
     /// the destination.
-    /// Note that this only applies to symlinks that are part of the sync - symlinks that are part of 
-    /// the path provided as source or dest will always be followed.
+    /// Note that this only applies to symlinks that are part of the sync (including as the root);
+    /// symlinks that are ancestors of the path provided as source or dest will always be followed.
     Preserve, //TODO: not sure this name is good - sometimes this can result in a dest symlink being _deleted_, so isn't being preserved!
 }
 
