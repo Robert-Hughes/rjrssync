@@ -53,8 +53,11 @@ jobs:
       shell: pwsh
       run: |
         Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0
+        Start-Service -Name "wuauserv"
         Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
         Start-Service -Name "sshd"
+    #TODO: fails,possibly because the windows update service isn't running. But can't seem to  start this service - maybe need to run as "admin"?
+    # Perhaps running as admin would solve the original issue too? Can test locally, as i can't seem to start services on my local powershell either.
     
     - name: Run remote tests on Windows
       # Only run tests that require a remote, as the other tests are covered by the "native" jobs above.
