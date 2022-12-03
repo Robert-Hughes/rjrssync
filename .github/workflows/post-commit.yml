@@ -50,11 +50,11 @@ jobs:
       run: |
         choco install openssh
 
-   - name: Setup tmate session for debugging (only if enabled)
+    - name: Setup tmate session for debugging (only if enabled)
       if: ${{ github.event_name == 'workflow_dispatch' && inputs.tmate_enabled }}
       uses: mxschmitt/action-tmate@v3
 
-   - name: Setup SSH server 2
+    - name: Setup SSH server 2
       shell: pwsh
       run: |
         mkdir C:\ssh-server-config
