@@ -673,8 +673,8 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> 
     } else {
         // Attempt to load .profile first, as cargo might not be on the PATH otherwise.
         // Still continue even if this fails, as it might not be available on this system.
-        // Note that the previous attempt to do this (using $SHELL -lc '...') had problems when running on some systems
-        // (GitHub actions)
+        // Note that the previous attempt to do this (using $SHELL -lc '...') wasn't as good as it runs bashrc,
+        // which is only meant for interative shells, but .profile is meant for scripts too.
         format!("source ~/.profile; cd {REMOTE_TEMP_UNIX}/rjrssync && {cargo_command}")
     };
     debug!("Running remote command: {}", remote_command);

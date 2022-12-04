@@ -45,6 +45,9 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - uses: Vampire/setup-wsl@v1 # Note this sets up a WSL 1 (not WSL 2) environment, so network access is slightly different etc.
+      with:
+        # The default distro (Debian) has problems where after installing, running rust --version hangs the entire GitHub actions runner!
+        distribution: Ubuntu-18.04
 
     # Can't seem to get the windows OpenSSH server installed, as we get an error when adding the optional package.
     # There is an sshd already installed as part of cygwin, but this means that when we log in we get a cygwin prompt, not a windows prompt
