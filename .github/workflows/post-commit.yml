@@ -48,11 +48,12 @@ jobs:
     # Can't seem to get the windows OpenSSH server installed, as we get an error when adding the optional package.
     # There is an sshd already installed as part of cygwin, but this means that when we log in we get a cygwin prompt, not a windows prompt
     # So instead we use chocolately to install OpenSSH.
-    - name: Setup SSH server 1
+    - name: Setup Windows SSH server
       shell: pwsh
       run: |
         choco install openssh
         &"C:\Program Files\OpenSSH-Win64\install-sshd.ps1"
+
         # Start the service so that it creates a default sshd_config file. We'll modify this later.
         Start-Service sshd
         # For debugging, start sshd instead with debug flag so we get logging:
@@ -61,7 +62,7 @@ jobs:
         # Remove "Match Group administrators" from bottom of sshd_config so that it uses the normal authorized_keys location,
         # otherwise we get permission problems and can't use the below scripts to fix them.
         $content = Get-Content "C:\ProgramData\ssh\sshd_config"
-        $content[0..($content.length-3)]|Out-File "C:\ProgramData\ssh\sshd_config"
+        $content[0..($content.length-3)] | Out-File "C:\ProgramData\ssh\sshd_config"
 
         # Restart sshd so it picks up the config file changes
         Restart-Service sshd
@@ -72,6 +73,10 @@ jobs:
 
         # Add user key to authorized_keys, so can login without password
         cp $env:USERPROFILE\.ssh\id_rsa.pub $env:USERPROFILE\.ssh\authorized_keys
+
+        # Disable host key checking so we don't get the prompt
+        echo "Host *" > $env:USERPROFILE\.ssh\config
+        echo "  StrictHostKeyChecking no" >> $env:USERPROFILE\.ssh\config
 
         # Fix all the permissions
         &'C:\Program Files\OpenSSH-Win64\FixHostFilePermissions.ps1' -Confirm:$false
