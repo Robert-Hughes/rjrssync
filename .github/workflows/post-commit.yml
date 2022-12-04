@@ -52,7 +52,7 @@ jobs:
     - name: Set up Windows SSH server
       shell: pwsh
       run: |
-        choco install openssh
+        choco install openssh --no-progress
         &"C:\Program Files\OpenSSH-Win64\install-sshd.ps1"
 
         # Start the service so that it creates a default sshd_config file. We'll modify this later.
@@ -149,13 +149,18 @@ jobs:
         curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
       
     - name: Run remote tests on Windows
+      shell: pwsh
       # Only run tests that require a remote, as the other tests are covered by the "native" jobs above.
       # The logic in remote_tests.rs should automatically detect the WSL instance and connect to that
-      run: cargo test --verbose -- "remote_tests::"
+      # These tests can be resource-intensive (building rjrssync on remote hosts), so run one at a time,
+      # and print the test output as they run so can see the progress
+      run: cargo test --verbose -- "remote_tests::" --test-threads 1 --nocapture
 
     - name: Run remote tests on WSL
       # Only run tests that require a remote, as the other tests are covered by the "native" jobs above.
       # The logic in remote_tests.rs should automatically detect the Windows host and connect to that
+      # These tests can be resource-intensive (building rjrssync on remote hosts), so run one at a time,
+      # and print the test output as they run so can see the progress
       shell: wsl-bash {0}
-      run: cargo test --verbose -- "remote_tests::"
+      run: cargo test --verbose -- "remote_tests::" --test-threads 1 --nocapture
 
