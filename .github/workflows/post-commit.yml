@@ -46,15 +46,10 @@ jobs:
     - uses: actions/checkout@v3
     - uses: Vampire/setup-wsl@v1 # Note this sets up a WSL 1 (not WSL 2) environment, so network access is slightly different etc.
 
-    # Beware that the tmate session runs inside cygwin, so some behaviour doesn't match native windows
-    - name: Setup tmate session for debugging (only if enabled)
-      if: ${{ github.event_name == 'workflow_dispatch' && inputs.tmate_enabled }}
-      uses: mxschmitt/action-tmate@v3
-    
     # Can't seem to get the windows OpenSSH server installed, as we get an error when adding the optional package.
     # There is an sshd already installed as part of cygwin, but this means that when we log in we get a cygwin prompt, not a windows prompt
     # So instead we use chocolately to install OpenSSH.
-    - name: Setup Windows SSH server
+    - name: Set up Windows SSH server
       shell: pwsh
       run: |
         choco install openssh
@@ -95,7 +90,7 @@ jobs:
         # Confirm we can login without a password
         ssh localhost "ver && echo Windows to Windows SSH is working"
 
-    - name: Setup WSL SSH server
+    - name: Set up WSL SSH server
       shell: wsl-bash {0}
       run: |
         apt update && apt install -y ssh
@@ -125,7 +120,14 @@ jobs:
         # Confirm we can login without a password
         ssh 127.0.0.1 "uname -a && echo WSL to WSL SSH is working"
 
-    - name: Setup Windows to WSL SSH
+    # Beware that the tmate session runs inside cygwin, so some behaviour doesn't match native windows
+    # Note that if this step happens before the "choco install", then we can't manually run choco inside tmate
+    # because cygwin messes up the temp variables
+    - name: Set up tmate session for debugging (only if enabled)
+      if: ${{ github.event_name == 'workflow_dispatch' && inputs.tmate_enabled }}
+      uses: mxschmitt/action-tmate@v3
+    
+    - name: Set up Windows to WSL SSH
       shell: pwsh
       run: |
         wsl bash -c "cat /mnt/c/Users/runneradmin/.ssh/id_rsa.pub >> ~/.ssh/authorized_keys"
