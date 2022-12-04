@@ -47,7 +47,7 @@ jobs:
     - uses: Vampire/setup-wsl@v1 # Note this sets up a WSL 1 (not WSL 2) environment, so network access is slightly different etc.
       with:
         # The default distro (Debian) has problems where after installing, running rust --version hangs the entire GitHub actions runner!
-        distribution: Ubuntu-20.04
+        distribution: Ubuntu-22.04
 
     - name: Set up cargo on WSL
       shell: wsl-bash {0}
