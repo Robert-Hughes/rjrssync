@@ -618,7 +618,9 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> 
     
 
     // Determine if the target system is Windows or Linux, so that we know where to copy our files to
-    let remote_command = "uname || ver"; // uname for Linux, ver for Windows
+    // uname for Linux, ver for Windows. Note we do ver first because some Windows systems might have cygwin/msys2
+    // installed, which would make uname successful.
+    let remote_command = "ver || uname"; 
     debug!("Running remote command: {}", remote_command);
     let os_test_output = match run_process_with_live_output("ssh", &[user_prefix.clone() + remote_hostname, remote_command.to_string()]) {
         Err(e) => {

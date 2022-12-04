@@ -107,8 +107,14 @@ fn get_remote_linux_config() -> (String, String) {
 
 fn confirm_remote_test_environment(remote_user_and_host: &str, expected_os: &str) {
     // Confirm that we can connect to this remote host, to help debugging the test environment
-    println!("Checking connection to {}", remote_user_and_host);
-    let output = std::process::Command::new("ssh").arg(remote_user_and_host).arg("echo Remote host is working && (uname -a || ver)")
+    let test_command = match expected_os {
+        "Windows" => "echo Remote host is working && ver",
+        "Linux" => "echo Remote host is working && uname -a",
+        _ => panic!("Unexpected OS"),
+    };
+
+    println!("Checking connection to {} with ssh command '{}'", remote_user_and_host, test_command);
+    let output = std::process::Command::new("ssh").arg(remote_user_and_host).arg(test_command)
         .output().expect("Failed to check if remote host is available");
     println!("ssh exit code: {}", output.status);
     println!("ssh stdout:");
