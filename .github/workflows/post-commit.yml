@@ -55,6 +55,7 @@ jobs:
         # DEBIAN_FRONTEND=noninteractive fixes hang when using apt to install packages
         apt update && DEBIAN_FRONTEND=noninteractive apt install -y curl
         curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+        source "$HOME/.cargo/env"
       
     - name: Test if rustc crashes in wsl
       shell: wsl-bash {0}
