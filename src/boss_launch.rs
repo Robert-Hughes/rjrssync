@@ -634,6 +634,7 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> 
 
     // We could check for "linux" in the string, but there are other Unix systems we might want to supoprt e.g. Mac,
     // so we fall back to Linux as a default
+    //TODO: this doesn't work on github actions - the string returned by ver is "MSYS_NT-10.0-20348"
     let is_windows = os_test_output.contains("Windows");
 
     // Deploy to remote target using scp

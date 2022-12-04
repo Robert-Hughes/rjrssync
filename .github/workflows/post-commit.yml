@@ -94,6 +94,27 @@ jobs:
       if: ${{ github.event_name == 'workflow_dispatch' && inputs.tmate_enabled }}
       uses: mxschmitt/action-tmate@v3
     
+    - name: Setup WSL SSH server
+      shell: wsl-bash {0}
+      run: |
+        apt update && apt install -y ssh
+
+        # Disable password authentication, so that if anything goes wrong (e.g. key not installed properly) then we don't hang the job at a password prompt
+        echo "PasswordAuthentication no" >> "/etc/ssh/sshd_config"
+
+        # Start sshd
+        service ssh start
+
+        # Create ssh key
+        ssh-keygen -f ~/.ssh/id_rsa -q -N ""
+       
+        # Disable host key checking so we don't get the prompt
+        echo "Host *" > ~/.ssh/config
+        echo "  StrictHostKeyChecking no" >> ~/.ssh/config
+
+        # Add user key to authorized_keys, so can login without password
+        cp ~/.ssh/id_rsa.pub ~/.ssh/authorized_keys
+
     - name: Run remote tests on Windows
       # Only run tests that require a remote, as the other tests are covered by the "native" jobs above.
       # The logic in remote_tests.rs should automatically detect the WSL instance and connect to that
