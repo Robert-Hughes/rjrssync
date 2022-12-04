@@ -45,8 +45,6 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - uses: Vampire/setup-wsl@v1 # Note this sets up a WSL 1 (not WSL 2) environment, so network access is slightly different etc.
-      with:        
-        distribution: Ubuntu-22.04 # Trying using different version to fix rustc crash
 
     - name: Set up cargo on WSL
       shell: wsl-bash {0}
@@ -59,6 +57,7 @@ jobs:
       shell: wsl-bash {0}
       run: |
         source "$HOME/.cargo/env"
+        sleep 3 # Make sure log output is visible up to here, before it crashes
         rustc --version
       
     # Can't seem to get the windows OpenSSH server installed, as we get an error when adding the optional package.
