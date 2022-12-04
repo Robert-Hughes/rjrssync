@@ -65,7 +65,7 @@ jobs:
     - name: Setup SSH server 2
       shell: pwsh
       run: |
-        #TODO: need this?  mkdir C:\Users\runneradmin\.ssh
+        mkdir C:\Users\runneradmin\.ssh
         ssh-keygen -f C:\Users\runneradmin\.ssh\id_rsa -q -N '""'
 
         #TODO: remove match admin group thing from sshd_config so it uses the normal authorized_keys, restart srevice?
