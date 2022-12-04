@@ -714,8 +714,11 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>
 {
-    let mut child = match std::process::Command::new(program)
-        .args(args)
+    let mut c = std::process::Command::new(program);
+    let c = c.args(args);
+    println!("Running {:?} {:?}...", c.get_program(), c.get_args());
+
+    let mut child = match c
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
