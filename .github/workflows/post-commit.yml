@@ -89,11 +89,6 @@ jobs:
         # Confirm we can login without a password
         ssh localhost "ver && echo Windows to Windows SSH is working"
 
-    # Beware that the tmate session runs inside cygwin, so some behaviour doesn't match native windows
-    - name: Setup tmate session for debugging (only if enabled)
-      if: ${{ github.event_name == 'workflow_dispatch' && inputs.tmate_enabled }}
-      uses: mxschmitt/action-tmate@v3
-    
     - name: Setup WSL SSH server
       shell: wsl-bash {0}
       run: |
@@ -121,7 +116,26 @@ jobs:
         # Add user key to authorized_keys, so can login without password
         cp ~/.ssh/id_rsa.pub ~/.ssh/authorized_keys
 
+        # Confirm we can login without a password
         ssh 127.0.0.1 "uname -a && echo WSL to WSL SSH is working"
+
+    # Beware that the tmate session runs inside cygwin, so some behaviour doesn't match native windows
+    - name: Setup tmate session for debugging (only if enabled)
+      if: ${{ github.event_name == 'workflow_dispatch' && inputs.tmate_enabled }}
+      uses: mxschmitt/action-tmate@v3
+    
+    - name: Setup Windows to WSL SSH
+      shell: pwsh
+      run: |
+        wsl "echo /mnt/c/Users/runneradmin/.ssh/id_rsa.pub >> ~/.ssh/authorized_keys"
+        ssh root@127.0.0.1 "uname -a && echo Windows to WSL SSH is working"
+      
+    - name: Setup WSL to Windows SSH
+      shell: wsl-bash {0}
+      run: |
+        echo ~/.ssh/id_rsa.pub >> /mnt/c/Users/runneradmin/.ssh/authorized_keys"
+        ssh runneradmin@localhost "ver && echo WSL to Windows SSH is working"
+      
 
     - name: Run remote tests on Windows
       # Only run tests that require a remote, as the other tests are covered by the "native" jobs above.
