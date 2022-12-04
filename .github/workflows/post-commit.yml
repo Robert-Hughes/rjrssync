@@ -47,8 +47,19 @@ jobs:
     - uses: Vampire/setup-wsl@v1 # Note this sets up a WSL 1 (not WSL 2) environment, so network access is slightly different etc.
       with:
         # The default distro (Debian) has problems where after installing, running rust --version hangs the entire GitHub actions runner!
-        distribution: Ubuntu-18.04
+        distribution: Ubuntu-20.04
 
+    - name: Set up cargo on WSL
+      shell: wsl-bash {0}
+      run: |
+        # DEBIAN_FRONTEND=noninteractive fixes hang when using apt to install packages
+        apt update && DEBIAN_FRONTEND=noninteractive apt install -y curl
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+      
+    - name: Test if rustc crashes in wsl
+      shell: wsl-bash {0}
+      run: rustc --version
+      
     # Can't seem to get the windows OpenSSH server installed, as we get an error when adding the optional package.
     # There is an sshd already installed as part of cygwin, but this means that when we log in we get a cygwin prompt, not a windows prompt
     # So instead we use chocolately to install OpenSSH.
@@ -138,13 +149,6 @@ jobs:
         WINDOWS_IP=$(hostname -I | cut -d ' ' -f1)
         ssh runneradmin@$WINDOWS_IP "ver && echo WSL to Windows SSH is working"
 
-    - name: Set up cargo on WSL
-      shell: wsl-bash {0}
-      run: |
-        # DEBIAN_FRONTEND=noninteractive fixes hang when using apt to install packages
-        apt update && DEBIAN_FRONTEND=noninteractive apt install -y curl
-        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-      
     # Beware that the tmate session runs inside cygwin, so some behaviour doesn't match native windows
     # Note that if this step happens before the "choco install", then we can't manually run choco inside tmate
     # because cygwin messes up the temp variables
