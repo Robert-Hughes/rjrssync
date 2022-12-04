@@ -144,7 +144,9 @@ jobs:
     
     - name: Set up cargo on WSL
       shell: wsl-bash {0}
-      run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+      run: |
+        apt update && apt install -y curl
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
       
     - name: Run remote tests on Windows
       # Only run tests that require a remote, as the other tests are covered by the "native" jobs above.
