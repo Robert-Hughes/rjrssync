@@ -120,13 +120,6 @@ jobs:
         # Confirm we can login without a password
         ssh 127.0.0.1 "uname -a && echo WSL to WSL SSH is working"
 
-    # Beware that the tmate session runs inside cygwin, so some behaviour doesn't match native windows
-    # Note that if this step happens before the "choco install", then we can't manually run choco inside tmate
-    # because cygwin messes up the temp variables
-    - name: Set up tmate session for debugging (only if enabled)
-      if: ${{ github.event_name == 'workflow_dispatch' && inputs.tmate_enabled }}
-      uses: mxschmitt/action-tmate@v3
-    
     - name: Set up Windows to WSL SSH
       shell: pwsh
       run: |
@@ -141,8 +134,18 @@ jobs:
         # we need to use the IP address of a different interface than just localhost in order to get the right one
         WINDOWS_IP=$(hostname -I | cut -d ' ' -f1)
         ssh runneradmin@$WINDOWS_IP "ver && echo WSL to Windows SSH is working"
-      
 
+    # Beware that the tmate session runs inside cygwin, so some behaviour doesn't match native windows
+    # Note that if this step happens before the "choco install", then we can't manually run choco inside tmate
+    # because cygwin messes up the temp variables
+    - name: Set up tmate session for debugging (only if enabled)
+      if: ${{ github.event_name == 'workflow_dispatch' && inputs.tmate_enabled }}
+      uses: mxschmitt/action-tmate@v3
+    
+    - name: Set up cargo on WSL
+      shell: wsl-bash {0}
+      run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+      
     - name: Run remote tests on Windows
       # Only run tests that require a remote, as the other tests are covered by the "native" jobs above.
       # The logic in remote_tests.rs should automatically detect the WSL instance and connect to that
