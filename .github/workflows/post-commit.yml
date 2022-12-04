@@ -127,6 +127,7 @@ jobs:
         # Disable host key checking so we don't get the prompt
         echo "Host *" > ~/.ssh/config
         echo "  StrictHostKeyChecking no" >> ~/.ssh/config
+        chmod 644 ~/.ssh/config
 
         # Add user key to authorized_keys, so can login without password
         cp ~/.ssh/id_rsa.pub ~/.ssh/authorized_keys

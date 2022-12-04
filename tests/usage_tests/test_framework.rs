@@ -176,12 +176,9 @@ struct ProcessOutput {
 }
 
 /// Runs a child processes and waits for it to exit. The stdout and stderr of the child process
-/// are captured and forwarded to our own, with a prefix to indicate that they're from the child.
-// We capture and then forward stdout and stderr, so the user can see what's happening and if there are any errors.
-// Simply letting the child process inherit out stdout/stderr seems to cause problems with line endings getting messed
-// up and losing output, and unwanted clearing of the screen.
-// This is especially important if using --force-redeploy on a broken remote, as you don't see any errors from the initial
-// attempt to connect either
+/// are captured and forwarded to our own.
+/// This is mostly a copy-paste of the same function from boss_launch.rs, but we don't have a good way to share the code
+/// and this version is slightly different, more suitable for tests (e.g. simpler error checking).
 fn run_process_with_live_output(c: &mut std::process::Command) -> ProcessOutput {
     println!("Running {:?} {:?}...", c.get_program(), c.get_args());
 
