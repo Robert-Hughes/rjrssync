@@ -90,11 +90,6 @@ jobs:
         # Confirm we can login without a password
         ssh localhost "ver && echo Windows to Windows SSH is working"
 
-        # Save the IP address to use to connect to Windows SSH. Once we have WSL SSH running too, we'll need
-        # to use the IP address of a different interface than just localhost in order to get the right one
-        $ip = Get-NetIPAddress -AddressFamily IPv4 | Select-Object -First 1 -ExpandProperty IPAddress
-        echo "WINDOWS_IP=$ip" >> $env:GITHUB_ENV
-
     - name: Set up WSL SSH server
       shell: wsl-bash {0}
       run: |
@@ -142,6 +137,9 @@ jobs:
       shell: wsl-bash {0}
       run: |
         cat ~/.ssh/id_rsa.pub >> /mnt/c/Users/runneradmin/.ssh/authorized_keys
+        # Get the IP address to use to connect to Windows SSH. Now that we have both Windows and WSL SSH running, 
+        # we need to use the IP address of a different interface than just localhost in order to get the right one
+        WINDOWS_IP=$(hostname -I | cut -d ' ' -f1)
         ssh runneradmin@$WINDOWS_IP "ver && echo WSL to Windows SSH is working"
       
 
