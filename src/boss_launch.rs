@@ -675,7 +675,7 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> 
         // Still continue even if this fails, as it might not be available on this system.
         // Note that the previous attempt to do this (using $SHELL -lc '...') had problems when running on some systems
         // (GitHub actions)
-        format!("source ~/.profile; cd {REMOTE_TEMP_UNIX}/rjrssync && {cargo_command}'")
+        format!("source ~/.profile; cd {REMOTE_TEMP_UNIX}/rjrssync && {cargo_command}")
     };
     debug!("Running remote command: {}", remote_command);
     match run_process_with_live_output("ssh", &[user_prefix + remote_hostname, remote_command]) {
