@@ -671,8 +671,11 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> 
     let remote_command = if is_windows {
         format!("cd /d {REMOTE_TEMP_WINDOWS}\\rjrssync && {cargo_command}")
     } else {
-        // We use "$SHELL -lc" to run a login shell, as cargo might not be on the PATH otherwise.
-        format!("$SHELL -lc 'cd {REMOTE_TEMP_UNIX}/rjrssync && {cargo_command}'")
+        // Attempt to load .profile first, as cargo might not be on the PATH otherwise.
+        // Still continue even if this fails, as it might not be available on this system.
+        // Note that the previous attempt to do this (using $SHELL -lc '...') had problems when running on some systems
+        // (GitHub actions)
+        format!("source ~/.profile; cd {REMOTE_TEMP_UNIX}/rjrssync && {cargo_command}'")
     };
     debug!("Running remote command: {}", remote_command);
     match run_process_with_live_output("ssh", &[user_prefix + remote_hostname, remote_command]) {
