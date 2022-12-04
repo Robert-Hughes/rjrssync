@@ -19,6 +19,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  DEBIAN_FRONTEND: noninteractive # Fixes hang when using apt to install packages
 
 jobs:
   # This job builds and runs unit tests on both Windows and Linux (natively, no WSL).
