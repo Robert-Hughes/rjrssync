@@ -135,6 +135,12 @@ jobs:
         WINDOWS_IP=$(hostname -I | cut -d ' ' -f1)
         ssh runneradmin@$WINDOWS_IP "ver && echo WSL to Windows SSH is working"
 
+    - name: Set up cargo on WSL
+      shell: wsl-bash {0}
+      run: |
+        apt update && apt install -y curl
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+      
     # Beware that the tmate session runs inside cygwin, so some behaviour doesn't match native windows
     # Note that if this step happens before the "choco install", then we can't manually run choco inside tmate
     # because cygwin messes up the temp variables
@@ -142,14 +148,10 @@ jobs:
       if: ${{ github.event_name == 'workflow_dispatch' && inputs.tmate_enabled }}
       uses: mxschmitt/action-tmate@v3
     
-    - name: Set up cargo on WSL
-      shell: wsl-bash {0}
-      run: |
-        apt update && apt install -y curl
-        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-      
     - name: Run remote tests on Windows
       shell: pwsh
+      env:
+        RUST_LOG: trace
       # Only run tests that require a remote, as the other tests are covered by the "native" jobs above.
       # The logic in remote_tests.rs should automatically detect the WSL instance and connect to that
       # These tests can be resource-intensive (building rjrssync on remote hosts), so run one at a time,
@@ -162,5 +164,7 @@ jobs:
       # These tests can be resource-intensive (building rjrssync on remote hosts), so run one at a time,
       # and print the test output as they run so can see the progress
       shell: wsl-bash {0}
+      env:
+        RUST_LOG: trace
       run: cargo test --verbose -- "remote_tests::" --test-threads 1 --nocapture
 
