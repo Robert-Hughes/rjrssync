@@ -188,6 +188,7 @@ fn run_process_with_live_output(c: &mut std::process::Command) -> ProcessOutput 
     let mut child = c
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        .stdin(Stdio::null()) // No input can be provided in tests
         .spawn()
         .expect("Failed to launch child process");
 

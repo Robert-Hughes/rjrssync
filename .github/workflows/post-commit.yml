@@ -151,7 +151,7 @@ jobs:
     - name: Run remote tests on Windows
       shell: pwsh
       env:
-        RUST_LOG: trace
+        RUST_LOG: trace #TODO: remove this once figure out the issue why these tests are hanging. Seems to be related to scp - perhaps it's trying to read input from something?
       # Only run tests that require a remote, as the other tests are covered by the "native" jobs above.
       # The logic in remote_tests.rs should automatically detect the WSL instance and connect to that
       # These tests can be resource-intensive (building rjrssync on remote hosts), so run one at a time,
@@ -165,6 +165,6 @@ jobs:
       # and print the test output as they run so can see the progress
       shell: wsl-bash {0}
       env:
-        RUST_LOG: trace
+        RUST_LOG: trace #TODO: and this
       run: cargo test --verbose -- "remote_tests::" --test-threads 1 --nocapture
 
