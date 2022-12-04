@@ -46,6 +46,11 @@ jobs:
     - uses: actions/checkout@v3
     - uses: Vampire/setup-wsl@v1 # Note this sets up a WSL 1 (not WSL 2) environment, so network access is slightly different etc.
 
+    # Beware that the tmate session runs inside cygwin, so some behaviour doesn't match native windows
+    - name: Setup tmate session for debugging (only if enabled)
+      if: ${{ github.event_name == 'workflow_dispatch' && inputs.tmate_enabled }}
+      uses: mxschmitt/action-tmate@v3
+    
     # Can't seem to get the windows OpenSSH server installed, as we get an error when adding the optional package.
     # There is an sshd already installed as part of cygwin, but this means that when we log in we get a cygwin prompt, not a windows prompt
     # So instead we use chocolately to install OpenSSH.
@@ -59,6 +64,7 @@ jobs:
         Start-Service sshd
         # For debugging, start sshd instead with debug flag so we get logging:
         # Start-Job -WorkingDirectory . -ScriptBlock { & 'C:\Program Files\OpenSSH-Win64\sshd.exe' -ddd }
+        # Then use Receive-Job X (where X is the ID reported by the Start-Job command) to get the job output while it runs in the background
 
         # Remove "Match Group administrators" from bottom of sshd_config so that it uses the normal authorized_keys location,
         # otherwise we get permission problems and can't use the below scripts to fix them.
@@ -119,21 +125,16 @@ jobs:
         # Confirm we can login without a password
         ssh 127.0.0.1 "uname -a && echo WSL to WSL SSH is working"
 
-    # Beware that the tmate session runs inside cygwin, so some behaviour doesn't match native windows
-    - name: Setup tmate session for debugging (only if enabled)
-      if: ${{ github.event_name == 'workflow_dispatch' && inputs.tmate_enabled }}
-      uses: mxschmitt/action-tmate@v3
-    
     - name: Setup Windows to WSL SSH
       shell: pwsh
       run: |
-        wsl "echo /mnt/c/Users/runneradmin/.ssh/id_rsa.pub >> ~/.ssh/authorized_keys"
+        wsl bash -c "cat /mnt/c/Users/runneradmin/.ssh/id_rsa.pub >> ~/.ssh/authorized_keys"
         ssh root@127.0.0.1 "uname -a && echo Windows to WSL SSH is working"
       
     - name: Setup WSL to Windows SSH
       shell: wsl-bash {0}
       run: |
-        echo ~/.ssh/id_rsa.pub >> /mnt/c/Users/runneradmin/.ssh/authorized_keys"
+        cat ~/.ssh/id_rsa.pub >> /mnt/c/Users/runneradmin/.ssh/authorized_keys
         ssh runneradmin@localhost "ver && echo WSL to Windows SSH is working"
       
 
