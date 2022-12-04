@@ -53,31 +53,37 @@ jobs:
       run: |
         choco install openssh
         &"C:\Program Files\OpenSSH-Win64\install-sshd.ps1"
+        # Start the service so that it creates a default sshd_config file. We'll modify this later.
         Start-Service sshd
-        # For debugging?
+        # For debugging, start sshd instead with debug flag so we get logging:
         # Start-Job -WorkingDirectory . -ScriptBlock { & 'C:\Program Files\OpenSSH-Win64\sshd.exe' -ddd }
+
+        # Remove "Match Group administrators" from bottom of sshd_config so that it uses the normal authorized_keys location,
+        # otherwise we get permission problems and can't use the below scripts to fix them.
+        $content = Get-Content "C:\ProgramData\ssh\sshd_config"
+        $content[0..($content.length-3)]|Out-File "C:\ProgramData\ssh\sshd_config"
+
+        # Restart sshd so it picks up the config file changes
+        Restart-Service sshd
+
+        # Create user key
+        mkdir $env:USERPROFILE\.ssh
+        ssh-keygen -f $env:USERPROFILE\.ssh\id_rsa -q -N '""'
+
+        # Add user key to authorized_keys, so can login without password
+        cp $env:USERPROFILE\.ssh\id_rsa.pub $env:USERPROFILE\.ssh\authorized_keys
+
+        # Fix all the permissions
+        &'C:\Program Files\OpenSSH-Win64\FixHostFilePermissions.ps1' -Confirm:$false
+        &'C:\Program Files\OpenSSH-Win64\FixUserFilePermissions.ps1' -Confirm:$false
+
+        # Confirm we can login without a password
+        ssh localhost echo "Test from SSH"
 
     # Beware that the tmate session runs inside cygwin, so some behaviour doesn't match native windows
     - name: Setup tmate session for debugging (only if enabled)
       if: ${{ github.event_name == 'workflow_dispatch' && inputs.tmate_enabled }}
       uses: mxschmitt/action-tmate@v3
-
-    - name: Setup SSH server 2
-      shell: pwsh
-      run: |
-        mkdir C:\Users\runneradmin\.ssh
-        ssh-keygen -f C:\Users\runneradmin\.ssh\id_rsa -q -N '""'
-
-        #TODO: remove match admin group thing from sshd_config so it uses the normal authorized_keys, restart srevice?
-
-        #TODO: use env var for userprofile rather than hardcode?
-        cp C:\Users\runneradmin\.ssh\id_rsa.pub C:\Users\runneradmin\.ssh\authorized_keys
-        #cp C:\Users\runneradmin\.ssh\id_rsa.pub C:\ProgramData\ssh\administrators_authorized_keys
-
-        &'C:\Program Files\OpenSSH-Win64\FixHostFilePermissions.ps1' -Confirm
-        &'C:\Program Files\OpenSSH-Win64\FixUserFilePermissions.ps1' -Confirm
-
-        ssh localhost echo hi
     
     - name: Run remote tests on Windows
       # Only run tests that require a remote, as the other tests are covered by the "native" jobs above.
