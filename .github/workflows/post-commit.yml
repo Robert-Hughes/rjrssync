@@ -8,6 +8,7 @@ on:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
+  # Allow this workflow to be triggered manually, with an optional parameter to enable remote debugging
   workflow_dispatch:
     inputs:
       tmate_enabled:
@@ -32,13 +33,13 @@ jobs:
     - name: Build
       run: cargo build --verbose
     - name: Run tests
-      # Skip tests that require a remote, as this isn't available in this workflow.
-      # The "windows-with-wsl" workflow tests remote connection by using WSL.
+      # Skip tests that require a remote, as this isn't available in this environment.
+      # The below "remote-platforms" job tests remote connection by using WSL.
       run: cargo test --verbose -- --skip "remote_tests::"
 
   # This job sets up a Windows runner with WSL, so that tests that require remote
   # platforms (e.g. a Linux to Windows sync) can be tested.
-  remote_platforms:
+  remote-platforms:
     runs-on: windows-latest
 
     steps:
@@ -64,6 +65,9 @@ jobs:
         $content = Get-Content "C:\ProgramData\ssh\sshd_config"
         $content[0..($content.length-3)] | Out-File "C:\ProgramData\ssh\sshd_config"
 
+        # Disable password authentication, so that if anything goes wrong (e.g. key not installed properly) then we don't hang the job at a password prompt
+        echo "PasswordAuthentication no" >> "C:\ProgramData\ssh\sshd_config"
+
         # Restart sshd so it picks up the config file changes
         Restart-Service sshd
 
@@ -83,7 +87,7 @@ jobs:
         &'C:\Program Files\OpenSSH-Win64\FixUserFilePermissions.ps1' -Confirm:$false
 
         # Confirm we can login without a password
-        ssh localhost echo "Test from SSH"
+        ssh localhost echo "SSH is working!"
 
     # Beware that the tmate session runs inside cygwin, so some behaviour doesn't match native windows
     - name: Setup tmate session for debugging (only if enabled)
