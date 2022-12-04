@@ -40,14 +40,13 @@ jobs:
   # This job sets up a Windows runner with WSL, so that tests that require remote
   # platforms (e.g. a Linux to Windows sync) can be tested.
   remote-platforms:
-    runs-on: windows-latest
+    runs-on: windows-2019 # Trying using different version to fix rustc crash
 
     steps:
     - uses: actions/checkout@v3
     - uses: Vampire/setup-wsl@v1 # Note this sets up a WSL 1 (not WSL 2) environment, so network access is slightly different etc.
-      with:
-        # The default distro (Debian) has problems where after installing, running rust --version hangs the entire GitHub actions runner!
-        distribution: Ubuntu-22.04
+      with:        
+        distribution: Ubuntu-22.04 # Trying using different version to fix rustc crash
 
     - name: Set up cargo on WSL
       shell: wsl-bash {0}
