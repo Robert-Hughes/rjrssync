@@ -44,7 +44,7 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
-    - uses: Vampire/setup-wsl@v1
+    - uses: Vampire/setup-wsl@v1 # Note this sets up a WSL 1 (not WSL 2) environment, so network access is slightly different etc.
 
     # Can't seem to get the windows OpenSSH server installed, as we get an error when adding the optional package.
     # There is an sshd already installed as part of cygwin, but this means that when we log in we get a cygwin prompt, not a windows prompt
@@ -87,7 +87,7 @@ jobs:
         &'C:\Program Files\OpenSSH-Win64\FixUserFilePermissions.ps1' -Confirm:$false
 
         # Confirm we can login without a password
-        ssh localhost echo "SSH is working!"
+        ssh localhost "ver && echo Windows to Windows SSH is working"
 
     # Beware that the tmate session runs inside cygwin, so some behaviour doesn't match native windows
     - name: Setup tmate session for debugging (only if enabled)
@@ -102,6 +102,12 @@ jobs:
         # Disable password authentication, so that if anything goes wrong (e.g. key not installed properly) then we don't hang the job at a password prompt
         echo "PasswordAuthentication no" >> "/etc/ssh/sshd_config"
 
+        # Make sshd listen only on localhost. By default it listens on all interfaces, but this means that both
+        # it and the native Windows sshd will be both listening on all interfaces, which makes it impossible(?)
+        # to distinguish which to connect to. For consistency with the way this behaves on WSL 2, tell the WSL
+        # sshd to listen just on 127.0.0.1.
+        echo "ListenAddress 127.0.0.1" >> "/etc/ssh/sshd_config"
+
         # Start sshd
         service ssh start
 
@@ -114,6 +120,8 @@ jobs:
 
         # Add user key to authorized_keys, so can login without password
         cp ~/.ssh/id_rsa.pub ~/.ssh/authorized_keys
+
+        ssh 127.0.0.1 "uname -a && echo WSL to WSL SSH is working"
 
     - name: Run remote tests on Windows
       # Only run tests that require a remote, as the other tests are covered by the "native" jobs above.

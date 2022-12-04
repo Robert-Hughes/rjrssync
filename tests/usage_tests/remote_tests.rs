@@ -46,7 +46,7 @@ fn get_remote_windows_config() -> (String, String) {
     println!("Windows remote user and host: {user_and_host}");
 
     // Confirm that we can connect to this remote host, to help debugging the test environment
-    confirm_remote_test_environment(&user_and_host);
+    confirm_remote_test_environment(&user_and_host, "Windows");
 
     let test_folder = match std::env::var("RJRSSYNC_TEST_REMOTE_TEST_FOLDER_WINDOWS") {
         Ok(x) => x,
@@ -93,7 +93,7 @@ fn get_remote_linux_config() -> (String, String) {
     println!("Linux remote user and host: {user_and_host}");
 
     // Confirm that we can connect to this remote host, to help debugging the test environment
-    confirm_remote_test_environment(&user_and_host);
+    confirm_remote_test_environment(&user_and_host, "Linux");
 
     let test_folder = match std::env::var("RJRSSYNC_TEST_REMOTE_TEST_FOLDER_LINUX") {
         Ok(x) => x,
@@ -105,18 +105,20 @@ fn get_remote_linux_config() -> (String, String) {
     (user_and_host, test_folder)
 }
 
-fn confirm_remote_test_environment(remote_user_and_host: &str) {
+fn confirm_remote_test_environment(remote_user_and_host: &str, expected_os: &str) {
     // Confirm that we can connect to this remote host, to help debugging the test environment
     println!("Checking connection to {}", remote_user_and_host);
-    let output = std::process::Command::new("ssh").arg(remote_user_and_host).arg("echo Remote host is working!")
+    let output = std::process::Command::new("ssh").arg(remote_user_and_host).arg("echo Remote host is working && (uname -a || ver)")
         .output().expect("Failed to check if remote host is available");
     println!("ssh exit code: {}", output.status);
     println!("ssh stdout:");
-    println!("{}", String::from_utf8(output.stdout).expect("Unable to decode utf-8"));
+    let stdout_text = String::from_utf8(output.stdout).expect("Unable to decode utf-8");
+    println!("{}", stdout_text);
     println!("ssh stderr:");
     println!("{}", String::from_utf8(output.stderr).expect("Unable to decode utf-8"));
 
     assert!(output.status.success());
+    assert!(stdout_text.contains(expected_os));
 }
 
 
