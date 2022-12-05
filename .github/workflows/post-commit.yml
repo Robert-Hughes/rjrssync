@@ -48,9 +48,11 @@ jobs:
       with:
         # curl and ca-certificates: For installing rust
         # build-essential: so that a linker is available when running rustc
+        # ssh for both client and server, needed for test environment
         additional-packages:
           curl ca-certificates
           build-essential
+          ssh
 
     - name: Set up cargo on WSL
       shell: wsl-bash {0}
@@ -78,7 +80,7 @@ jobs:
         # but that's fine, as there is an existing SSH installation (in C:\Windows\System32\OpenSSH\) which will work for now.
         # We do need to make sure the newer ssh.exe is used for our actual tests though, as it fixes a bug that causes a hang:
         # https://github.com/PowerShell/Win32-OpenSSH/issues/856
-        echo "C:\Program Files\OpenSSH-Win64" >> $GITHUB_PATH
+        echo "C:\Program Files\OpenSSH-Win64" >> $env:$GITHUB_PATH
 
         # Start the service so that it creates a default sshd_config file. We'll modify this later.
         Start-Service sshd
@@ -115,11 +117,16 @@ jobs:
         # Confirm we can login without a password
         ssh localhost "ver && echo Windows to Windows SSH is working"
 
+    - name: Check sssh version
+      shell: pwsh
+      run: |
+        $env:PATH  -split ';'
+        ssh --version
+      
+
     - name: Set up WSL SSH server
       shell: wsl-bash {0}
       run: |
-        apt update && apt install -y ssh
-
         # Disable password authentication, so that if anything goes wrong (e.g. key not installed properly) then we don't hang the job at a password prompt
         echo "PasswordAuthentication no" >> "/etc/ssh/sshd_config"
 
