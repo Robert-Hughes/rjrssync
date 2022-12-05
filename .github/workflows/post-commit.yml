@@ -121,7 +121,7 @@ jobs:
       shell: pwsh
       run: |
         $env:PATH  -split ';'
-        ssh --version
+        ssh -V
       
 
     - name: Set up WSL SSH server
