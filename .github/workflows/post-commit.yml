@@ -122,7 +122,6 @@ jobs:
       run: |
         $env:PATH  -split ';'
         ssh -V
-      
 
     - name: Set up WSL SSH server
       shell: wsl-bash {0}
@@ -193,5 +192,7 @@ jobs:
       shell: wsl-bash {0}
       env:
         RUST_LOG: trace #TODO: and this
-      run: cargo test --verbose -- "remote_tests::" --test-threads 1 --nocapture
+      run: |
+        source "$HOME/.cargo/env"
+        cargo test --verbose -- "remote_tests::" --test-threads 1 --nocapture
 

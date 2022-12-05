@@ -620,6 +620,8 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> 
     // Determine if the target system is Windows or Linux, so that we know where to copy our files to
     // uname for Linux, ver for Windows. Note we do ver first because some Windows systems might have cygwin/msys2
     // installed, which would make uname successful.
+    //TODO: try to hide the error from not finding ver, as it looks like something has gone wrong. Maybe do the weird comment
+    // trick like we do for launching rjrssync.
     let remote_command = "ver || uname"; 
     debug!("Running remote command: {}", remote_command);
     let os_test_output = match run_process_with_live_output("ssh", &[user_prefix.clone() + remote_hostname, remote_command.to_string()]) {
