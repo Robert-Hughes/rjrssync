@@ -80,7 +80,7 @@ jobs:
         # but that's fine, as there is an existing SSH installation (in C:\Windows\System32\OpenSSH\) which will work for now.
         # We do need to make sure the newer ssh.exe is used for our actual tests though, as it fixes a bug that causes a hang:
         # https://github.com/PowerShell/Win32-OpenSSH/issues/856
-        echo "C:\Program Files\OpenSSH-Win64" >> $env:$GITHUB_PATH
+        echo "C:\Program Files\OpenSSH-Win64" >> $env:GITHUB_PATH
 
         # Start the service so that it creates a default sshd_config file. We'll modify this later.
         Start-Service sshd
