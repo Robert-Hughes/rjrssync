@@ -187,7 +187,7 @@ fn run_process_with_live_output(c: &mut std::process::Command) -> ProcessOutput 
         .stderr(Stdio::piped())
         // No input can be provided in tests, so we could set stdin to null(), but OpenSSH on windows hangs when this happens,
         // or at least it does on GitHub actions, possibly due to http://lists.mindrot.org/pipermail/openssh-bugs/2019-February/020001.html
-        .stdin(Stdio::inherit()) 
+        .stdin(Stdio::piped()) 
         .spawn()
         .expect("Failed to launch child process");
 
