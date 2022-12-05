@@ -46,10 +46,10 @@ jobs:
     - uses: actions/checkout@v3
     - uses: Vampire/setup-wsl@v1 # Note this sets up a WSL 1 (not WSL 2) environment, so network access is slightly different etc.
       with:
-        # curl: For installing rust
+        # curl and ca-certificates: For installing rust
         # build-essential: so that a linker is available when running rustc
         additional-packages:
-          curl
+          curl ca-certificates
           build-essential
 
     - name: Set up cargo on WSL
