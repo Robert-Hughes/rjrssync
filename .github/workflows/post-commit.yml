@@ -78,7 +78,7 @@ jobs:
         # Add the new ssh installation to the PATH. Even though chocolately claims to do this based on its log messages,
         # it doesn't seem to actually work. Note that this will only take effect after this current "run" action,
         # but that's fine, as there is an existing SSH installation (in C:\Windows\System32\OpenSSH\) which will work for now.
-        # We do need to make sure the newer ssh.exe is used for our actual tests though, as it fixes a bug that causes a hang:
+        # We do need to make sure the newer ssh.exe (at least v8) is used for our actual tests though, as it fixes a bug that causes a hang:
         # https://github.com/PowerShell/Win32-OpenSSH/issues/856
         echo "C:\Program Files\OpenSSH-Win64" >> $env:GITHUB_PATH
 
@@ -166,8 +166,6 @@ jobs:
         # we need to use the IP address of a different interface than just localhost in order to get the right one
         WINDOWS_IP=$(hostname -I | cut -d ' ' -f1)
         ssh runneradmin@$WINDOWS_IP "ver && echo WSL to Windows SSH is working"
-        # Save IP address for later
-        echo "WINDOWS_IP=$WINDOWS_IP" >> $GITHUB_ENV
 
     # Beware that the tmate session runs inside cygwin, so some behaviour doesn't match native windows
     # Note that if this step happens before the "choco install", then we can't manually run choco inside tmate
@@ -198,6 +196,7 @@ jobs:
       run: |
         source "$HOME/.cargo/env"
         # Override the automatically detected windows hostname, as it gets it wrong
+        WINDOWS_IP=$(hostname -I | cut -d ' ' -f1)
         export RJRSSYNC_TEST_REMOTE_USER_AND_HOST_WINDOWS="runneradmin@$WINDOWS_IP"
         cargo test --verbose -- "remote_tests::" --test-threads 1 --nocapture
 
