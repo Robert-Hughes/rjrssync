@@ -56,6 +56,7 @@ jobs:
       shell: wsl-bash {0}
       run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
       
+    # It crashes in windows-latest servers!
     - name: Test if rustc crashes in wsl
       shell: wsl-bash {0}
       run: |
@@ -71,6 +72,13 @@ jobs:
       run: |
         choco install openssh --no-progress
         &"C:\Program Files\OpenSSH-Win64\install-sshd.ps1"
+
+        # Add the new ssh installation to the PATH. Even though chocolately claims to do this based on its log messages,
+        # it doesn't seem to actually work. Note that this will only take effect after this current "run" action,
+        # but that's fine, as there is an existing SSH installation (in C:\Windows\System32\OpenSSH\) which will work for now.
+        # We do need to make sure the newer ssh.exe is used for our actual tests though, as it fixes a bug that causes a hang:
+        # https://github.com/PowerShell/Win32-OpenSSH/issues/856
+        echo "C:\Program Files\OpenSSH-Win64" >> $GITHUB_PATH
 
         # Start the service so that it creates a default sshd_config file. We'll modify this later.
         Start-Service sshd
