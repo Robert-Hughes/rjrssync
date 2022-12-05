@@ -27,12 +27,13 @@ fn get_remote_windows_config() -> (String, String) {
                     .filter_map(|i| i.addr.and_then(|a| if let V4(V4IfAddr { ip, .. }) = a { Some(ip.to_string()) } else { None }))
                     .filter(|a| a != "127.0.0.1").nth(0).expect("No appropriate network interfaces")
             } else if cfg!(unix) {
-                // Figure out the IP address of the external host windows system from /etc/resolv.conf
+                // Figure out the IP address of the external host windows system from /etc/resolv.conf, 
+                // by looking for the line "nameserver XYZ.XYZ.XYZ.XYZ"
                 let windows_ip = std::fs::read_to_string("/etc/resolv.conf").expect("Failed to read /etc/resolv.conf")
                     .lines().filter_map(|l| l.split("nameserver ").last()).last().expect("Couldn't find nameserver in /etc/resolv.conf").to_string();
 
                 // Get windows username
-                // Note the full path to cmd.exe need to be used when running on GitHub actions (cmd.exe is not enough)
+                // Note the full path to cmd.exe need to be used when running on GitHub actions through the tmate console (cmd.exe is not enough)
                 let output = std::process::Command::new("/mnt/c/Windows/system32/cmd.exe").arg("/c").arg("echo %USERNAME%").output().expect("Failed to query windows username");
                 assert!(output.status.success());
                 let username = String::from_utf8(output.stdout).expect("Unable to decode utf-8").trim().to_string();
