@@ -32,7 +32,8 @@ fn get_remote_windows_config() -> (String, String) {
                     .lines().filter_map(|l| l.split("nameserver ").last()).last().expect("Couldn't find nameserver in /etc/resolv.conf").to_string();
 
                 // Get windows username
-                let output = std::process::Command::new("cmd.exe").arg("/c").arg("echo %USERNAME%").output().expect("Failed to query windows username");
+                // Note the full path to cmd.exe need to be used when running on GitHub actions (cmd.exe is not enough)
+                let output = std::process::Command::new("/mnt/c/Windows/system32/cmd.exe").arg("/c").arg("echo %USERNAME%").output().expect("Failed to query windows username");
                 assert!(output.status.success());
                 let username = String::from_utf8(output.stdout).expect("Unable to decode utf-8").trim().to_string();
           
