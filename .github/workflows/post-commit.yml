@@ -45,13 +45,14 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - uses: Vampire/setup-wsl@v1 # Note this sets up a WSL 1 (not WSL 2) environment, so network access is slightly different etc.
+      with:
+        additional-packages:
+          curl # For installing rust
+          build-essential # So that a linker is available when running rustc
 
     - name: Set up cargo on WSL
       shell: wsl-bash {0}
-      run: |
-        # DEBIAN_FRONTEND=noninteractive fixes hang when using apt to install packages
-        apt update && DEBIAN_FRONTEND=noninteractive apt install -y curl
-        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+      run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
       
     - name: Test if rustc crashes in wsl
       shell: wsl-bash {0}
