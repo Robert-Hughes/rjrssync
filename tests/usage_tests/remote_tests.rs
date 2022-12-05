@@ -123,9 +123,6 @@ fn confirm_remote_test_environment(remote_user_and_host: &str, expected_os: &str
     println!("ssh stderr:");
     println!("{}", String::from_utf8(output.stderr).expect("Unable to decode utf-8"));
 
-    //TODO: remove me testing, make sure logs flushed
-    std::thread::sleep(std::time::Duration::from_secs(5));
-
     assert!(output.status.success());
     assert!(stdout_text.contains(expected_os));
 }
