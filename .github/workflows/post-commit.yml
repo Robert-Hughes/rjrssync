@@ -30,8 +30,22 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v3
+
+    # Cache the cargo registry (in user's home dir) and the rjrssync target folder, to speed up subsequent builds.
+    # (see example at https://github.com/actions/cache/blob/main/examples.md#rust---cargo)
+    - uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
     - name: Build
       run: cargo build --verbose
+
     - name: Run tests
       # Skip tests that require a remote, as this isn't available in this environment.
       # The below "remote-platforms" job tests remote connection by using WSL.
