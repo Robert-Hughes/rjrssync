@@ -95,10 +95,21 @@ jobs:
         # curl and ca-certificates: For installing rust
         # build-essential: so that a linker is available when running rustc
         # ssh for both client and server, needed for test environment
-        additional-packages:
+        additional-packages: #TODO: move this installation into the cache?
           curl ca-certificates
           build-essential
           ssh
+
+    # Cache the WSL cargo registry (in user's home dir), to speed up subsequent builds.
+    - uses: actions/cache@v3
+      with:
+        path: |
+          C:\hostedtoolcache\windows\Debian\1.0.0\x64\rootfs\root\.cargo\bin\
+          C:\hostedtoolcache\windows\Debian\1.0.0\x64\rootfs\root\.cargo\registry\index\
+          C:\hostedtoolcache\windows\Debian\1.0.0\x64\rootfs\root\.cargo\registry\cache\
+          C:\hostedtoolcache\windows\Debian\1.0.0\x64\rootfs\root\.cargo\git\db\
+        key: ${{ runner.os }}-wsl-cargo
+
 
     - name: Set up cargo on WSL
       shell: wsl-bash {0}
