@@ -31,18 +31,17 @@ jobs:
     steps:
     - uses: actions/checkout@v3
 
-    # Speed up the following cache step
+    # Speed up the following cache step, when _restoring_ the cache (note it actually seems to make it slower when _saving_ the cache!)
     # See: https://github.com/actions/cache/blob/main/tips-and-workarounds.md#improving-cache-restore-performance-on-windows-using-cross-os-caching
     - if: ${{ runner.os == 'Windows' }}
       name: Use GNU tar to speed up caching on Windows
       shell: cmd
       run: |
         echo "Adding GNU tar to PATH"
-        echo C:\Program Files\Git\usr\bin>>"%GITHUB_PATH%"
+        echo C:\Program Files\Git\usr\bin >> "%GITHUB_PATH%"
 
     # Cache the cargo registry (in user's home dir) and the rjrssync target folder, to speed up subsequent builds.
     # (see example at https://github.com/actions/cache/blob/main/examples.md#rust---cargo)
-    #TODO: try speeding this up on windows with https://github.com/actions/cache/blob/main/tips-and-workarounds.md#improving-cache-restore-performance-on-windows-using-cross-os-caching
     - uses: actions/cache@v3
       with:
         path: |
@@ -63,8 +62,30 @@ jobs:
 
   # This job sets up a Windows runner with WSL, so that tests that require remote
   # platforms (e.g. a Linux to Windows sync) can be tested.
+  #TODO: this job is slow! Can we speed it up with caching?
   remote-platforms:
     runs-on: windows-2019 # Trying using different version to fix rustc crash
+
+    # Speed up the following cache step, when _restoring_ the cache (note it actually seems to make it slower when _saving_ the cache!)
+    # See: https://github.com/actions/cache/blob/main/tips-and-workarounds.md#improving-cache-restore-performance-on-windows-using-cross-os-caching
+    - if: ${{ runner.os == 'Windows' }}
+      name: Use GNU tar to speed up caching on Windows
+      shell: cmd
+      run: |
+        echo "Adding GNU tar to PATH"
+        echo C:\Program Files\Git\usr\bin >> "%GITHUB_PATH%"
+
+    # Cache the cargo registry (in user's home dir) and the rjrssync target folder, to speed up subsequent builds.
+    # (see example at https://github.com/actions/cache/blob/main/examples.md#rust---cargo)
+    - uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
     steps:
     - uses: actions/checkout@v3
