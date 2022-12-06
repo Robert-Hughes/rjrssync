@@ -66,6 +66,9 @@ jobs:
   remote-platforms:
     runs-on: windows-2019 # Trying using different version to fix rustc crash
 
+    steps:
+    - uses: actions/checkout@v3
+
     # Speed up the following cache step, when _restoring_ the cache (note it actually seems to make it slower when _saving_ the cache!)
     # See: https://github.com/actions/cache/blob/main/tips-and-workarounds.md#improving-cache-restore-performance-on-windows-using-cross-os-caching
     - if: ${{ runner.os == 'Windows' }}
@@ -87,8 +90,6 @@ jobs:
           target/
         key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-    steps:
-    - uses: actions/checkout@v3
     - uses: Vampire/setup-wsl@v1 # Note this sets up a WSL 1 (not WSL 2) environment, so network access is slightly different etc.
       with:
         # curl and ca-certificates: For installing rust
