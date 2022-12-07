@@ -542,7 +542,7 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str, remote_port_for
 
 // This embeds the source code of the program into the executable, so it can be deployed remotely and built on other platforms.
 // We only include the src/ folder using this crate, and the Cargo.toml/lock files are included separately.
-// This is because the RustEmbed crate doesn't handle well including the whole repository and then filtering out the 
+// This is because the RustEmbed crate doesn't handle well including the whole repository and then filtering out the
 // bits we don't want (e.g. target/, .git/), because it walks the entire directory structure before filtering, which means
 // that it looks through all the .git and target folders first, which is slow and error prone (intermittent errors possibly
 // due to files being deleted partway through the build).
@@ -615,14 +615,14 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> 
             return Err(());
         }
     }
-    
+
 
     // Determine if the target system is Windows or Linux, so that we know where to copy our files to
     // uname for Linux, ver for Windows. Note we do ver first because some Windows systems might have cygwin/msys2
     // installed, which would make uname successful.
     //TODO: try to hide the error from not finding ver, as it looks like something has gone wrong. Maybe do the weird comment
     // trick like we do for launching rjrssync.
-    let remote_command = "ver || uname"; 
+    let remote_command = "ver || uname";
     debug!("Running remote command: {}", remote_command);
     let os_test_output = match run_process_with_live_output("ssh", &[user_prefix.clone() + remote_hostname, remote_command.to_string()]) {
         Err(e) => {
@@ -718,7 +718,7 @@ where
 {
     let mut c = std::process::Command::new(program);
     let c = c.args(args);
-    println!("Running {:?} {:?}...", c.get_program(), c.get_args());
+    debug!("Running {:?} {:?}...", c.get_program(), c.get_args());
 
     let mut child = match c
         .stdout(Stdio::piped())
