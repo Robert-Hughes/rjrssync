@@ -117,11 +117,17 @@ jobs:
         key: remote-platforms-cargo-${{ hashFiles('**/Cargo.lock') }}
 
     - if: ${{ steps.cache-cargo.outputs.cache-hit != 'true' }}
-      name: Set up cargo on WSL
+      name: Set up cargo on WSL (not cached)
       shell: wsl-bash {0}
       run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 
-    - name: Test if rustc crashes in wsl
+    - if: ${{ steps.cache-cargo.outputs.cache-hit == 'true' }}
+      name: Set up cargo on WSL (cached)
+      # Executable-bit is lost on cache restore
+      shell: wsl-bash {0}
+      run: chmod +x ~/.cargo/bin/*
+
+   - name: Test if rustc crashes in wsl
       # It crashes in windows-latest servers!
       shell: wsl-bash {0}
       run: |
