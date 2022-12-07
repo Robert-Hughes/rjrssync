@@ -154,7 +154,7 @@ It is possible to create an invalid symlink (target is the wrong 'type' or doesn
 
 Symlink targets can be specified as relative or absolute.
 
-Symlinks have their own modified time (which is when the link path was changed, not equal to the target's modified time), but we don't use as we can compare the link target instead (we don't have this luxury when 
+Symlinks have their own modified time (which is when the link path was changed, not equal to the target's modified time), but we don't use as we can compare the link target instead (we don't have this luxury when
 syncing files, because their contents might be huge, but a link target is small).
 
 rjrssync has two modes, as to whether it ignores the symlinks or syncs them as the links (see SymlinkMode enum).
@@ -207,7 +207,8 @@ Remote launching
 * SSH host key verification prompt doesn't echo the user's typing, but it does seem to work anyway
 * Sometimes remote processes are left orphaned, preventing new ones from listening on the same port
 * Using temporary dir means that rebooting the remote will mean we have to rebuild from scratch (on Linux)
-
+* Sometimes see "ssh stderr: mesg: ttyname failed: Inappropriate ioctl for device" when deploying to remote. Can we hide this using "-T" for example?
+* "WARN  | rjrssync::boss_launch: Remote server has incompatible version (51 vs local version 53)" - maybe say that we will try deploying as part of this?
 
 Syncing logic
 -------------
