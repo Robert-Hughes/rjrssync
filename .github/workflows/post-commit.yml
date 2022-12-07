@@ -101,7 +101,6 @@ jobs:
     # to speed up subsequent builds.
     # (see example at https://github.com/actions/cache/blob/main/examples.md#rust---cargo)
     - uses: actions/cache@v3
-      id: cache-cargo
       with:
         path: |
           ~\.cargo\bin\
@@ -109,23 +108,19 @@ jobs:
           ~\.cargo\registry\cache\
           ~\.cargo\git\db\
 
-          C:\hostedtoolcache\windows\Debian\1.0.0\x64\rootfs\root\.cargo\
+          C:\hostedtoolcache\windows\Debian\1.0.0\x64\rootfs\root\.cargo\bin\
+          C:\hostedtoolcache\windows\Debian\1.0.0\x64\rootfs\root\.cargo\registry\index\
+          C:\hostedtoolcache\windows\Debian\1.0.0\x64\rootfs\root\.cargo\registry\cache\
+          C:\hostedtoolcache\windows\Debian\1.0.0\x64\rootfs\root\.cargo\git\db\
           
           target\
 
           C:\hostedtoolcache\windows\Debian\1.0.0\x64\rootfs\root\rjrssync\target\
         key: remote-platforms-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-    - if: ${{ steps.cache-cargo.outputs.cache-hit != 'true' }}
-      name: Set up cargo on WSL (not cached)
+    - name: Set up cargo on WSL
       shell: wsl-bash {0}
       run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-
-    - if: ${{ steps.cache-cargo.outputs.cache-hit == 'true' }}
-      name: Set up cargo on WSL (cached)
-      # Executable-bit is lost on cache restore
-      shell: wsl-bash {0}
-      run: chmod +x ~/.cargo/bin/*
 
     - name: Test if rustc crashes in wsl
       # It crashes in windows-latest servers!
