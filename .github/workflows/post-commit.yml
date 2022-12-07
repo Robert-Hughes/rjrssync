@@ -127,7 +127,7 @@ jobs:
       shell: wsl-bash {0}
       run: chmod +x ~/.cargo/bin/*
 
-   - name: Test if rustc crashes in wsl
+    - name: Test if rustc crashes in wsl
       # It crashes in windows-latest servers!
       shell: wsl-bash {0}
       run: |
