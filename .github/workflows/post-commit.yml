@@ -1,5 +1,5 @@
-# This workflow builds and runs unit tests on both Windows and Linux, as well as running
-# WSL to test remote connection between OSes.
+# This workflow builds and runs unit tests on both Windows and Linux, 
+# as well as running WSL to test "remote" launching, connection and syncing between OSes.
 
 name: Post-Commit
 
@@ -63,9 +63,8 @@ jobs:
 
   # This job sets up a Windows runner with WSL, so that tests that require remote
   # platforms (e.g. a Linux to Windows sync) can be tested.
-  #TODO: this job is slow! Can we speed it up with caching?
   remote-platforms:
-    runs-on: windows-2019 # Trying using different version to fix rustc crash
+    runs-on: windows-2019 # windows-latest (2022) causes rustc to crash the whole VM when run inside WSL
 
     steps:
     - uses: actions/checkout@v3
@@ -75,7 +74,7 @@ jobs:
         # curl and ca-certificates: For installing rust
         # build-essential: so that a linker is available when running rustc
         # ssh for both client and server, needed for test environment
-        additional-packages: #TODO: move this installation into the cache?
+        additional-packages:
           curl ca-certificates
           build-essential
           ssh
@@ -132,14 +131,14 @@ jobs:
       
     # Can't seem to get the windows OpenSSH server installed, as we get an error when adding the optional package.
     # There is an sshd already installed as part of cygwin, but this means that when we log in we get a cygwin prompt, not a windows prompt
-    # So instead we use chocolately to install OpenSSH.
+    # So instead we use chocolatey to install a native windows OpenSSH.
     - name: Set up Windows SSH server
       shell: pwsh
       run: |
         choco install openssh --no-progress
         &"C:\Program Files\OpenSSH-Win64\install-sshd.ps1"
 
-        # Add the new ssh installation to the PATH. Even though chocolately claims to do this based on its log messages,
+        # Add the new ssh installation to the PATH. Even though chocolatey claims to do this based on its log messages,
         # it doesn't seem to actually work. Note that this will only take effect after this current "run" action,
         # but that's fine, as there is an existing SSH installation (in C:\Windows\System32\OpenSSH\) which will work for now.
         # We do need to make sure the newer ssh.exe (at least v8) is used for our actual tests though, as it fixes a bug that causes a hang:
@@ -181,10 +180,11 @@ jobs:
         # Confirm we can login without a password
         ssh localhost "ver && echo Windows to Windows SSH is working"
 
+    # Make sure the correct version of ssh is on the PATH.
     - name: Check ssh version
       shell: pwsh
       run: |
-        $env:PATH  -split ';'
+        $env:PATH -split ';'
         ssh -V
 
     - name: Set up WSL SSH server
@@ -233,7 +233,7 @@ jobs:
 
     # Beware that the tmate session runs inside cygwin, so some behaviour doesn't match native windows
     # Note that if this step happens before the "choco install", then we can't manually run choco inside tmate
-    # because cygwin messes up the temp variables
+    # because cygwin messes up the %TEMP% environment variables
     - name: Set up tmate session for debugging (only if enabled)
       if: ${{ github.event_name == 'workflow_dispatch' && inputs.tmate_enabled }}
       uses: mxschmitt/action-tmate@v3
