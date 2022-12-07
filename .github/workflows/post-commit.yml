@@ -38,7 +38,7 @@ jobs:
       shell: cmd
       run: |
         echo "Adding GNU tar to PATH"
-        echo C:\Program Files\Git\usr\bin >> "%GITHUB_PATH%"
+        echo "C:\Program Files\Git\usr\bin" >> "%GITHUB_PATH%"
 
     # Cache the cargo registry (in user's home dir) and the rjrssync target folder, to speed up subsequent builds.
     # (see example at https://github.com/actions/cache/blob/main/examples.md#rust---cargo)
@@ -50,7 +50,7 @@ jobs:
           ~/.cargo/registry/cache/
           ~/.cargo/git/db/
           target/
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        key: native-${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
     - name: Build
       run: cargo build --verbose
@@ -69,27 +69,6 @@ jobs:
     steps:
     - uses: actions/checkout@v3
 
-    # Speed up the following cache step, when _restoring_ the cache (note it actually seems to make it slower when _saving_ the cache!)
-    # See: https://github.com/actions/cache/blob/main/tips-and-workarounds.md#improving-cache-restore-performance-on-windows-using-cross-os-caching
-    - if: ${{ runner.os == 'Windows' }}
-      name: Use GNU tar to speed up caching on Windows
-      shell: cmd
-      run: |
-        echo "Adding GNU tar to PATH"
-        echo C:\Program Files\Git\usr\bin >> "%GITHUB_PATH%"
-
-    # Cache the cargo registry (in user's home dir) and the rjrssync target folder, to speed up subsequent builds.
-    # (see example at https://github.com/actions/cache/blob/main/examples.md#rust---cargo)
-    - uses: actions/cache@v3
-      with:
-        path: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db/
-          target/
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
     - uses: Vampire/setup-wsl@v1 # Note this sets up a WSL 1 (not WSL 2) environment, so network access is slightly different etc.
       with:
         # curl and ca-certificates: For installing rust
@@ -100,23 +79,51 @@ jobs:
           build-essential
           ssh
 
-    # Cache the WSL cargo registry (in user's home dir), to speed up subsequent builds.
+    - name: Copy source code to WSL
+      # By copying the source code into the native WSL filesystem this is more "faithful" to a proper linux setup, 
+      # and should be faster as the build will be done in the linux filesystem, not through the mounted windows one.
+      # This also prevents any problems with sharing build folders between Windows and Linux and any caching/overwriting.
+      shell: pwsh
+      run: Get-ChildItem -Path $env:GITHUB_WORKSPACE -Exclude .git,target | Copy-Item -Destination C:\hostedtoolcache\windows\Debian\1.0.0\x64\rootfs\root\rjrssync
+      
+    # Speed up the following cache step, when _restoring_ the cache (note it actually seems to make it slower when _saving_ the cache!)
+    # See: https://github.com/actions/cache/blob/main/tips-and-workarounds.md#improving-cache-restore-performance-on-windows-using-cross-os-caching
+    #TODO: This doesn't seem to actually be working? Based on the logs it is not using zstd
+    - if: ${{ runner.os == 'Windows' }}
+      name: Use GNU tar to speed up caching on Windows
+      shell: cmd
+      run: |
+        echo "Adding GNU tar to PATH"
+        echo "C:\Program Files\Git\usr\bin" >> "%GITHUB_PATH%"
+
+    # Cache the Windows and WSL cargo registry (from user's home dir) and the rjrssync target folder (both Windows and WSL),
+    # to speed up subsequent builds.
+    # (see example at https://github.com/actions/cache/blob/main/examples.md#rust---cargo)
     - uses: actions/cache@v3
       with:
         path: |
+          ~\.cargo\bin\
+          ~\.cargo\registry\index\
+          ~\.cargo\registry\cache\
+          ~\.cargo\git\db\
+
           C:\hostedtoolcache\windows\Debian\1.0.0\x64\rootfs\root\.cargo\bin\
           C:\hostedtoolcache\windows\Debian\1.0.0\x64\rootfs\root\.cargo\registry\index\
           C:\hostedtoolcache\windows\Debian\1.0.0\x64\rootfs\root\.cargo\registry\cache\
           C:\hostedtoolcache\windows\Debian\1.0.0\x64\rootfs\root\.cargo\git\db\
-        key: ${{ runner.os }}-wsl-cargo
+          
+          target\
 
+          C:\hostedtoolcache\windows\Debian\1.0.0\x64\rootfs\root\rjrssync\target\
+        key: remote-platforms-cargo-${{ hashFiles('**/Cargo.lock') }}
 
+    #TODO: cache this?
     - name: Set up cargo on WSL
       shell: wsl-bash {0}
       run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-      
-    # It crashes in windows-latest servers!
+
     - name: Test if rustc crashes in wsl
+      # It crashes in windows-latest servers!
       shell: wsl-bash {0}
       run: |
         source "$HOME/.cargo/env"
@@ -233,8 +240,6 @@ jobs:
     
     - name: Run remote tests on Windows
       shell: pwsh
-      env:
-        RUST_LOG: trace #TODO: remove this once figure out the issue why these tests are hanging. Seems to be related to scp - perhaps it's trying to read input from something?
       # Only run tests that require a remote, as the other tests are covered by the "native" jobs above.
       # The logic in remote_tests.rs should automatically detect the WSL instance and connect to that
       # These tests can be resource-intensive (building rjrssync on remote hosts), so run one at a time,
@@ -248,8 +253,6 @@ jobs:
       # These tests can be resource-intensive (building rjrssync on remote hosts), so run one at a time,
       # and print the test output as they run so can see the progress
       shell: wsl-bash {0}
-      env:
-        RUST_LOG: trace #TODO: and this
       run: |
         source "$HOME/.cargo/env"
         # Override the automatically detected windows hostname, as it gets it wrong
