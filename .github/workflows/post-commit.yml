@@ -33,6 +33,7 @@ jobs:
 
     # Speed up the following cache step, when _restoring_ the cache (note it actually seems to make it slower when _saving_ the cache!)
     # See: https://github.com/actions/cache/blob/main/tips-and-workarounds.md#improving-cache-restore-performance-on-windows-using-cross-os-caching
+    #TODO: This doesn't seem to actually be working? Based on the logs it is not using zstd
     - if: ${{ runner.os == 'Windows' }}
       name: Use GNU tar to speed up caching on Windows
       shell: cmd
@@ -181,7 +182,7 @@ jobs:
         # Confirm we can login without a password
         ssh localhost "ver && echo Windows to Windows SSH is working"
 
-    - name: Check sssh version
+    - name: Check ssh version
       shell: pwsh
       run: |
         $env:PATH  -split ';'
