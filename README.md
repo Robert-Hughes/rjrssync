@@ -246,6 +246,7 @@ Performance
   - Syncing large tree when nothing has changed
   - Copying single large file
   - Copying lots of small files
+* profiling of remote doers. Send data over network just before finishing,  back to the boss which merges it.
 
 
 Misc
