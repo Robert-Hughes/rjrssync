@@ -375,10 +375,55 @@ pub fn run(desc: TestDesc) {
     }
 }
 
+#[derive(Default)]
+pub struct NumActions {
+    pub copied_files: u32,
+    pub created_folders: u32,
+    pub copied_symlinks: u32,
+
+    pub deleted_files: u32,
+    pub deleted_folders: u32,
+    pub deleted_symlinks: u32,
+}
+
+pub fn copied_files(x: u32) -> NumActions {
+    NumActions { copied_files: x, ..Default::default() }
+}
+pub fn copied_files_and_folders(files: u32, folders: u32) -> NumActions {
+    NumActions { copied_files: files, created_folders: folders, ..Default::default() }
+}
+pub fn copied_files_and_symlinks(files: u32, symlinks: u32) -> NumActions {
+    NumActions { copied_files: files, copied_symlinks: symlinks, ..Default::default() }
+}
+pub fn copied_files_folders_and_symlinks(files: u32, folders: u32, symlinks: u32) -> NumActions {
+    NumActions { copied_files: files, created_folders: folders, copied_symlinks: symlinks, ..Default::default() }
+}
+
+impl NumActions {
+    pub fn get_expected_output_messages(&self) -> Vec<Regex> {
+        let mut result = vec![];
+        if self.copied_files + self.created_folders + self.copied_symlinks > 0 {
+            result.push(Regex::new(&regex::escape(&format!("Copied {} file(s)", self.copied_files))).unwrap());
+            result.push(Regex::new(&regex::escape(&format!("created {} folder(s)", self.created_folders))).unwrap());
+            result.push(Regex::new(&regex::escape(&format!("copied {} symlink(s)", self.copied_symlinks))).unwrap());    
+        }
+        if self.deleted_files + self.deleted_folders + self.deleted_symlinks > 0 {
+            result.push(Regex::new(&regex::escape(&format!("Deleted {} file(s), {} folder(s) and {} symlink(s)",
+                self.deleted_files,
+                self.deleted_folders,
+                self.deleted_symlinks))).unwrap());
+        }
+        if result.is_empty() {
+            result.push(Regex::new(&regex::escape("Nothing to do")).unwrap());    
+        }
+        result
+    }
+}
+
 /// Runs a test that syncs the given src FilesystemNode (e.g. file or folder) to the given dest 
 /// FilesystemNode, and checks that the sync is successful, and the destination is updated to be equal
 /// to the source.
-pub fn run_expect_success(src_node: &FilesystemNode, dest_node: &FilesystemNode, expected_num_copies: u32) {
+pub fn run_expect_success(src_node: &FilesystemNode, dest_node: &FilesystemNode, expected_actions: NumActions) {
     run(TestDesc {
         setup_filesystem_nodes: vec![
             ("$TEMP/src", src_node),
@@ -389,9 +434,7 @@ pub fn run_expect_success(src_node: &FilesystemNode, dest_node: &FilesystemNode,
             "$TEMP/dest".to_string()
         ],
         expected_exit_code: 0,
-        expected_output_messages: vec![
-            Regex::new(&regex::escape(&format!("Copied {} file(s)", expected_num_copies))).unwrap(),
-        ],
+        expected_output_messages: expected_actions.get_expected_output_messages(),
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(src_node)), // Source should always be unchanged
             ("$TEMP/dest", Some(src_node)), // Dest should be identical to source

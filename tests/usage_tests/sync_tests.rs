@@ -16,7 +16,7 @@ fn test_simple_folder_sync() {
             "sc" => file("contents3"),
         }
     };
-    run_expect_success(&src_folder, &empty_folder(), 3);
+    run_expect_success(&src_folder, &empty_folder(), copied_files_and_folders(3, 1));
 }
 
 /// Some files and a folder (with contents) in the destination need deleting.
@@ -40,7 +40,8 @@ fn test_remove_dest_stuff() {
             }
         }
     };
-    run_expect_success(&src_folder, &dest_folder, 3);
+    run_expect_success(&src_folder, &dest_folder, NumActions { copied_files: 3, created_folders: 1, copied_symlinks: 0, 
+        deleted_files: 5, deleted_folders: 2, deleted_symlinks: 0 });
 }
 
 /// A file exists but has an old timestamp so needs updating.
@@ -52,7 +53,7 @@ fn test_update_file() {
     let dest_folder = folder! {
         "file" => file_with_modified("contents2", SystemTime::UNIX_EPOCH),
     };
-    run_expect_success(&src_folder, &dest_folder, 1);
+    run_expect_success(&src_folder, &dest_folder, copied_files(1));
 }
 
 /// Most files have the same timestamp so don't need updating, but one does.
@@ -69,7 +70,7 @@ fn test_skip_unchanged() {
         "file3" => file_with_modified("contents3", SystemTime::UNIX_EPOCH),
     };
     // Check that exactly one file was copied (the other two should have been skipped)
-    run_expect_success(&src_folder, &dest_folder, 1);
+    run_expect_success(&src_folder, &dest_folder, copied_files(1));
 }
 
 /// The destination is inside several folders that don't exist yet - they should be created.
@@ -85,9 +86,7 @@ fn test_dest_ancestors_dont_exist() {
             "$TEMP/dest1/dest2/dest3/dest.txt".to_string(),
         ],
         expected_exit_code: 0,
-        expected_output_messages: vec![
-            Regex::new(&regex::escape("Copied 1 file(s)")).unwrap(),
-        ],
+        expected_output_messages: copied_files(1).get_expected_output_messages(),
         expected_filesystem_nodes: vec![
             ("$TEMP/src.txt", Some(src)), // Source should always be unchanged
             ("$TEMP/dest1/dest2/dest3/dest.txt", Some(src)), // Dest should be identical to source
@@ -129,9 +128,7 @@ fn test_filters() {
             "-.*/sc1".to_string(),
         ],
         expected_exit_code: 0,
-        expected_output_messages: vec![
-            Regex::new(&regex::escape("Copied 2 file(s), created 2 folder(s)")).unwrap(),
-        ],
+        expected_output_messages: copied_files_and_folders(2, 2).get_expected_output_messages(),
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&src_folder)), // Source should always be unchanged
             ("$TEMP/dest", Some(&expected_dest_folder)),
@@ -234,9 +231,7 @@ fn test_relative_paths() {
             "dest".to_string(),
         ],
         expected_exit_code: 0,
-        expected_output_messages: vec![
-            Regex::new(&regex::escape("Copied 1 file(s)")).unwrap()
-        ],
+        expected_output_messages: copied_files_and_folders(1, 1).get_expected_output_messages(),
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&src_folder)), // Source should always be unchanged
             ("$TEMP/dest", Some(&src_folder)), // Dest should be same as source
