@@ -39,27 +39,18 @@ macro_rules! profile_this {
     () => {
         let _profiling_keep_alive = crate::profiling::profiling_real::Timer::new(
             crate::function_name!().to_string(),
-            "".to_string(),
         );
     };
     ($mand_1:expr) => {
         let _profiling_keep_alive = crate::profiling::profiling_real::Timer::new(
-            crate::function_name!().to_string() + " " + $mand_1,
-            "".to_string(),
-        );
-    };
-    ($mand_1:expr, $mand_2:expr) => {
-        let _profiling_keep_alive = crate::profiling::profiling_real::Timer::new(
-            crate::function_name!().to_string() + " " + $mand_1,
-            $mand_2,
+            $mand_1.into(),
         );
     };
 }
 
 #[derive(Serialize, Clone)]
 struct ProfilingEntry {
-    category_name: String,
-    detailed_name: String,
+    scope_name: String,
     // start and end are durations since the start of profiling because Instant cannot be serialized by default.
     start: Duration,
     end: Duration,
@@ -74,7 +65,7 @@ struct ProfilingData {
 
 struct LocalProfilingEntry {
     local_profiling_entry: Vec<ProfilingEntry>,
-    name: String,
+    thread_name: String,
 }
 
 // Store the thread name as well so we can distinguish the threads on the timeline
@@ -84,17 +75,21 @@ struct GlobalProfilingData {
 
 pub struct Timer {
     // Make name an Option so we can move out of it in the drop later.
-    category_name: Option<String>,
-    detailed_name: Option<String>,
+    scope_name: Option<String>,
     start: Duration,
 }
 
+pub fn start_timer(name: &str) -> Timer {
+    Timer::new(name.to_string())
+}
+
+pub fn stop_timer(_t: Timer) {} // This will drop the Timer and thus call Timer::drop() which stores the event.
+
 impl Timer {
-    pub fn new(category_name: String, detailed_name: String) -> Timer {
+    pub fn new(scope_name: String) -> Timer {
         let start = PROFILING_START.elapsed();
         Timer {
-            category_name: Some(category_name),
-            detailed_name: Some(detailed_name),
+            scope_name: Some(scope_name),
             start,
         }
     }
@@ -109,8 +104,7 @@ impl Drop for Timer {
                 .as_mut()
                 .unwrap()
                 .push(ProfilingEntry {
-                    category_name: self.category_name.take().unwrap(),
-                    detailed_name: self.detailed_name.take().unwrap(),
+                    scope_name: self.scope_name.take().unwrap(),
                     start: self.start,
                     end,
                     duration: end - self.start,
@@ -126,7 +120,7 @@ impl Drop for ProfilingData {
         if let Some(entries) = self.entries.take() {
             let entry = LocalProfilingEntry {
                 local_profiling_entry: entries,
-                name: thread_name,
+                thread_name,
             };
             GLOBAL_PROFILING_DATA.lock().unwrap().push_events(entry);
         }
@@ -161,26 +155,24 @@ impl GlobalProfilingData {
 
         let mut json_entries = vec![];
 
-        // Use pid to mark the different threads because why not
-        // Keep track of which pid maps to which thread name
-        let mut name_to_pid = HashMap::from([(self.entries[0].name.clone(), 0)]);
+        // Keep track of which tid maps to which thread name
+        let mut name_to_tid = HashMap::new();
+        let get_tid_for_thread_name = |name_to_tid: &mut HashMap<_, _>, thread_name| {
+            let new_tid = name_to_tid.len();
+            *name_to_tid.entry(thread_name).or_insert(new_tid)
+        };
+
         for i in 0..self.entries.len() {
             let thread_events = &self.entries[i].local_profiling_entry;
-            name_to_pid.insert(self.entries[i].name.clone(), i);
             for entry in thread_events {
-                let name = entry.detailed_name.clone();
-                let cat = entry.category_name.clone();
-                let pid = i;
-                let tid = *map_profiling_to_string()
-                    .get(&entry.category_name as &str)
-                    .expect(&format!(
-                        "mapping profiling string failed: {}",
-                        &entry.category_name
-                    ));
+                let name = entry.scope_name.clone();
+                let cat = "None".to_string();
+                let pid = 0;
+                let tid = get_tid_for_thread_name(&mut name_to_tid, &self.entries[i].thread_name);
                 let ts = entry.start.as_nanos();
                 let beginning = ChromeTracing {
                     name,
-                    cat,
+                    cat: cat.clone(),
                     ph: "B",
                     ts,
                     pid,
@@ -189,8 +181,7 @@ impl GlobalProfilingData {
                 };
                 json_entries.push(beginning);
                 let end_ts = entry.end.as_nanos();
-                let name = entry.detailed_name.clone();
-                let cat = entry.category_name.clone();
+                let name = entry.scope_name.clone();
                 let end = ChromeTracing {
                     name,
                     cat,
@@ -203,33 +194,30 @@ impl GlobalProfilingData {
                 json_entries.push(end);
             }
         }
-        for i in 0..=self.entries.len() {
-            for (k, v) in map_profiling_to_string() {
-                let entry = ChromeTracing {
-                    name: "thread_name".to_string(),
-                    cat: "None".to_string(),
-                    ph: "M",
-                    ts: 0,
-                    pid: i,
-                    tid: v,
-                    args: HashMap::from([("name".to_string(), k.into())]),
-                };
-                json_entries.push(entry);
-            }
-        }
-        for (k, v) in name_to_pid {
+        for (thread_name, tid) in &name_to_tid {
             let entry = ChromeTracing {
-                name: "process_name".to_string(),
+                name: "thread_name".to_string(),
                 cat: "None".to_string(),
                 ph: "M",
                 ts: 0,
-                pid: v,
-                tid: 0,
-                args: HashMap::from([("name".to_string(), k.into())]),
+                pid: 0,
+                tid: *tid,
+                args: HashMap::from([("name".to_string(), serde_json::Value::String(thread_name.to_string()))]),
             };
             json_entries.push(entry);
         }
-        serde_json::to_writer_pretty(&file, &json_entries)
+        let entry = ChromeTracing {
+            name: "process_name".to_string(),
+            cat: "None".to_string(),
+            ph: "M",
+            ts: 0,
+            pid: 0,
+            tid: 0,
+            args: HashMap::from([("name".to_string(), "rjrssync".into())]),
+        };
+        json_entries.push(entry);
+
+        serde_json::to_writer(&file, &json_entries)
             .expect(&format!("Failed to save end converted profiling data"));
     }
 }
@@ -242,32 +230,15 @@ pub fn dump_all_profiling() {
     std::fs::create_dir_all("profiling_data").expect("Failed to create profiling data directory");
     // As main is the only thread to not be joined (and thus the ProfilingData dropped)
     // it must be append to the global profiling manually.
-    let name = std::thread::current().name().unwrap().to_string();
+    let thread_name = std::thread::current().name().unwrap().to_string();
     let mut thread_local_profiling_data = PROFILING_DATA.with(|p| p.clone()).into_inner();
     let main_thread_events = LocalProfilingEntry {
         local_profiling_entry: thread_local_profiling_data.entries.take().unwrap(),
-        name,
+        thread_name,
     };
     GLOBAL_PROFILING_DATA
         .lock()
         .unwrap()
         .push_events(main_thread_events)
         .dump_profiling_to_chrome("profiling_data/".to_string() + "all_trace.json");
-}
-
-fn map_profiling_to_string() -> HashMap<&'static str, usize> {
-    HashMap::from([
-        ("exec_command GetEntries", 1),
-        ("exec_command CreateRootAncestors", 2),
-        ("exec_command GetFileContent", 3),
-        ("exec_command CreateOrUpdateFile", 4),
-        ("exec_command CreateFolder", 5),
-        ("exec_command DeleteFile", 6),
-        ("exec_command DeleteFolder", 7),
-        ("send Serialize", 8),
-        ("send Encrypt", 9),
-        ("send Tcp Write", 10),
-        ("receive_response", 11),
-        ("send", 12),
-    ])
 }

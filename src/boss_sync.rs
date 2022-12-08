@@ -108,6 +108,8 @@ pub fn sync(
     src_comms: &mut Comms,
     dest_comms: &mut Comms,
 ) -> Result<(), String> {
+    profile_this!();
+
     let mut stats = Stats::default();
 
     let sync_start = Instant::now();
@@ -116,6 +118,7 @@ pub fn sync(
     // before we start it (e.g. errors, or changing the dest root)
 
     // Source SetRoot
+    let timer = start_timer("SetRoot src");
     src_comms.send_command(Command::SetRoot { root: src_root.to_string(), symlink_mode })?;
     let src_root_details = match src_comms.receive_response() {
         Ok(Response::RootDetails(d)) => {
@@ -141,8 +144,10 @@ pub fn sync(
         r => return Err(format!("Unexpected response getting root details from src: {:?}", r)),
     };
     let src_root_details = src_root_details.unwrap();
+    stop_timer(timer);
 
     // Dest SetRoot
+    let timer = start_timer("SetRoot dest");
     dest_comms.send_command(Command::SetRoot { root: dest_root.to_string(), symlink_mode })?;
     let mut dest_root_details = match dest_comms.receive_response() {
         Ok(Response::RootDetails(d)) => {
@@ -167,6 +172,7 @@ pub fn sync(
         }
         r => return Err(format!("Unexpected response getting root details from dest: {:?}", r)),
     };
+    stop_timer(timer);
 
     // If src is a file, and the dest path ends in a slash, then we want to sync the file
     // _inside_ the folder, rather then replacing the folder with the file (see README for reasoning).
@@ -203,6 +209,7 @@ pub fn sync(
 
     // Fetch all the entries for the source path and the dest path, if they are folders
     // Do these each on a separate thread so they can be done in parallel with each other
+    let timer = start_timer("GetEntries x 2");
     let thread_result : Result<_, String> = thread::scope(|scope| {
         // Source GetEntries
         let src_thread = thread::Builder::new()
@@ -288,7 +295,7 @@ pub fn sync(
         Ok((src_entries, src_entries_lookup, src_comms, dest_entries, dest_entries_lookup, dest_comms))
     });
     let (src_entries, src_entries_lookup, src_comms, dest_entries, dest_entries_lookup, dest_comms) = thread_result?;
-
+    stop_timer(timer);
 
     let query_elapsed = sync_start.elapsed().as_secs_f32();
 
@@ -317,6 +324,7 @@ pub fn sync(
     // (otherwise deleting the parent is harder/more risky - possibly would also have problems with
     // files being filtered so the folder is needed still as there are filtered-out files in there,
     // see test_remove_dest_folder_with_excluded_files())
+    let timer = start_timer("Deleting");
     let delete_start = Instant::now();
     for (dest_path, dest_details) in dest_entries.iter().rev() {
         let s = src_entries_lookup.get(dest_path);
@@ -358,8 +366,10 @@ pub fn sync(
         }
     }
     let delete_elapsed = delete_start.elapsed().as_secs_f32();
+    stop_timer(timer);
 
     // Copy entries that don't exist, or do exist but are out-of-date.
+    let timer = start_timer("Copying");
     let copy_start = Instant::now();
     for (path, src_details) in src_entries {
         let dest_details = dest_entries_lookup.get(&path);
@@ -435,10 +445,10 @@ pub fn sync(
                     stats.num_symlinks_copied += 1;
                     if !dry_run {
                         dest_comms
-                            .send_command(Command::CreateSymlink { 
-                                path: path.clone(), 
+                            .send_command(Command::CreateSymlink {
+                                path: path.clone(),
                                 kind,
-                                target, 
+                                target,
                             })?;
                         match dest_comms.receive_response() {
                             Ok(doer::Response::Ack) => (),
@@ -452,7 +462,7 @@ pub fn sync(
             },
         }
     }
-
+    stop_timer(timer);
     let copy_elapsed = copy_start.elapsed().as_secs_f32();
 
     // Note that we print all the stats at the end (even though we could print the delete stats earlier),

@@ -464,7 +464,7 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut Option<DoerCo
             let path_to_create = context.as_ref().unwrap().root.parent();
             trace!("Creating {:?} and all its ancestors", path_to_create);
             if let Some(p) = path_to_create {
-                profile_this!("CreateRootAncestors", p.to_str().unwrap().to_string());
+                profile_this!(format!("CreateRootAncestors {}", p.to_str().unwrap().to_string()));
                 match std::fs::create_dir_all(p) {
                     Ok(()) => comms.send_response(Response::Ack).unwrap(),
                     Err(e) => comms.send_response(Response::Error(format!("Error creating folder and ancestors for '{}': {e}", p.display()))).unwrap(),
@@ -474,7 +474,7 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut Option<DoerCo
         Command::GetFileContent { path } => {
             let full_path = path.get_full_path(&context.as_ref().unwrap().root);
             trace!("Getting content of '{}'", full_path.display());
-            profile_this!("GetFileContent", path.to_string());
+            profile_this!(format!("GetFileContent {}", path.to_string()));
             match std::fs::read(&full_path) {
                 Ok(data) => comms.send_response(Response::FileContent { data }).unwrap(),
                 Err(e) => comms.send_response(Response::Error(format!("Error getting file content of '{}': {e}", full_path.display()))).unwrap(),
@@ -487,7 +487,7 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut Option<DoerCo
         } => {
             let full_path = path.get_full_path(&context.as_ref().unwrap().root);
             trace!("Creating/updating content of '{}'", full_path.display());
-            profile_this!("CreateOrUpdateFile", path.to_string());
+            profile_this!(format!("CreateOrUpdateFile {}", path.to_string()));
             let r = std::fs::write(&full_path, data);
             if let Err(e) = r {
                 comms.send_response(Response::Error(format!("Error writing file contents to '{}': {e}", full_path.display()))).unwrap();
@@ -511,7 +511,7 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut Option<DoerCo
         Command::CreateFolder { path } => {
             let full_path =  path.get_full_path(&context.as_ref().unwrap().root);
             trace!("Creating folder '{}'", full_path.display());
-            profile_this!("CreateFolder", full_path.to_str().unwrap().to_string());
+            profile_this!(format!("CreateFolder {}", full_path.to_str().unwrap().to_string()));
             match std::fs::create_dir(&full_path) {
                 Ok(()) => comms.send_response(Response::Ack).unwrap(),
                 Err(e) => comms.send_response(Response::Error(format!("Error creating folder '{}': {e}", full_path.display()))).unwrap(),
@@ -519,14 +519,14 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut Option<DoerCo
         }
         Command::CreateSymlink { path, kind, target } => {
             match handle_create_symlink(path, context.as_mut().unwrap(), kind, target) {
-                Ok(()) => comms.send_response(Response::Ack).unwrap(),               
+                Ok(()) => comms.send_response(Response::Ack).unwrap(),
                 Err(e) => comms.send_response(Response::Error(e)).unwrap(),
             }
         },
         Command::DeleteFile { path } => {
             let full_path =  path.get_full_path(&context.as_ref().unwrap().root);
             trace!("Deleting file '{}'", full_path.display());
-            profile_this!("DeleteFile", path.to_string());
+            profile_this!(format!("DeleteFile {}", path.to_string()));
             match std::fs::remove_file(&full_path) {
                 Ok(()) => comms.send_response(Response::Ack).unwrap(),
                 Err(e) => comms.send_response(Response::Error(format!("Error deleting file '{}': {e}", full_path.display()))).unwrap(),
@@ -535,7 +535,7 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut Option<DoerCo
         Command::DeleteFolder { path } => {
             let full_path =  path.get_full_path(&context.as_ref().unwrap().root);
             trace!("Deleting folder '{}'", full_path.display());
-            profile_this!("DeleteFolder", path.to_string());
+            profile_this!(format!("DeleteFolder {}", path.to_string()));
             match std::fs::remove_dir(&full_path) {
                 Ok(()) => comms.send_response(Response::Ack).unwrap(),
                 Err(e) => comms.send_response(Response::Error(format!("Error deleting folder '{}': {e}", full_path.display()))).unwrap(),
@@ -674,7 +674,7 @@ fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, filters: &[F
     // as the walk will fail before we can get the metadata for the broken link. Therefore we only use this
     // when walking what's known to be a directory (discovered in SetRoot).
     let mut walker_it = WalkDir::new(&context.root)
-        .follow_links(context.symlink_mode == SymlinkMode::Unaware) 
+        .follow_links(context.symlink_mode == SymlinkMode::Unaware)
         .into_iter();
     let mut count = 0;
     loop {
@@ -715,7 +715,7 @@ fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, filters: &[F
                     Ok(m) => m,
                     Err(err) => return Err(format!("Unable to get metadata for '{}': {err}", path)),
                 };
-    
+
                 let d = entry_details_from_metadata(metadata, e.path())?;
 
                 comms.send_response(Response::Entry((path, d))).unwrap();
@@ -747,7 +747,7 @@ fn handle_create_symlink(path: RootRelativePath, context: &mut DoerContext, kind
             }
             // Non-windows platforms can't create explicit file symlinks, but we can just create a generic
             // symlink, which will behave the same.
-            #[cfg(not(windows))] 
+            #[cfg(not(windows))]
             {
                 std::os::unix::fs::symlink(target, &full_path)
             }
@@ -773,7 +773,7 @@ fn handle_create_symlink(path: RootRelativePath, context: &mut DoerContext, kind
             {
                 //TODO: we could do a best-effort here by checking the type of the target on the other doer (if it exists), and using that.
                 return Err(format!("Can't create unspecified symlink on this platform '{}'", full_path.display()));
-            }      
+            }
         },
     };
     if let Err(e) = res {

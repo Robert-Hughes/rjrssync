@@ -9,7 +9,7 @@ use log::{debug, error};
 use serde::{Serialize, Deserialize};
 use yaml_rust::{YamlLoader, Yaml};
 
-use crate::boss_launch::*;
+use crate::{boss_launch::*, profile_this};
 use crate::boss_sync::*;
 use crate::doer::Filter;
 
@@ -232,6 +232,8 @@ fn parse_spec_file(path: &Path) -> Result<Spec, String> {
 }
 
 pub fn boss_main() -> ExitCode {
+    profile_this!();
+
     let args = BossCliArgs::parse();
 
     // Configure logging, based on the user's --quiet/--verbose flag.

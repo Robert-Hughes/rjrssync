@@ -112,6 +112,7 @@ pub fn setup_comms(
     debug_name: String,
     force_redeploy: bool,
 ) -> Option<Comms> {
+    profile_this!();
     debug!(
         "setup_comms with hostname '{}' and username '{}'. debug_name = {}",
         remote_hostname, remote_user, debug_name
