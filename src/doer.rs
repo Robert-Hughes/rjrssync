@@ -114,7 +114,6 @@ pub enum Command {
     // as the boss may need to do something before we send it all the rest of the entries
     SetRoot {
         root: String, // Note this doesn't use a RootRelativePath as it isn't relative to the root - it _is_ the root!
-        symlink_mode: SymlinkMode,
     },
     GetEntries {
         filters: Vec<Filter>,
@@ -410,7 +409,6 @@ pub fn doer_thread_running_on_boss(receiver: Receiver<Command>, sender: Sender<R
 /// (if these are local doers).
 struct DoerContext {
     pub root: PathBuf,
-    pub symlink_mode: SymlinkMode
 }
 
 // Repeatedly waits for Commands from the boss and processes them (possibly sending back Responses).
@@ -449,8 +447,8 @@ fn message_loop(mut comms: Comms) -> Result<(), ()> {
 /// error, like a communication failure.
 fn exec_command(command: Command, comms: &mut Comms, context: &mut Option<DoerContext>) -> Result<bool, String> {
     match command {
-        Command::SetRoot { root, symlink_mode } => {
-            if let Err(e) = handle_set_root(comms, context, root, symlink_mode) {
+        Command::SetRoot { root } => {
+            if let Err(e) = handle_set_root(comms, context, root) {
                 comms.send_response(Response::Error(e)).unwrap();
             }
         }
@@ -562,21 +560,17 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut Option<DoerCo
     Ok(true)
 }
 
-fn handle_set_root(comms: &mut Comms, context: &mut Option<DoerContext>, root: String, symlink_mode: SymlinkMode) -> Result<(), String> {
+fn handle_set_root(comms: &mut Comms, context: &mut Option<DoerContext>, root: String) -> Result<(), String> {
     // Store the root path for future operations
     *context = Some(DoerContext {
         root: PathBuf::from(root),
-        symlink_mode,
     });
     let context = context.as_ref().unwrap();
 
     // Respond to the boss with what type of file/folder the root is, as it makes some decisions
     // based on this.
-    // We use symlink_metadata depending on the symlink mode
-    let metadata = match symlink_mode {
-        SymlinkMode::Unaware => std::fs::metadata(&context.root),
-        SymlinkMode::Preserve => std::fs::symlink_metadata(&context.root),
-    };
+    // We use symlink_metadata so that we see the metadata of a symlink, not its target
+    let metadata = std::fs::symlink_metadata(&context.root);
     match metadata {
         Ok(m) => {
             let entry_details = entry_details_from_metadata(m, &context.root)?;
@@ -674,7 +668,7 @@ fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, filters: &[F
     // as the walk will fail before we can get the metadata for the broken link. Therefore we only use this
     // when walking what's known to be a directory (discovered in SetRoot).
     let mut walker_it = WalkDir::new(&context.root)
-        .follow_links(context.symlink_mode == SymlinkMode::Unaware)
+        .follow_links(false)  // We want to see the symlinks, not their targets
         .into_iter();
     let mut count = 0;
     loop {

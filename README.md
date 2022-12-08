@@ -157,8 +157,6 @@ Symlink targets can be specified as relative or absolute.
 Symlinks have their own modified time (which is when the link path was changed, not equal to the target's modified time), but we don't use as we can compare the link target instead (we don't have this luxury when
 syncing files, because their contents might be huge, but a link target is small).
 
-rjrssync has two modes, as to whether it ignores the symlinks or syncs them as the links (see SymlinkMode enum).
-
 There can be multiple symlinks followed in a path being synced, e.g. <ROOT>/symlink1/folder2/symlink3/file,
 but this would only be observed if rjrssync was unaware of symlinks (otherwise it would never walk into the first symlink).
 
@@ -169,6 +167,24 @@ The other way round should be fine, because Windows supports forward slashes too
 TODO: we're currently just copying over the link data exactly as it is, so this probably needs to change!
 
 How do symlinks interact with trailing slashes on files/folders (see above section)?
+
+rjrssync treats symlinks as if they were simple text files containing their target address.
+They are not (generally) followed or validated. They will be reproduced as accurately as possible on
+the destination.
+Note that this only applies to symlinks that are part of the sync (including as the root);
+symlinks that are ancestors of the path provided as source or dest will always be followed.
+
+
+It was considered for rjrssync to have two 'modes', as to whether it ignores the symlinks (treats them as 
+their targets) or syncs them as the links. However it was decided against this because of the increase in
+complexity of the testing and some quirky behaviour in the "unaware" mode (see below):
+
+Quirks:
+
+On Linux, if there's a symlink to a folder and we're in unaware mode, then we won't be able to delete it because on Linux, deleting a symlink has to be done via remove_file, not remove_dir. However when in unaware mode, we see it as a dir, and so use remove_dir.
+
+When deleting a symlink folder and we're in unaware model, the whole symlink *target* folder will be cleared out too, as well as deleting the symlink itself. This is somewhat surprising, but has to be the case because rjrssync is unaware that it is deleting stuff through a symlink.
+
 
 Example spec file
 ===================

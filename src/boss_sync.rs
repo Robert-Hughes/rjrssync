@@ -102,7 +102,6 @@ pub fn sync(
     src_root: &str,
     mut dest_root: String,
     filters: &[Filter],
-    symlink_mode: SymlinkMode,
     dry_run: bool,
     show_stats: bool,
     src_comms: &mut Comms,
@@ -119,7 +118,7 @@ pub fn sync(
 
     // Source SetRoot
     let timer = start_timer("SetRoot src");
-    src_comms.send_command(Command::SetRoot { root: src_root.to_string(), symlink_mode })?;
+    src_comms.send_command(Command::SetRoot { root: src_root.to_string() })?;
     let src_root_details = match src_comms.receive_response() {
         Ok(Response::RootDetails(d)) => {
             match d {
@@ -148,7 +147,7 @@ pub fn sync(
 
     // Dest SetRoot
     let timer = start_timer("SetRoot dest");
-    dest_comms.send_command(Command::SetRoot { root: dest_root.to_string(), symlink_mode })?;
+    dest_comms.send_command(Command::SetRoot { root: dest_root.to_string() })?;
     let mut dest_root_details = match dest_comms.receive_response() {
         Ok(Response::RootDetails(d)) => {
             match d {
@@ -189,7 +188,7 @@ pub fn sync(
             dest_root = dest_root.to_string() + c;
             debug!("Modified dest path to {}", dest_root);
 
-            dest_comms.send_command(Command::SetRoot { root: dest_root.clone(), symlink_mode })?;
+            dest_comms.send_command(Command::SetRoot { root: dest_root.clone() })?;
             dest_root_details = match dest_comms.receive_response() {
                 Ok(Response::RootDetails(t)) => t,
                 r => return Err(format!("Unexpected response getting root details from dest: {:?}", r)),

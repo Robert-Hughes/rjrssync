@@ -2,30 +2,15 @@ use std::path::Path;
 use std::process::ExitCode;
 use std::io::Write;
 
-use clap::{Parser, ValueEnum};
+use clap::{Parser};
 use env_logger::{Env, fmt::Color};
 use log::info;
 use log::{debug, error};
-use serde::{Serialize, Deserialize};
 use yaml_rust::{YamlLoader, Yaml};
 
 use crate::{boss_launch::*, profile_this};
 use crate::boss_sync::*;
 use crate::doer::Filter;
-
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Serialize, Deserialize, Debug)]
-pub enum SymlinkMode {
-    /// rjrssync behaves as if it is not aware of the concept of symlinks. The OS will implicitly
-    /// follow any and all symlinks and so when inspecting a symlink, rjrssync instead sees the target
-    /// file/folder.
-    Unaware,
-    /// Symlinks are treated as if they were simple text files containing their target address.
-    /// They are not followed or validated. They will be reproduced as accurately as possible on
-    /// the destination.
-    /// Note that this only applies to symlinks that are part of the sync (including as the root);
-    /// symlinks that are ancestors of the path provided as source or dest will always be followed.
-    Preserve, //TODO: not sure this name is good - sometimes this can result in a dest symlink being _deleted_, so isn't being preserved!
-}
 
 #[derive(clap::Parser)]
 pub struct BossCliArgs {
@@ -65,8 +50,6 @@ pub struct BossCliArgs {
     /// Override the port used to connect to hostnames specified in src or dest.
     #[arg(long, default_value_t = 40129)]
     pub remote_port: u16,
-    #[arg(value_enum, long, default_value_t=SymlinkMode::Preserve)]
-    pub symlinks : SymlinkMode, //TODO: add this to spec file too
 
     #[arg(long)]
     pub dry_run: bool,
@@ -355,7 +338,7 @@ pub fn boss_main() -> ExitCode {
             info!("{} => {}:", sync_spec.src, sync_spec.dest);
         }
 
-        let sync_result = sync(&sync_spec.src, sync_spec.dest.clone(), &filters, args.symlinks,
+        let sync_result = sync(&sync_spec.src, sync_spec.dest.clone(), &filters,
             args.dry_run, args.stats, &mut src_comms, &mut dest_comms);
 
         match sync_result {
