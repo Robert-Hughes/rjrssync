@@ -79,7 +79,7 @@ pub fn symlink_folder(target: &str) -> FilesystemNode {
 /// Creates a generic symlink, which is only supported on Linux. Attempting to write this to the filesystem on
 /// Windows will panic.
 #[cfg_attr(windows, allow(unused))]
-pub fn symlink_unspecified(target: &str) -> FilesystemNode {
+pub fn symlink_generic(target: &str) -> FilesystemNode {
     FilesystemNode::Symlink { kind: SymlinkKind::Generic, target: PathBuf::from(target) }
 }
 
@@ -168,18 +168,18 @@ fn load_filesystem_node_from_disk(path: &Path) -> Option<FilesystemNode> {
     }
 }
 
-struct ProcessOutput {
-    exit_status: std::process::ExitStatus,
-    stdout: String,
+pub struct ProcessOutput {
+    pub exit_status: std::process::ExitStatus,
+    pub stdout: String,
     #[allow(unused)]
-    stderr: String,
+    pub stderr: String,
 }
 
 /// Runs a child processes and waits for it to exit. The stdout and stderr of the child process
 /// are captured and forwarded to our own.
 /// This is mostly a copy-paste of the same function from boss_launch.rs, but we don't have a good way to share the code
 /// and this version is slightly different, more suitable for tests (e.g. simpler error checking).
-fn run_process_with_live_output(c: &mut std::process::Command) -> ProcessOutput {
+pub fn run_process_with_live_output(c: &mut std::process::Command) -> ProcessOutput {
     println!("Running {:?} {:?}...", c.get_program(), c.get_args());
 
     let mut child = c
@@ -388,6 +388,9 @@ pub struct NumActions {
 
 pub fn copied_files(x: u32) -> NumActions {
     NumActions { copied_files: x, ..Default::default() }
+}
+pub fn copied_symlinks(x: u32) -> NumActions {
+    NumActions { copied_symlinks: x, ..Default::default() }
 }
 pub fn copied_files_and_folders(files: u32, folders: u32) -> NumActions {
     NumActions { copied_files: files, created_folders: folders, ..Default::default() }

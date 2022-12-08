@@ -2,10 +2,11 @@ use std::time::{SystemTime, Duration};
 
 use regex::Regex;
 
-use crate::test_framework::{file, copied_files_and_symlinks, run_expect_success, NumActions, copied_files_folders_and_symlinks};
+use crate::test_framework::{file, copied_files_and_symlinks, run_expect_success, NumActions, copied_files_folders_and_symlinks, copied_symlinks};
 #[allow(unused)]
-use crate::{test_framework::{symlink_unspecified, run, empty_folder, TestDesc, symlink_file, symlink_folder, folder, file_with_modified}, folder};
+use crate::{test_framework::{symlink_generic, run, empty_folder, TestDesc, symlink_file, symlink_folder, folder, file_with_modified}, folder};
 use map_macro::map;
+use std::path::Path;
 
 /// Tests that syncing a folder that contains a file symlink to another file in the folder,
 /// when running in symlink preserve mode, will sync the symlink and not the pointed-to file.
@@ -38,13 +39,13 @@ fn test_symlink_folder() {
 #[cfg(unix)] // unspecified-symlinks are only on Unix
 fn test_symlink_unspecified() {
     let src = folder! {
-        "symlink" => symlink_unspecified("target"),
+        "symlink" => symlink_generic("target"),
         "target" => folder! {
             "file1.txt" => file_with_modified("contents1", SystemTime::UNIX_EPOCH),
             "file2.txt" => file_with_modified("contents2", SystemTime::UNIX_EPOCH),
         }
     };
-    run_expect_success(&src, &empty_folder(), copied_files_and_symlinks(2, 1));
+    run_expect_success(&src, &empty_folder(), copied_files_folders_and_symlinks(2, 1, 1));
 }
 
 /// Tests that symlinks as ancestors of the root path are followed, regardless of the symlink mode.
@@ -253,6 +254,56 @@ fn test_file_to_symlink_folder_dest_root() {
         ],
         ..Default::default()
     });
+}
+
+// "Tag" these tests as they require remote platforms (GitHub Actions differentiates these)
+mod remote {
+
+use crate::{remote_tests::RemotePlatform, test_framework::run_process_with_live_output};
+
+use super::*;
+
+/// Tests that syncing a symlink to another platform will replace the slashes in the target as appropriate.
+#[test]
+fn test_symlink_target_relative_slashes() {
+    // Start with a symlink with a relative path in the native representation.
+    let src = symlink_file(Path::new("a").join("b").join("c").to_str().unwrap());
+    // Sync it to a remote platform (both Windows and Linux), and check that it was converted to the correct 
+    // representation for that platform
+    for remote_platform in [RemotePlatform::Windows, RemotePlatform::Linux] {
+        let (remote_user_and_host, remote_test_folder) = remote_platform.get_config();
+
+
+        //TODO: the remote folder needs to be cleaned out first!
+
+        run(TestDesc {
+            setup_filesystem_nodes: vec![
+                ("$TEMP/src", &src),
+            ],
+            args: vec![
+                "$TEMP/src".to_string(),
+                format!("{remote_user_and_host}:{remote_test_folder}")
+            ],
+            expected_exit_code: 0,
+            expected_output_messages: copied_symlinks(1).get_expected_output_messages(),
+            ..Default::default()
+        });
+
+        let mut cmd = std::process::Command::new("ssh");
+        let cmd = cmd.arg(format!("{remote_user_and_host}:{remote_test_folder}"));
+        let cmd = match remote_platform {            
+            RemotePlatform::Linux => cmd.arg("readlink").arg(remote_test_folder),
+            RemotePlatform::Windows => cmd.arg("readlink?").arg(remote_test_folder),
+        };
+        let result = run_process_with_live_output(cmd);
+        assert!(result.exit_status.success());
+        assert_eq!(result.stdout, "the/expected/link/value");
+    }
+}
+
+//TODO: same as above test, but with an absolute path - probably the expected behaviour is that rjrssync
+// doesn't try to modify it, cos it won't be valid anyway
+
 }
 
 //TODO: test cross-platform syncing - e.g. trying to create file symlink on unix, or vice versa.

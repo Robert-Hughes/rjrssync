@@ -1,3 +1,4 @@
+use lazy_static::__Deref;
 use network_interface::NetworkInterface;
 use network_interface::NetworkInterfaceConfig;
 use network_interface::V4IfAddr;
@@ -6,11 +7,32 @@ use regex::Regex;
 
 use crate::test_framework::{run, TestDesc, empty_folder};
 
-/// The tests in this file rely on accessing "remote" hosts to test
-/// remote deploying and syncing. Therefore they require the test environment
-/// to be set up (e.g. firewalls configured, remote hosts configured), and
-/// a Windows and Linux remote hostname are required.
-/// One way of achieving this is to use WSL.
+pub enum RemotePlatform {
+    Windows,
+    Linux
+}
+
+impl RemotePlatform {
+    pub fn get_config(&self) -> &(String, String) {
+        match self {
+            RemotePlatform::Windows => REMOTE_WINDOWS_CONFIG.deref(),
+            RemotePlatform::Linux => REMOTE_LINUX_CONFIG.deref(),
+        }
+    }
+}
+
+// The tests in this file rely on accessing "remote" hosts to test
+// remote deploying and syncing. Therefore they require the test environment
+// to be set up (e.g. firewalls configured, remote hosts configured), and
+// a Windows and Linux remote hostname are required.
+// One way of achieving this is to use WSL.
+
+// Determine the remote config just once using lazy_static, as it might be a bit expensive
+// as it runs some commands.
+lazy_static! {
+    pub static ref REMOTE_WINDOWS_CONFIG: (String, String) = get_remote_windows_config();
+    pub static ref REMOTE_LINUX_CONFIG: (String, String) = get_remote_linux_config();
+}
 
 /// Gets the remote host configuration to use for remote Windows tests.
 /// This can come from environment variables specified by the user, or if not specified,
@@ -171,12 +193,12 @@ fn test_remote_launch_impl(remote_user_and_host: &str, remote_test_folder: &str)
 
 #[test]
 fn test_remote_launch_windows() {
-    let (user_and_host, test_folder) = get_remote_windows_config();
+    let (user_and_host, test_folder) = REMOTE_WINDOWS_CONFIG.deref();
     test_remote_launch_impl(&user_and_host, &test_folder);
 }
 
 #[test]
 fn test_remote_launch_linux() {
-    let (user_and_host, test_folder) = get_remote_linux_config();
+    let (user_and_host, test_folder) = REMOTE_LINUX_CONFIG.deref();
     test_remote_launch_impl(&user_and_host, &test_folder);
 }
