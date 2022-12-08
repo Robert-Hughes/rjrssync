@@ -7,7 +7,7 @@ use crate::test_framework::{FilesystemNode, file};
 use crate::{test_framework::{symlink_unspecified, run, empty_folder, TestDesc, symlink_file, symlink_folder, folder, file_with_modified}, folder};
 use map_macro::map;
 
-pub fn run_expect_success_unaware(src_node: &FilesystemNode, initial_dest_node: &FilesystemNode, 
+pub fn run_expect_success_unaware(src_node: &FilesystemNode, initial_dest_node: &FilesystemNode,
     expected_final_dest_node: &FilesystemNode, expected_num_copies: u32) {
     run(TestDesc {
         setup_filesystem_nodes: vec![
@@ -33,7 +33,7 @@ pub fn run_expect_success_unaware(src_node: &FilesystemNode, initial_dest_node: 
     });
 }
 
-pub fn run_expect_success_preserve(src_node: &FilesystemNode, dest_node: &FilesystemNode, 
+pub fn run_expect_success_preserve(src_node: &FilesystemNode, dest_node: &FilesystemNode,
     expected_num_file_copies: u32, expected_num_symlink_copies: u32) {
     run(TestDesc {
         setup_filesystem_nodes: vec![
@@ -64,7 +64,7 @@ pub fn run_expect_success_preserve(src_node: &FilesystemNode, dest_node: &Filesy
 }
 
 /// Tests that syncing a folder that contains a file symlink to another file in the folder,
-/// when running in symlink unaware mode, will sync the contents of the pointed-to file, 
+/// when running in symlink unaware mode, will sync the contents of the pointed-to file,
 /// rather than the symlink itself.
 #[test]
 fn test_symlink_file_unaware() {
@@ -81,7 +81,7 @@ fn test_symlink_file_unaware() {
 }
 
 /// Tests that syncing a folder that contains a folder symlink to another folder,
-/// when running in symlink unaware mode, will sync the contents of the pointed-to folder, 
+/// when running in symlink unaware mode, will sync the contents of the pointed-to folder,
 /// rather than the symlink itself.
 #[test]
 fn test_symlink_folder_unaware() {
@@ -107,7 +107,7 @@ fn test_symlink_folder_unaware() {
 }
 
 /// Tests that syncing a folder that contains a symlink (unspecified) to another folder,
-/// when running in symlink unaware mode, will sync the contents of the pointed-to folder, 
+/// when running in symlink unaware mode, will sync the contents of the pointed-to folder,
 /// rather than the symlink itself.
 #[test]
 #[cfg(unix)] // unspecified-symlinks are only on Unix
@@ -207,7 +207,7 @@ fn test_symlink_folder_above_root() {
 }
 
 /// Tests that specifying a root which is itself a file symlink symlink to another file,
-/// when running in symlink unaware mode, will sync the contents of that pointed-to file, 
+/// when running in symlink unaware mode, will sync the contents of that pointed-to file,
 /// rather than the symlink itself.
 #[test]
 fn test_symlink_file_root_unaware() {
@@ -266,7 +266,7 @@ fn test_symlink_file_root_preserve() {
 }
 
 /// Tests that specifying a root which is itself a folder symlink symlink to another folder,
-/// when running in symlink unaware mode, will sync the contents of that pointed-to folder, 
+/// when running in symlink unaware mode, will sync the contents of that pointed-to folder,
 /// rather than the symlink itself.
 #[test]
 fn test_symlink_folder_root_unaware() {
@@ -355,7 +355,7 @@ fn test_symlink_new_target_preserve() {
     run_expect_success_preserve(&src, &dest, 1, 1);
 }
 
-/// Tests that an existing symlink (both directory and file) is deleted from the dest 
+/// Tests that an existing symlink (both directory and file) is deleted from the dest
 /// when it is not present on the source side.
 #[test]
 fn test_symlink_delete_from_dest() {
@@ -522,7 +522,7 @@ fn test_folder_to_symlink_file_dest_root_unaware() {
 
 
 /// Tests that having a symlink folder as the dest root will be replaced by the source
-/// when in preserve mode, but only the symlink itself will be deleted - 
+/// when in preserve mode, but only the symlink itself will be deleted -
 /// the target will remain as it was.
 #[test]
 fn test_file_to_symlink_folder_dest_root_preserve() {
@@ -563,9 +563,9 @@ fn test_file_to_symlink_folder_dest_root_preserve() {
 /// surprising, but has to be the case because rjrssync is unaware that it is deleting stuff through a symlink.
 #[test]
 //TODO: This test has a different behaviour on Linux: it fails to delete the `dest` symlink, because on Linux,
-// deleting a symlink has to be done via remove_file, not remove_dir. However when in unaware mode, we see it as 
+// deleting a symlink has to be done via remove_file, not remove_dir. However when in unaware mode, we see it as
 // a dir, and so use remove_dir. It's not clear what we should do in this case, so for now disable the test on Linux...
-#[cfg(not(unix))] 
+#[cfg(not(unix))]
 fn test_file_to_symlink_folder_dest_root_unaware() {
     let src = file_with_modified("just a regular file", SystemTime::UNIX_EPOCH + Duration::from_secs(1));
     let target = folder! {
@@ -599,7 +599,7 @@ fn test_file_to_symlink_folder_dest_root_unaware() {
     });
 }
 
-/// Tests that syncing a folder to a symlink folder as the dest root when in unaware mode, 
+/// Tests that syncing a folder to a symlink folder as the dest root when in unaware mode,
 /// will update the targeted symlink folder to match the source folder.
 #[test]
 fn test_folder_to_symlink_folder_dest_root_unaware() {
@@ -639,5 +639,8 @@ fn test_folder_to_symlink_folder_dest_root_unaware() {
 
 
 //TODO: test cross-platform syncing - e.g. trying to create file symlink on unix, or vice versa.
+//TODO: - when syncing windows to linux, the type of symlink might be different (e.g. File vs Generic), and so it would
+// delete then re-create the symlink, which we might not want.
 
 //TODO: Need to possibly replace backwards slashes with forward slashes in the link when going Windows -> Linux
+
