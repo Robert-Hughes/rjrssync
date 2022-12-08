@@ -235,7 +235,8 @@ Syncing logic
     - would this play nicely with other tools (e.g. build systems) that check timestamps - it might think that it doesn't need to rebuild anything, as the new timestamp for this file is still really old?
     - Maybe instead we could store something else, like a hash or our own marker to indicate when this file was synced, so that the timestamp is "correct", but we know not to sync it again next time.
 * Testing for sync logic, including between different combinations of windows and linux, remote and local etc.
-   - Exclude filters
+   - Filters, and how they work on normalized paths between windows and linux.
+   - Between different OSes,to make sure the path normalisation works 
 * Test for --dry-run
 * Test for --stats (maybe just all the command-line options...)
 * Progress bar
@@ -276,6 +277,8 @@ but they should just be for testing/investigation. Maybe should be a separate cr
 `cargo run D:\TempSource\ robhug01@localhost:/home/robhug01/TempDest -v`
 ERROR | rjrssync::boss_frontend: Sync error: Unexpected response from dest GetEntries: Ok(Error("normalize_path failed: Illegal characters in path"))
 * Improve compile times. Is it the RustEmbed crate? Maybe the debug-embed feature of the crate could help?
+* Maybe should extend test framework to support doing things remotely, like saving and loading filesystem nodes, making and clearing out a temporary folder etc.
+
 
 
 Idea for filters, with re-usable "functions":
