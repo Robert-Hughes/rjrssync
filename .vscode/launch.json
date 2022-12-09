@@ -11,6 +11,8 @@
             "cargo": {
                 "args": [
                     "build",
+                  //  "-r",
+                  //  "--features=profiling",
                     "--bin=rjrssync",
                     "--package=rjrssync"
                 ],

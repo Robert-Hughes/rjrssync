@@ -157,6 +157,8 @@ impl GlobalProfilingData {
 
         // Keep track of which tid maps to which thread name
         let mut name_to_tid = HashMap::new();
+        // Keep track of the first timestamp for each thread, so we can sort them by this later
+        let mut thread_name_to_first_event = vec![];
         let get_tid_for_thread_name = |name_to_tid: &mut HashMap<_, _>, thread_name| {
             let new_tid = name_to_tid.len();
             *name_to_tid.entry(thread_name).or_insert(new_tid)
@@ -164,11 +166,14 @@ impl GlobalProfilingData {
 
         for i in 0..self.entries.len() {
             let thread_events = &self.entries[i].local_profiling_entry;
+
+            thread_name_to_first_event.push((self.entries[i].thread_name.clone(), thread_events[0].start));
+
             for entry in thread_events {
                 let name = entry.scope_name.clone();
                 let cat = "None".to_string();
                 let pid = 0;
-                let tid = get_tid_for_thread_name(&mut name_to_tid, &self.entries[i].thread_name);
+                let tid = get_tid_for_thread_name(&mut name_to_tid, self.entries[i].thread_name.clone());
                 let ts = entry.start.as_nanos();
                 let beginning = ChromeTracing {
                     name,
@@ -194,6 +199,18 @@ impl GlobalProfilingData {
                 json_entries.push(end);
             }
         }
+
+        // Rename threads so that they are sorted in a sensible order in Chrome
+        thread_name_to_first_event.sort_by_key(|x| x.1);
+        let keys : Vec<String> = name_to_tid.keys().map(|t| (*t).clone()).collect();
+        for thread_name in keys {
+            let idx = thread_name_to_first_event.iter().position(|x| x.0 == thread_name).unwrap();
+            let new_thread_name = format!("{idx} {thread_name}");
+            let v = name_to_tid.remove(&thread_name).unwrap();
+            name_to_tid.insert(new_thread_name, v);
+        }
+
+        // Add metadata to define thread names
         for (thread_name, tid) in &name_to_tid {
             let entry = ChromeTracing {
                 name: "thread_name".to_string(),

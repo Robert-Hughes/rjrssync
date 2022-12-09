@@ -123,6 +123,7 @@ pub fn setup_comms(
     // and for consistency with remote doers.
     if remote_hostname.is_empty() {
         debug!("Spawning local thread for {} doer", debug_name);
+        let debug_name = "Local ".to_string() + &debug_name + " doer";
         let (command_sender, command_receiver) = mpsc::channel();
         let (response_sender, response_receiver) = mpsc::channel();
         let thread_builder = thread::Builder::new().name(debug_name.clone());
@@ -130,7 +131,7 @@ pub fn setup_comms(
             doer_thread_running_on_boss(command_receiver, response_sender)
         }).unwrap();
         return Some(Comms::Local {
-            debug_name: "Local ".to_string() + &debug_name + " doer",
+            debug_name,
             thread: Some(thread),
             sender: command_sender,
             receiver: response_receiver,

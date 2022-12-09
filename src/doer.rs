@@ -158,7 +158,7 @@ pub enum SymlinkKind {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SymlinkTarget {
-    /// A symlink target which we identified as a relative path and converted the slashes to 
+    /// A symlink target which we identified as a relative path and converted the slashes to
     /// forward slashes, so it can be converted to the destination platform's local path syntax.
     Normalized(String),
     /// A symlink target which we couldn't normalize, e.g. because it is an absolute path.
@@ -414,6 +414,7 @@ pub fn doer_main() -> ExitCode {
 // rather than over ssh.
 pub fn doer_thread_running_on_boss(receiver: Receiver<Command>, sender: Sender<Response>) {
     debug!("doer thread running");
+    profile_this!();
     match message_loop(Comms::Local { sender, receiver }) {
         Ok(_) => debug!("doer thread finished successfully!"),
         Err(e) => debug!("doer thread finished with error: {:?}", e),

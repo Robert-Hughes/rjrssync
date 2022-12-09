@@ -181,6 +181,7 @@ fn parse_sync_spec(yaml: &Yaml) -> Result<SyncSpec, String> {
 }
 
 fn parse_spec_file(path: &Path) -> Result<Spec, String> {
+    profile_this!();
     let mut result = Spec::default();
 
     let contents = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
@@ -217,47 +218,54 @@ fn parse_spec_file(path: &Path) -> Result<Spec, String> {
 pub fn boss_main() -> ExitCode {
     profile_this!();
 
-    let args = BossCliArgs::parse();
+
+    let args = {
+        profile_this!("Parsing cmd line");
+        BossCliArgs::parse()
+    };
 
     // Configure logging, based on the user's --quiet/--verbose flag.
     // If the RUST_LOG env var is set though then this overrides everything, as this is useful for developers
-    let args_level = match (args.quiet, args.verbose) {
-        (true, false) => "warn",
-        (false, true) => "debug",
-        (false, false) => "info",
-        (true, true) => panic!("Shouldn't be allowed by cmd args parser"),
-    };
-    let mut builder = env_logger::Builder::from_env(Env::default().default_filter_or(args_level));
-    builder.format(|buf, record| {
-        let target_color = match record.target() {
-            "rjrssync::boss" => Color::Rgb(255, 64, 255), //TODO: module has been renamed!
-            "rjrssync::doer" => Color::Cyan,
-            "remote doer" => Color::Yellow,
-            _ => Color::Green,
+    {
+        profile_this!("Configuring logging");
+        let args_level = match (args.quiet, args.verbose) {
+            (true, false) => "warn",
+            (false, true) => "debug",
+            (false, false) => "info",
+            (true, true) => panic!("Shouldn't be allowed by cmd args parser"),
         };
-        let target_style = buf.style().set_color(target_color).clone();
+        let mut builder = env_logger::Builder::from_env(Env::default().default_filter_or(args_level));
+        builder.format(|buf, record| {
+            let target_color = match record.target() {
+                "rjrssync::boss" => Color::Rgb(255, 64, 255), //TODO: module has been renamed!
+                "rjrssync::doer" => Color::Cyan,
+                "remote doer" => Color::Yellow,
+                _ => Color::Green,
+            };
+            let target_style = buf.style().set_color(target_color).clone();
 
-        let level_style = buf.default_level_style(record.level());
+            let level_style = buf.default_level_style(record.level());
 
-        if record.level() == log::Level::Info {
-            // Info messages are intended for the average user, so format them plainly
-            //TODO: they should probably also be on stdout, not stderr as they are at the moment
-            writeln!(
-                buf,
-                "{}",
-                record.args()
-            )
-        } else {
-            writeln!(
-                buf,
-                "{:5} | {}: {}",
-                level_style.value(record.level()),
-                target_style.value(record.target()),
-                record.args()
-            )
-        }
-    });
-    builder.init();
+            if record.level() == log::Level::Info {
+                // Info messages are intended for the average user, so format them plainly
+                //TODO: they should probably also be on stdout, not stderr as they are at the moment
+                writeln!(
+                    buf,
+                    "{}",
+                    record.args()
+                )
+            } else {
+                writeln!(
+                    buf,
+                    "{:5} | {}: {}",
+                    level_style.value(record.level()),
+                    target_style.value(record.target()),
+                    record.args()
+                )
+            }
+        });
+        builder.init();
+    }
 
     debug!("Running as boss");
 
