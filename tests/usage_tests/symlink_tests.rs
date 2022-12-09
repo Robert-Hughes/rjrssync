@@ -273,8 +273,17 @@ fn test_symlink_target_relative_slashes() {
     for remote_platform in [RemotePlatform::Windows, RemotePlatform::Linux] {
         let (remote_user_and_host, remote_test_folder) = remote_platform.get_config();
 
+        let dest = remote_test_folder.to_string() + "/test_symlink_target_relative_slashes";
 
-        //TODO: the remote folder needs to be cleaned out first!
+        // The remote folder needs to be cleaned out first!
+        let mut cmd = std::process::Command::new("ssh");
+        let cmd = cmd.arg(format!("{remote_user_and_host}"));
+        let cmd = match remote_platform {            
+            RemotePlatform::Linux => cmd.arg("rm").arg("-rf").arg(&dest),
+            RemotePlatform::Windows => cmd.arg("del").arg(&dest.replace("/", "\\")),
+        };
+        let result = run_process_with_live_output(cmd);
+        assert!(result.exit_status.success());
 
         run(TestDesc {
             setup_filesystem_nodes: vec![
@@ -282,7 +291,7 @@ fn test_symlink_target_relative_slashes() {
             ],
             args: vec![
                 "$TEMP/src".to_string(),
-                format!("{remote_user_and_host}:{remote_test_folder}")
+                format!("{remote_user_and_host}:{dest}")
             ],
             expected_exit_code: 0,
             expected_output_messages: copied_symlinks(1).get_expected_output_messages(),
@@ -290,14 +299,17 @@ fn test_symlink_target_relative_slashes() {
         });
 
         let mut cmd = std::process::Command::new("ssh");
-        let cmd = cmd.arg(format!("{remote_user_and_host}:{remote_test_folder}"));
+        let cmd = cmd.arg(format!("{remote_user_and_host}"));
         let cmd = match remote_platform {            
-            RemotePlatform::Linux => cmd.arg("readlink").arg(remote_test_folder),
-            RemotePlatform::Windows => cmd.arg("readlink?").arg(remote_test_folder),
+            RemotePlatform::Linux => cmd.arg("readlink").arg(dest),
+            RemotePlatform::Windows => cmd.arg("dir").arg(remote_test_folder),
         };
         let result = run_process_with_live_output(cmd);
         assert!(result.exit_status.success());
-        assert_eq!(result.stdout, "the/expected/link/value");
+        match remote_platform {            
+            RemotePlatform::Linux => assert_eq!(result.stdout.trim(), "a/b/c"), // Forward slashes
+            RemotePlatform::Windows => assert!(result.stdout.contains(r"<SYMLINK>      test_symlink_target_relative_slashes [a\b\c]")), // Backwards slashes
+        };        
     }
 }
 

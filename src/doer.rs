@@ -6,6 +6,7 @@ use log::{debug, error, trace};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::io::ErrorKind;
+use std::path;
 use std::{
     fmt::{self, Display},
     io::{Write},
@@ -130,7 +131,7 @@ pub enum Command {
     CreateSymlink {
         path: RootRelativePath,
         kind: SymlinkKind,
-        target: String, // We don't assume anything about this text
+        target: SymlinkTarget,
     },
     CreateFolder {
         path: RootRelativePath,
@@ -155,6 +156,16 @@ pub enum SymlinkKind {
     Generic, // Unix-only
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SymlinkTarget {
+    /// A symlink target which we identified as a relative path and converted the slashes to 
+    /// forward slashes, so it can be converted to the destination platform's local path syntax.
+    Normalized(String),
+    /// A symlink target which we couldn't normalize, e.g. because it is an absolute path.
+    /// This is transferred without any changes.
+    NotNormalized(String)
+}
+
 /// Details of a file or folder.
 /// Note that this representation is consistent with the approach described in the README,
 /// and so doesn't consider the name of the node to be part of the node itself.
@@ -167,7 +178,7 @@ pub enum EntryDetails {
     Folder,
     Symlink {
         kind: SymlinkKind,
-        target: String, // We don't assume anything about this text
+        target: SymlinkTarget,
     },
 }
 
@@ -186,11 +197,16 @@ fn entry_details_from_metadata(m: std::fs::Metadata, path: &Path) -> Result<Entr
         })
     } else if m.is_symlink() {
         let target = match std::fs::read_link(path) {
-            Ok(t) => match t.to_str() {
-                Some(t) => t.to_string(),
-                None => return Err(format!("Unable to convert symlink target for '{}' to UTF-8", path.display())),
-            },
+            Ok(t) => t,
             Err(err) => return Err(format!("Unable to read symlink target for '{}': {err}", path.display())),
+        };
+
+        // Attempt to normalize the target, if possible, so that we can convert the slashes on
+        // the destination platform (which might be different).
+        // We use RootRelativePath for this even though it might not be root-relative, but this does the right thing
+        let target = match normalize_path(&target) {
+            Ok(r) => SymlinkTarget::Normalized(r.inner),
+            Err(_) => SymlinkTarget::NotNormalized(target.to_string_lossy().to_string()),
         };
 
         // On Windows, symlinks are either file-symlinks or dir-symlinks
@@ -730,9 +746,16 @@ fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, filters: &[F
     Ok(())
 }
 
-fn handle_create_symlink(path: RootRelativePath, context: &mut DoerContext, kind: SymlinkKind, target: String) -> Result<(), String> {
+fn handle_create_symlink(path: RootRelativePath, context: &mut DoerContext, kind: SymlinkKind, target: SymlinkTarget) -> Result<(), String> {
     let full_path = path.get_full_path(&context.root);
     trace!("Creating symlink at '{}'", full_path.display());
+
+    // Convert the normalized forwards slashes to backwards slashes if this is windows
+    let target = match target {
+        SymlinkTarget::Normalized(s) => s.replace("/", &path::MAIN_SEPARATOR.to_string()),
+        SymlinkTarget::NotNormalized(s) => s, // No normalisation was possible on the src, so leave it as-is
+    };
+
     let res = match kind {
         SymlinkKind::File => {
             #[cfg(windows)]
