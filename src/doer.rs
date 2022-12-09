@@ -694,6 +694,7 @@ fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, filters: &[F
             Some(Err(e)) => return Err(format!("Error fetching entries of root '{}': {e}", context.root.display())),
             Some(Ok(e)) => {
                 trace!("Processing entry {:?}", e);
+                profile_this!("Processing entry");
 
                 // Skip the first entry - the root, as the boss already has details of this from SetRoot.
                 if e.depth() == 0 {
