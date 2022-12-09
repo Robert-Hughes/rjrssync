@@ -175,7 +175,7 @@ Note that this only applies to symlinks that are part of the sync (including as 
 symlinks that are ancestors of the path provided as source or dest will always be followed.
 
 
-It was considered for rjrssync to have two 'modes', as to whether it ignores the symlinks (treats them as 
+It was considered for rjrssync to have two 'modes', as to whether it ignores the symlinks (treats them as
 their targets) or syncs them as the links. However it was decided against this because of the increase in
 complexity of the testing and some quirky behaviour in the "unaware" mode (see below):
 
@@ -236,7 +236,7 @@ Syncing logic
     - Maybe instead we could store something else, like a hash or our own marker to indicate when this file was synced, so that the timestamp is "correct", but we know not to sync it again next time.
 * Testing for sync logic, including between different combinations of windows and linux, remote and local etc.
    - Filters, and how they work on normalized paths between windows and linux.
-   - Between different OSes,to make sure the path normalisation works 
+   - Between different OSes,to make sure the path normalisation works
 * Test for --dry-run
 * Test for --stats (maybe just all the command-line options...)
 * Progress bar
@@ -255,6 +255,8 @@ Performance
 ------------
 
 * Investigate if parallelising some stages would speed it up, e.g. walking the dir structure on multiple threads, or sending data across network on multiple threads
+   - Could have one thread just doing filesystem calls to fill up a queue, and another thread processing those entries.
+   - Maybe check if WalkDir is slow, by comparing its performance with direct std::fs stuff or even native OS stuff?
 * Parallelise querying  - see parallel-query branch
 * Investigate if pipelining some stages would speed it up, e.g. sending file list while also sending it
 * Probably better to batch together File() Responses, to avoid overhead from sending loads of messages
