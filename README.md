@@ -266,7 +266,8 @@ Performance
   - Copying single large file
   - Copying lots of small files
 * Separate remote doers onto separate processes in Chrome
-* Sync time between boss and remote doers
+* Sync time between boss and remote doers - Sync remote and local by setting remote zero equal to the time at which we receivr the first signs of life from the doer?
+
 
 
 Misc

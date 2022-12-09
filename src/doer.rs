@@ -149,11 +149,13 @@ pub enum Command {
     Shutdown,
 }
 
+/// We need to distinguish what a symlink points to, as Windows filesystems
+/// have this distinction and so we need to know when creating one on Windows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SymlinkKind {
-    File, // Windows-only
-    Folder, // Windows-only
-    Generic, // Unix-only
+    File, // A symlink that points to a file
+    Folder, // A symlink that points to a folder
+    Unknown, // Unix-only - a symlink that we couldn't determine the target type for, e.g. if it is broken.
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -220,8 +222,17 @@ fn entry_details_from_metadata(m: std::fs::Metadata, path: &Path) -> Result<Entr
                 return Err(format!("Unknown symlink type time for '{}'", path.display()));
             }
         };
+        // On Linux, all symlinks are created equal. In case we need to recreate this symlink on a Windows platform though,
+        // we need to figure out what it's pointing to.
         #[cfg(not(windows))]
-        let kind = SymlinkKind::Generic;
+        let kind = {
+            // Use the symlink-following metadata API
+            match std::fs::metadata(path) {
+                Ok(m) if m.is_file() => SymlinkKind::File,
+                Ok(m) if m.is_dir() => SymlinkKind::Folder,
+                _ => SymlinkKind::Unknown
+            }
+        };
 
         Ok(EntryDetails::Symlink { kind, target })
     } else {
@@ -567,7 +578,7 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut Option<DoerCo
                 SymlinkKind::File => std::fs::remove_file(&full_path),
                 SymlinkKind::Folder => std::fs::remove_dir(&full_path),
                 // Unspecified is only used for Unix, and remove_file is the correct way to delete these.
-                SymlinkKind::Generic => std::fs::remove_file(&full_path),
+                SymlinkKind::Unknown => std::fs::remove_file(&full_path),
             };
             match res {
                 Ok(()) => comms.send_response(Response::Ack).unwrap(),
@@ -787,15 +798,14 @@ fn handle_create_symlink(path: RootRelativePath, context: &mut DoerContext, kind
                 std::os::unix::fs::symlink(target, &full_path)
             }
         }
-        SymlinkKind::Generic => {
+        SymlinkKind::Unknown => {
             #[cfg(unix)]
             {
                 std::os::unix::fs::symlink(target, &full_path)
             }
-            #[cfg(not(unix))] // Windows can't create unspecified symlinks - it needs to be either a file or folder symlink
+            #[cfg(not(unix))] // Windows can't create unknown symlinks - it needs to be either a file or folder symlink
             {
-                //TODO: we could do a best-effort here by checking the type of the target on the other doer (if it exists), and using that.
-                return Err(format!("Can't create unspecified symlink on this platform '{}'", full_path.display()));
+                return Err(format!("Can't create symlink of unknown kind on this platform '{}'", full_path.display()));
             }
         },
     };

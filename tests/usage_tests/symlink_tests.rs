@@ -2,7 +2,7 @@ use std::time::{SystemTime, Duration};
 
 use regex::Regex;
 
-use crate::test_framework::{file, copied_files_and_symlinks, run_expect_success, NumActions, copied_files_folders_and_symlinks, copied_symlinks};
+use crate::test_framework::{file, copied_files_and_symlinks, run_expect_success, NumActions, copied_files_folders_and_symlinks};
 #[allow(unused)]
 use crate::{test_framework::{symlink_generic, run, empty_folder, TestDesc, symlink_file, symlink_folder, folder, file_with_modified}, folder};
 use map_macro::map;
@@ -265,10 +265,18 @@ use super::*;
 
 /// Tests that syncing a symlink to another platform will replace the slashes in the target as appropriate.
 #[test]
-fn test_symlink_target_relative_slashes() {
-    // Start with a symlink with a relative path in the native representation.
-    let src = symlink_file(Path::new("a").join("b").join("c").to_str().unwrap());
-    // Sync it to a remote platform (both Windows and Linux), and check that it was converted to the correct 
+fn test_symlink_target_slashes() {
+    // (using temp_dir here is just an arbitrary way to get an absolute path)
+    let abs_path = std::env::temp_dir().to_string_lossy().to_string();
+    let src = folder!{
+        // Start with a symlink with a relative path in the native representation.
+        // Note the target must exist, so that the symlink kind can be determined when doing Linux => Windows
+        "relative-symlink" => symlink_file(Path::new("..").join("src").join("..").join("src").join("dummy-target").to_str().unwrap()),
+        // And a symlink with an absolute path in the native representation 
+        "absolute-symlink" => symlink_folder(&abs_path),
+        "dummy-target" => file("contents"),
+    };
+    // Sync it to a remote platform (both Windows and Linux), and check that they were converted to the correct 
     // representation for that platform
     for remote_platform in [RemotePlatform::Windows, RemotePlatform::Linux] {
         let (remote_user_and_host, remote_test_folder) = remote_platform.get_config();
@@ -280,10 +288,10 @@ fn test_symlink_target_relative_slashes() {
         let cmd = cmd.arg(format!("{remote_user_and_host}"));
         let cmd = match remote_platform {            
             RemotePlatform::Linux => cmd.arg("rm").arg("-rf").arg(&dest),
-            RemotePlatform::Windows => cmd.arg("del").arg(&dest.replace("/", "\\")),
+            RemotePlatform::Windows => cmd.arg("rmdir").arg("/Q").arg("/S").arg(&dest.replace("/", "\\")),
         };
-        let result = run_process_with_live_output(cmd);
-        assert!(result.exit_status.success());
+        let _ = run_process_with_live_output(cmd);
+        // If the folder doesn't already exist, this will error, so don't check the return code
 
         run(TestDesc {
             setup_filesystem_nodes: vec![
@@ -294,27 +302,30 @@ fn test_symlink_target_relative_slashes() {
                 format!("{remote_user_and_host}:{dest}")
             ],
             expected_exit_code: 0,
-            expected_output_messages: copied_symlinks(1).get_expected_output_messages(),
+            expected_output_messages: copied_files_folders_and_symlinks(1, 1, 2).get_expected_output_messages(),
             ..Default::default()
         });
 
         let mut cmd = std::process::Command::new("ssh");
         let cmd = cmd.arg(format!("{remote_user_and_host}"));
         let cmd = match remote_platform {            
-            RemotePlatform::Linux => cmd.arg("readlink").arg(dest),
-            RemotePlatform::Windows => cmd.arg("dir").arg(remote_test_folder),
+            RemotePlatform::Linux => cmd.arg("ls").arg("-al").arg(dest),
+            RemotePlatform::Windows => cmd.arg("dir").arg(&dest.replace("/", "\\")),
         };
         let result = run_process_with_live_output(cmd);
         assert!(result.exit_status.success());
         match remote_platform {            
-            RemotePlatform::Linux => assert_eq!(result.stdout.trim(), "a/b/c"), // Forward slashes
-            RemotePlatform::Windows => assert!(result.stdout.contains(r"<SYMLINK>      test_symlink_target_relative_slashes [a\b\c]")), // Backwards slashes
+            RemotePlatform::Linux => {
+                assert!(result.stdout.contains("relative-symlink -> ../src/../src/dummy-target")); // Forward slashes on the relative symlink (converted from the local representation)
+                assert!(result.stdout.contains(&format!("absolute-symlink -> {abs_path}"))); // Absolute symlink has been unchanged
+            }
+            RemotePlatform::Windows => {
+                assert!(result.stdout.contains(r"<SYMLINK>      relative-symlink [..\src\..\src\dummy-target]")); // Backwards slashes on the relative symlink  (converted from the local representation)
+                assert!(result.stdout.contains(&format!("<SYMLINKD>     absolute-symlink [{abs_path}]"))); // Absolute symlink has been unchanged
+            }
         };        
     }
 }
-
-//TODO: same as above test, but with an absolute path - probably the expected behaviour is that rjrssync
-// doesn't try to modify it, cos it won't be valid anyway
 
 }
 

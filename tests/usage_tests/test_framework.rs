@@ -389,6 +389,7 @@ pub struct NumActions {
 pub fn copied_files(x: u32) -> NumActions {
     NumActions { copied_files: x, ..Default::default() }
 }
+#[allow(unused)]
 pub fn copied_symlinks(x: u32) -> NumActions {
     NumActions { copied_symlinks: x, ..Default::default() }
 }
