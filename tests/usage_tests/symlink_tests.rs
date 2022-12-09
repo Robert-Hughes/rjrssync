@@ -33,19 +33,17 @@ fn test_symlink_folder() {
     run_expect_success(&src, &empty_folder(), copied_files_folders_and_symlinks(2, 1, 1));
 }
 
-/// Tests that syncing a folder that contains a symlink (unspecified) to another folder,
-/// when running in symlink preserve mode,  will sync the symlink and not the pointed-to folder.
+/// Tests that syncing a folder that contains a broken symlink (i.e. of SymlinkKind::Unknown)
+/// will sync the symlink successfully.
 #[test]
-#[cfg(unix)] // unspecified-symlinks are only on Unix
-fn test_symlink_unspecified() {
+#[cfg(unix)] // generic-symlinks are only on Unix
+fn test_symlink_broken() {
+    use crate::test_framework::copied_symlinks;
+
     let src = folder! {
         "symlink" => symlink_generic("target"),
-        "target" => folder! {
-            "file1.txt" => file_with_modified("contents1", SystemTime::UNIX_EPOCH),
-            "file2.txt" => file_with_modified("contents2", SystemTime::UNIX_EPOCH),
-        }
     };
-    run_expect_success(&src, &empty_folder(), copied_files_folders_and_symlinks(2, 1, 1));
+    run_expect_success(&src, &empty_folder(), copied_symlinks(1));
 }
 
 /// Tests that symlinks as ancestors of the root path are followed, regardless of the symlink mode.
@@ -327,11 +325,28 @@ fn test_symlink_target_slashes() {
     }
 }
 
+/// Tests that syncing a symlink of each kind (file, folder, unknown) from Unix to Windows
+/// works as expected
+#[test]
+fn test_symlink_kinds_unix_to_windows() {
+    //TODO: copy stuff from above?
+}
+
+/// Tests that syncing a symlink of each kind (file, folder) from Windows to Unix
+/// works as expected
+#[test]
+fn test_symlink_kinds_windows_to_unix() {
+    //TODO: copy stuff from above?
+}
+
 }
 
 //TODO: test cross-platform syncing - e.g. trying to create file symlink on unix, or vice versa.
 //TODO: - when syncing windows to linux, the type of symlink might be different (e.g. File vs Generic), and so it would
-// delete then re-create the symlink, which we might not want.
+// delete then re-create the symlink, which we might not want. Add test to make sure that nothing happens when 
+// we have some symlinks that are up-to-date.
+// Might need some logic to deal with an existing windows symlink on the dest side, and then a broken/unknown
+// symlink on the source side. If the target address is the same, then maybe we should just leave it as-is
+// rather than deleting it then failing to re-create it because it has unknown kind? Not sure what good behaviour is here.
 
-//TODO: Need to possibly replace backwards slashes with forward slashes in the link when going Windows -> Linux
-
+//TODO: test case where symlink already exists and has the same target address, but is the wrong kind (only relevant on Windows)

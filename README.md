@@ -145,11 +145,13 @@ the path being synced itself (`a/b/symlink`, one or both sides), or as one of th
 Symlinks can point to either a file, a folder, nothing (broken), or another symlink, which itself could point to
 any of those.
 
-Symlinks can cause cycles and DAGs, including pointing to itself.
+Symlinks can cause cycles and DAGs, including pointing to itself. This shouldn't be too important for us,
+as we (generally) never follow symlinks and so will never observe these cases.
 
 On Windows, a symlink is either a "file symlink" or "directory symlink" (specified on creation),
 whereas on Linux it is simply a symlink. A "directory symlink" that points to a file (possibly via other symlinks)
-or a "file symlinks" that points to a directory is considered broken (similar to the target not existing at all).
+or a "file symlink" that points to a directory is considered broken (similar to the target not existing at all).
+
 It is possible to create an invalid symlink (target is the wrong 'type' or doesn't exist)
 
 Symlink targets can be specified as relative or absolute.
@@ -158,7 +160,7 @@ Symlinks have their own modified time (which is when the link path was changed, 
 syncing files, because their contents might be huge, but a link target is small).
 
 There can be multiple symlinks followed in a path being synced, e.g. <ROOT>/symlink1/folder2/symlink3/file,
-but this would only be observed if rjrssync was unaware of symlinks (otherwise it would never walk into the first symlink).
+but this would only be observed if rjrssync was unaware of symlinks (otherwise it would never walk into the first symlink), so we can't actually encounter this.
 
 See https://crates.io/crates/symlink
 
@@ -282,6 +284,7 @@ but they should just be for testing/investigation. Maybe should be a separate cr
 ERROR | rjrssync::boss_frontend: Sync error: Unexpected response from dest GetEntries: Ok(Error("normalize_path failed: Illegal characters in path"))
 * Improve compile times. Is it the RustEmbed crate? Maybe the debug-embed feature of the crate could help?
 * Maybe should extend test framework to support doing things remotely, like saving and loading filesystem nodes, making and clearing out a temporary folder etc.
+* Upload to crates.io, so that we can "cargo install" from anywhere?
 
 
 
