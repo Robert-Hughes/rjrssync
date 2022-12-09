@@ -574,11 +574,20 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut Option<DoerCo
         Command::DeleteSymlink { path, kind } => {
             let full_path =  path.get_full_path(&context.as_ref().unwrap().root);
             trace!("Deleting symlink '{}'", full_path.display());
-            let res = match kind {
-                SymlinkKind::File => std::fs::remove_file(&full_path),
-                SymlinkKind::Folder => std::fs::remove_dir(&full_path),
-                // Unspecified is only used for Unix, and remove_file is the correct way to delete these.
-                SymlinkKind::Unknown => std::fs::remove_file(&full_path),
+            let res = if cfg!(windows) {
+                // On Windows, we need to use remove_dir/file depending on the kind of symlink
+                match kind {
+                    SymlinkKind::File => std::fs::remove_file(&full_path),
+                    SymlinkKind::Folder => std::fs::remove_dir(&full_path),
+                    // Unspecified is only used for Unix, and remove_file is the correct way to delete these.
+                    SymlinkKind::Unknown => {
+                        comms.send_response(Response::Error(format!("Can't delete symlink of unknown type '{}'", full_path.display()))).unwrap();
+                        return Ok(true);
+                    } 
+                }
+            } else {
+                // On Linux, any kind of symlink is removed with remove_file
+                std::fs::remove_file(&full_path)
             };
             match res {
                 Ok(()) => comms.send_response(Response::Ack).unwrap(),
