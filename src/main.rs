@@ -12,7 +12,7 @@ use boss_launch::*;
 use doer::*;
 use profiling::*;
 
-pub const VERSION: i32 = 54;
+pub const VERSION: i32 = 57;
 
 // Message printed by a doer copy of the program to indicate that it has loaded and is ready
 // to receive data over its stdin. Once the boss receives this, it knows that ssh has connected
@@ -33,12 +33,9 @@ fn main() -> ExitCode {
     // a transfer and then exits once complete ("boss"), or as a remote process on either the source
     // or destination computer which responds to commands from the boss (this is a "doer").
     // The boss (CLI) and doer modes have different command-line arguments, so handle them separately.
-    let ret = if std::env::args().any(|a| a == "--doer") {
+    if std::env::args().any(|a| a == "--doer") {
         doer_main()
     } else {
         boss_main()
-    };
-
-    dump_all_profiling();
-    ret
+    }
 }

@@ -8,7 +8,8 @@ use log::info;
 use log::{debug, error};
 use yaml_rust::{YamlLoader, Yaml};
 
-use crate::{boss_launch::*, profile_this};
+use crate::profiling::{dump_all_profiling, start_timer, stop_timer};
+use crate::{boss_launch::*, profile_this, function_name};
 use crate::boss_sync::*;
 use crate::doer::Filter;
 
@@ -216,8 +217,7 @@ fn parse_spec_file(path: &Path) -> Result<Spec, String> {
 }
 
 pub fn boss_main() -> ExitCode {
-    profile_this!();
-
+    let timer = start_timer(function_name!());
 
     let args = {
         profile_this!("Parsing cmd line");
@@ -357,6 +357,15 @@ pub fn boss_main() -> ExitCode {
             }
         }
     }
+
+    // Drop the comms before dumping profiling, so that any doer threads have cleanly exited, and their profiling
+    // data is saved, and we have received profiling data from any remote doer processes.
+    drop(src_comms);
+    drop(dest_comms);
+
+    stop_timer(timer);
+
+    dump_all_profiling();
 
     ExitCode::SUCCESS
 }

@@ -242,6 +242,9 @@ pub enum Response {
 
     FileContent { data: Vec<u8> },
 
+    #[cfg(feature = "profiling")]
+    ProfilingData(GlobalProfilingData),
+
     Ack,
     Error(String),
 }
@@ -391,23 +394,24 @@ pub fn doer_main() -> ExitCode {
 
     // Start command processing loop, receiving commands and sending responses over the TCP connection, with encryption
     // so that we know it's the boss.
-    let comms = Comms::Remote {
+    let mut comms = Comms::Remote {
         tcp_connection,
         cipher: Aes128Gcm::new(secret_key),
         sending_nonce_counter: 1, // Nonce counters must be different, so sender and receiver don't reuse
         receiving_nonce_counter: 0,
     };
 
-    match message_loop(comms) {
-        Ok(_) => {
-            debug!("doer process finished successfully!");
-            ExitCode::SUCCESS
-        }
-        Err(e) => {
-            debug!("doer process finished with error: {:?}", e);
-            ExitCode::from(20)
-        }
+    if let Err(e) = message_loop(&mut comms) {
+        debug!("doer process finished with error: {:?}", e);
+        return ExitCode::from(20)
     }
+
+    // Send our profiling data (if enabled) back to the boss process so it can combine it with its own
+    #[cfg(feature="profiling")]
+    comms.send_response(Response::ProfilingData(get_all_profiling())).unwrap();
+
+    debug!("doer process finished successfully!");
+    ExitCode::SUCCESS
 }
 
 // When the source and/or dest is local, the doer is run as a thread in the boss process,
@@ -415,7 +419,7 @@ pub fn doer_main() -> ExitCode {
 pub fn doer_thread_running_on_boss(receiver: Receiver<Command>, sender: Sender<Response>) {
     debug!("doer thread running");
     profile_this!();
-    match message_loop(Comms::Local { sender, receiver }) {
+    match message_loop(&mut Comms::Local { sender, receiver }) {
         Ok(_) => debug!("doer thread finished successfully!"),
         Err(e) => debug!("doer thread finished with error: {:?}", e),
     }
@@ -431,12 +435,12 @@ struct DoerContext {
 // Repeatedly waits for Commands from the boss and processes them (possibly sending back Responses).
 // This function returns when we receive a Shutdown Command, or there is an unrecoverable error
 // (recoverable errors while handling Commands will not stop the loop).
-fn message_loop(mut comms: Comms) -> Result<(), ()> {
+fn message_loop(comms: &mut Comms) -> Result<(), ()> {
     let mut context : Option<DoerContext> = None;
     loop {
         match comms.receive_command() {
             Ok(c) => {
-                match exec_command(c, &mut comms, &mut context) {
+                match exec_command(c, comms, &mut context) {
                     Ok(false) => {
                         debug!("Shutdown command received - finishing message_loop");
                         return Ok(());

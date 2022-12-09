@@ -97,9 +97,22 @@ impl Drop for Comms {
     fn drop(&mut self) {
         // There's not much we can do about an error here, other than log it, which send_command already does, so we ignore any error.
         let _ = self.send_command(Command::Shutdown);
-        // Join threads so that they're properly cleaned up including the profiling data
-        if let Comms::Local { thread , ..} = self {
-            thread.take().unwrap().join().unwrap();
+        match self {
+            Comms::Local { thread , ..} => {
+                // Join threads so that they're properly cleaned up including the profiling data
+                thread.take().unwrap().join().unwrap();
+            }
+            #[cfg(feature="profiling")]
+            Comms::Remote { debug_name , .. } => {
+                // Wait for remote doers to send back any profiling data, if enabled
+                let debug_name = debug_name.clone();
+                match self.receive_response() {
+                    Ok(Response::ProfilingData(x)) => add_remote_profiling(x, debug_name),
+                    _ => panic!("Unexpected response"),
+                }
+            }
+            #[cfg(not(feature="profiling"))]
+            _ => (),
         }
     }
 }
@@ -671,7 +684,12 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> 
     // Note that we could merge this ssh command with the one to run the program once it's built (in launch_doer_via_ssh),
     // but this would make error reporting slightly more difficult as the command in launch_doer_via_ssh is more tricky as
     // we are parsing the stdout, but for the command here we can wait for it to finish easily.
-    let cargo_command = "cargo build --release";
+    let cargo_command = format!("cargo build --release{}",
+        if cfg!(feature="profiling") {
+            " --features=profiling" // If this is a profiling build, then turn on profiling on the remote side too
+        } else {
+            ""
+        });
     let remote_command = if is_windows {
         format!("cd /d {REMOTE_TEMP_WINDOWS}\\rjrssync && {cargo_command}")
     } else {

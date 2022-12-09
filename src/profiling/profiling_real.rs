@@ -1,5 +1,5 @@
 use log::trace;
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 use std::{
     cell::RefCell,
     collections::HashMap,
@@ -8,30 +8,18 @@ use std::{
     time::{Duration, Instant},
 };
 
-use lazy_static::lazy_static;
+use lazy_static::{lazy_static};
 
 lazy_static! {
     // Only initialize profiling when the first entry is added.
     static ref PROFILING_START: Instant = Instant::now();
 
-    static ref GLOBAL_PROFILING_DATA: Mutex<GlobalProfilingData> = Mutex::new(GlobalProfilingData::new());
+    static ref GLOBAL_PROFILING_DATA: Mutex<Option<GlobalProfilingData>> = Mutex::new(Some(GlobalProfilingData::new()));
 }
 
 thread_local! {
     // Each thread will have it's own profiling entry to avoid weird race conditions
     static PROFILING_DATA: RefCell<ProfilingData> = RefCell::new(ProfilingData{entries: Some(Vec::with_capacity(1_000_000))});
-}
-
-#[macro_export]
-macro_rules! function_name {
-    () => {{
-        fn f() {}
-        fn type_name_of<T>(_: T) -> &'static str {
-            std::any::type_name::<T>()
-        }
-        let name = type_name_of(f);
-        &name[..name.len() - 3].split("::").last().unwrap()
-    }};
 }
 
 #[macro_export]
@@ -48,8 +36,8 @@ macro_rules! profile_this {
     };
 }
 
-#[derive(Serialize, Clone)]
-struct ProfilingEntry {
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct ProfilingEntry {
     scope_name: String,
     // start and end are durations since the start of profiling because Instant cannot be serialized by default.
     start: Duration,
@@ -58,18 +46,21 @@ struct ProfilingEntry {
     duration: Duration,
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, Default)]
 struct ProfilingData {
     entries: Option<Vec<ProfilingEntry>>,
 }
 
-struct LocalProfilingEntry {
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct LocalProfilingEntry {
     local_profiling_entry: Vec<ProfilingEntry>,
     thread_name: String,
+    process_name: String
 }
 
 // Store the thread name as well so we can distinguish the threads on the timeline
-struct GlobalProfilingData {
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GlobalProfilingData {
     entries: Vec<LocalProfilingEntry>,
 }
 
@@ -101,14 +92,12 @@ impl Drop for Timer {
         PROFILING_DATA.with(|p| {
             p.borrow_mut()
                 .entries
-                .as_mut()
-                .unwrap()
-                .push(ProfilingEntry {
+                .as_mut().map(|x| x.push(ProfilingEntry {
                     scope_name: self.scope_name.take().unwrap(),
                     start: self.start,
                     end,
                     duration: end - self.start,
-                });
+                }));
         });
     }
 }
@@ -116,13 +105,14 @@ impl Drop for Timer {
 impl Drop for ProfilingData {
     fn drop(&mut self) {
         let thread_name = std::thread::current().name().unwrap().to_string();
-        trace!("Copying local profiling data to global");
+        trace!("Copying local profiling data to global for {}", thread_name);
         if let Some(entries) = self.entries.take() {
             let entry = LocalProfilingEntry {
                 local_profiling_entry: entries,
                 thread_name,
+                process_name: "Boss".to_string()
             };
-            GLOBAL_PROFILING_DATA.lock().unwrap().push_events(entry);
+            GLOBAL_PROFILING_DATA.lock().unwrap().as_mut().unwrap().push_events(entry);
         }
     }
 }
@@ -245,17 +235,27 @@ pub fn dump_all_profiling() {
     // Create the profiling_data directory again if somehow no other threads are launched on this side
     // Maybe some case where the doers are both on remotes?
     std::fs::create_dir_all("profiling_data").expect("Failed to create profiling data directory");
+    let profiling_data = get_all_profiling();
+    profiling_data.dump_profiling_to_chrome("profiling_data/".to_string() + "all_trace.json");
+}
+
+pub fn get_all_profiling() -> GlobalProfilingData {
+    trace!("get_all_profiling");
     // As main is the only thread to not be joined (and thus the ProfilingData dropped)
-    // it must be append to the global profiling manually.
-    let thread_name = std::thread::current().name().unwrap().to_string();
-    let mut thread_local_profiling_data = PROFILING_DATA.with(|p| p.clone()).into_inner();
-    let main_thread_events = LocalProfilingEntry {
-        local_profiling_entry: thread_local_profiling_data.entries.take().unwrap(),
-        thread_name,
-    };
+    // we drop it manually here
+    PROFILING_DATA.with(|p| p.take());
     GLOBAL_PROFILING_DATA
         .lock()
         .unwrap()
-        .push_events(main_thread_events)
-        .dump_profiling_to_chrome("profiling_data/".to_string() + "all_trace.json");
+        .take()
+        .unwrap()
+}
+
+pub fn add_remote_profiling(profiling_data: GlobalProfilingData, process_name: String) {
+    trace!("add_remote_profiling");
+    let mut g = GLOBAL_PROFILING_DATA.lock().unwrap();
+    for mut data in profiling_data.entries{
+        data.thread_name = process_name.clone();
+        g.as_mut().unwrap().push_events(data);
+    }
 }
