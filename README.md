@@ -298,6 +298,9 @@ ERROR | rjrssync::boss_frontend: Sync error: Unexpected response from dest GetEn
 * Upload to crates.io, so that we can "cargo install" from anywhere?
 * Warning if filter doesn't match anything, possibly after GetEntries but before actually doing anything (to prevent mistaken filter?)
 * Running remote tests in parallel seems to cause hangs
+* Would be nice to automatically detect cases where the version number hasn't been updated, e.g. if we 
+could see that the Command/Response struct layout has changed.
+* Turning profiling on/off results in incompatible network protocol, which isn't detected by the version number
 
 Idea for filters, with re-usable "functions":
 ===============

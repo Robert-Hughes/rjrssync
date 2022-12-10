@@ -259,7 +259,7 @@ pub enum Response {
     FileContent { data: Vec<u8> },
 
     #[cfg(feature = "profiling")]
-    ProfilingData(GlobalProfilingData),
+    ProfilingData(ProcessProfilingData),
 
     Ack,
     Error(String),
@@ -424,7 +424,7 @@ pub fn doer_main() -> ExitCode {
 
     // Send our profiling data (if enabled) back to the boss process so it can combine it with its own
     #[cfg(feature="profiling")]
-    comms.send_response(Response::ProfilingData(get_all_profiling())).unwrap();
+    comms.send_response(Response::ProfilingData(get_local_process_profiling())).unwrap();
 
     debug!("doer process finished successfully!");
     ExitCode::SUCCESS
