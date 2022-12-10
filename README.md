@@ -115,32 +115,30 @@ The cell contents describe the behaviour given those inputs:
 |              src/a/ |   b   |   b   |   b*  |   X   |   b   |   b   |
 |---------------------|-------|-------|-------|-------|-------|-------|
 
-The behaviour can be summarised as a "golden rule" which is that after the sync, the object pointed to by the destination
-path will be identical to the object pointed to by the source path, i.e. `tree $SRC == tree $DEST`.
+The behaviour can be summarised as a "golden rule" which is that after the sync, the object pointed to by the destination path will be identical to the object pointed to by the source path, i.e. `tree $SRC == tree $DEST`.
 
-There is one exception, which is that if the dest path has a trailing slash, and source is an (existing) file, then
-the dest path is first modified to have the final part of the source path appended to it. e.g.:
+There is one exception, which is that if the dest path has a trailing slash, and source is an (existing) file, then the dest path is first modified to have the final part of the source path appended to it. e.g.:
 
 `rjrssync folder/file.txt backup/` => `backup/file.txt`
 
-This makes it more ergonomic to copy individual files. Unfortunately it makes the behaviour of files and folder inconsistent,
-but this this is fine because files and folders are indeed different, and it's worth the sacrifice.
+This makes it more ergonomic to copy individual files. Unfortunately it makes the behaviour of files and folder inconsistent, but this this is fine because files and folders are indeed different, and it's worth the sacrifice.
 
-It has the property that non-existent dest files/folders are treated the same as if they did exist, which means that
-you get a consistent final state no matter the starting state (behaviour is idempotent).
+It has the property that non-existent dest files/folders are treated the same as if they did exist, which means that you get a consistent final state no matter the starting state (behaviour is idempotent).
 
 It also prevents unintended creation of nested folders with the same name which can be annoying, e.g.
 
 `rjrssync src/folder dest/folder` => `dest/folder/...` (rather than `dest/folder/folder/...`)
 
-Trailing slashes on files are always invalid, because this gives the impression that the file is actually a folder,
-and so could lead to unexpected behaviour.
+Trailing slashes on files are always invalid, because this gives the impression that the file is actually a folder, and so could lead to unexpected behaviour.
 
 Symlinks are treated the same as files, because that's essentially how rjrssync treats symlinks (it syncs 
 the link address, as if it was a small text file). Therefore they can't have trailing slashes.
 Note that tab-completion (on bash and cmd at least) does not put a trailing slash on symlinks automatically,
 so this shouldn't be a problem. (For folders, bash does do this which is why it's useful to allow trailing
 slashes on folder names).
+
+Note though that on Linux, the OS treats a trailing slash on a symlink to refer to the _target_
+of the symlink, not the symlink itself, and so rjrssync doesn't actually see these as symlinks at all.
 
 Notes on symlinks
 ==================
@@ -182,6 +180,9 @@ Known quirks with the current behaviour:
 Existing windows symlink on the dest side, and then a broken Unix symlink on the source side, with the same target link address: 
 Currently this will result in an error, as we will attempt to create a Generic symlink on the dest, which will fail. In this case it's pretty likely that the user would prefer us to simply leave the dest symlink as it is
 (whether it be a file or folder symlink).
+
+Trailing slashes on symlinks are handled different on Windows and Linux, see above section on trailing slashes
+for details.
 
 
 It was considered for rjrssync to have two 'modes', as to whether it ignores the symlinks (treats them as

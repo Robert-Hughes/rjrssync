@@ -81,10 +81,10 @@ fn run_trailing_slashes_test_expected_failure(src_node: Option<&FilesystemNode>,
 
 // In some environments (e.g. Linux), a file with a trailing slash is caught on the doer side when it attempts to
 // get the metadata for the root, but on some environments it isn't caught (Windows, depending on the drive)
-// so do our own check here, so the error message could be either. Note that different versions of Windows 
+// so we do our own additional check, so the error message could be either. Note that different versions of Windows 
 // seem to report this differently (observed different behaviour locally vs on GitHub Actions).
 fn get_file_trailing_slash_error() -> Regex {
-    return Regex::new("(is a file but is referred to with a trailing slash)|(can't be read)").unwrap();
+    return Regex::new("(is a file or symlink but is referred to with a trailing slash)|(can't be read)").unwrap();
 }
 
 // ====================================================================================
@@ -325,11 +325,130 @@ fn test_non_existent_to_others() {
 // Symlinks - these are treated the same as files (i.e. no trailing slash allowed), no matter their kind
 // ====================================================================================
 
+/// On Windows, any trailing slash on a symlink is an error.
 #[test]
-fn test_symlinks() {
+#[cfg(windows)]
+fn test_symlinks_broken_targets() {
     run_trailing_slashes_test_expected_failure(Some(&symlink_file("hello")), "/", Some(&file("contents")), "", get_file_trailing_slash_error());
     run_trailing_slashes_test_expected_failure(Some(&file("hello")), "", Some(&symlink_file("hello")), "/", get_file_trailing_slash_error());
 
     run_trailing_slashes_test_expected_failure(Some(&symlink_folder("hello")), "/", Some(&file("contents")), "", get_file_trailing_slash_error());
     run_trailing_slashes_test_expected_failure(Some(&file("hello")), "", Some(&symlink_folder("hello")), "/", get_file_trailing_slash_error());
+}
+
+
+/// But on Linux, trailing slashes on symlinks mean to _follow_ the symlink (this is OS behaviour that we don't
+/// really want to override). There is therefore different behaviour for valid or invalid symlinks.
+#[test]
+#[cfg(unix)]
+fn test_symlinks_broken_targets() {
+    run_trailing_slashes_test_expected_failure(Some(&symlink_file("hello")), "/", Some(&file("contents")), "", 
+        Regex::new("src path .* doesn't exist").unwrap());
+    // This is a bit of a weird one - the destination has a trailing slash, so Linux interprets it as the symlink target,
+    // which doesn't exist, so we treat the dest as non-existent. Because it has a trailing slash though and the source is a file,
+    // we assume that the user intends to copy the file into a new folder on the destination side, so we try to create that folder.
+    // However this fails, because the dest symlink is already there!
+    run_trailing_slashes_test_expected_failure(Some(&file("hello")), "", Some(&symlink_file("hello")), "/", 
+        Regex::new("Error creating folder and ancestors .* File exists").unwrap());
+
+    run_trailing_slashes_test_expected_failure(Some(&symlink_folder("hello")), "/", Some(&file("contents")), "",
+        Regex::new("src path .* doesn't exist").unwrap());
+    
+    // Same weirdness as above
+    run_trailing_slashes_test_expected_failure(Some(&file("hello")), "", Some(&symlink_folder("hello")), "/",
+        Regex::new("Error creating folder and ancestors .* File exists").unwrap());
+}
+
+
+/// There is different behaviour for valid or invalid symlinks.
+#[test]
+#[cfg(unix)]
+fn test_symlinks_valid_targets() {
+    // symlink files with trailing slashes will fail to be read by the OS (not non-existent, but an error about it not being a directory)
+    let existing_file = std::env::current_exe().unwrap().to_string_lossy().to_string(); // an arbitrary extant file
+    run_trailing_slashes_test_expected_failure(Some(&symlink_file(&existing_file)), "/", Some(&file("contents")), "", get_file_trailing_slash_error());
+    run_trailing_slashes_test_expected_failure(Some(&file("hello")), "", Some(&symlink_file(&existing_file)), "/", get_file_trailing_slash_error());
+
+    // symlink folders with trailing slashes though will be interpreted as the destination itself, and so should actually work fine
+    // without any validation error.
+    // Therefore we need to set up some valid target folders to be synced.
+
+    // Trailing slash on source symlink folder only, so the source link is followed
+    run(TestDesc {
+        setup_filesystem_nodes: vec![
+            ("$TEMP/src", &symlink_folder("target")),
+            ("$TEMP/target", &folder! {
+                "file" => file_with_modified("hello", SystemTime::UNIX_EPOCH)
+            }),
+        ],
+        args: vec![
+            "$TEMP/src/".to_string(), // With trailing slash
+            "$TEMP/dest".to_string() // No trailing slash
+        ],
+        expected_exit_code: 0,
+        expected_filesystem_nodes: vec![
+            ("$TEMP/src", Some(&symlink_folder("target"))), // src unchanged
+            ("$TEMP/target", Some(&folder! { // target unchanged
+                "file" => file_with_modified("hello", SystemTime::UNIX_EPOCH)
+            })), 
+            ("$TEMP/dest", Some(&folder! { // dest is a folder containing the file 
+                "file" => file_with_modified("hello", SystemTime::UNIX_EPOCH)
+            })), 
+        ],
+        ..Default::default()
+    }.with_expected_actions(copied_files_and_folders(1, 1)));
+
+    // Trailing slash on dest symlink folder only, so the dest link is followed
+    // Because the source is a file, it will be placed into the target folder rather than overwriting it
+    run(TestDesc {
+        setup_filesystem_nodes: vec![
+            ("$TEMP/src", &file_with_modified("src file", SystemTime::UNIX_EPOCH)),
+            ("$TEMP/dest", &symlink_folder("target")),
+            ("$TEMP/target", &folder! {
+                "file" => file_with_modified("hello", SystemTime::UNIX_EPOCH)
+            }),
+        ],
+        args: vec![
+            "$TEMP/src".to_string(), // No trailing slash
+            "$TEMP/dest/".to_string() // With trailing slash
+        ],
+        expected_exit_code: 0,
+        expected_filesystem_nodes: vec![
+            ("$TEMP/src", Some(&file_with_modified("src file", SystemTime::UNIX_EPOCH))), // src unchanged
+            ("$TEMP/target", Some(&folder! { // target folder has the new source file in it
+                "file" => file_with_modified("hello", SystemTime::UNIX_EPOCH),
+                "src" => file_with_modified("src file", SystemTime::UNIX_EPOCH)
+            })), 
+            ("$TEMP/dest", Some(&symlink_folder("target"))), // dest is still a symlink
+        ],
+        ..Default::default()
+    }.with_expected_actions(copied_files(1)));
+
+    // Trailing slash on both source and dest symlink folders, so both links are followed and 
+    // the contents of the symlink target folders are synced.
+    run(TestDesc {
+        setup_filesystem_nodes: vec![
+            ("$TEMP/src", &symlink_folder("target1")),
+            ("$TEMP/dest", &symlink_folder("target2")),
+            ("$TEMP/target1", &folder! {
+                "src_file" => file_with_modified("hello1", SystemTime::UNIX_EPOCH)
+            }),
+            ("$TEMP/target2", &folder! {
+                "dest_file" => file_with_modified("hello2", SystemTime::UNIX_EPOCH)
+            }),
+        ],
+        args: vec![
+            "$TEMP/src/".to_string(), // With trailing slash
+            "$TEMP/dest/".to_string() // With trailing slash
+        ],
+        expected_exit_code: 0,
+        expected_filesystem_nodes: vec![
+            ("$TEMP/src", Some(&symlink_folder("target1"))), // src unchanged
+            ("$TEMP/dest", Some(&symlink_folder("target2"))), // dest is still a symlink
+            ("$TEMP/target2", Some(&folder! { // dest target folder is updated
+                "src_file" => file_with_modified("hello1", SystemTime::UNIX_EPOCH)
+            })), 
+        ],
+        ..Default::default()
+    }.with_expected_actions(NumActions { deleted_files: 1, copied_files: 1, ..Default::default() }));
 }

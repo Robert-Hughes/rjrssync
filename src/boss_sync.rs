@@ -111,7 +111,7 @@ fn validate_trailing_slash(root_path: &str, entry_details: &EntryDetails) -> Res
         // Note that we can't use std::path::is_separator because this might be a remote path, so the current platform
         // is irrelevant
         if root_path.chars().last().unwrap() == '/' || root_path.chars().last().unwrap() == '\\' {
-            return Err(format!("'{}' is a file but is referred to with a trailing slash.", root_path));
+            return Err(format!("'{}' is a file or symlink but is referred to with a trailing slash.", root_path));
         }
     }
     Ok(())
@@ -178,7 +178,7 @@ pub fn sync(
     // Note that we can't use std::path::is_separator (or similar) because this might be a remote path, so the current platform
     // isn't appropriate.
     let dest_trailing_slash = last_dest_char == Some('/') || last_dest_char == Some('\\');
-    //TODO: about is src root is a symlink to a file, we should probably do the same!
+    //TODO: what about if src root is a symlink to a file, we should probably do the same!
     if matches!(src_root_details, EntryDetails::File {..}) && dest_trailing_slash {
         let src_filename = src_root.split(|c| c == '/' || c == '\\').last();
         if let Some(c) = src_filename {
