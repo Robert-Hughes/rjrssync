@@ -156,7 +156,7 @@ pub fn setup_comms(
     debug_name: String,
     force_redeploy: bool,
 ) -> Option<Comms> {
-    profile_this!();
+    profile_this!(format!("setup_comms {}", debug_name));
     debug!(
         "setup_comms with hostname '{}' and username '{}'. debug_name = {}",
         remote_hostname, remote_user, debug_name
@@ -232,14 +232,17 @@ pub fn setup_comms(
                 debug!("Connecting to doer over network at {:?}", addr);
                 //TODO: this has a delay ~1 sec even when connecting to localhost, apparently because it first tries connecting to the
                 // IPv6 local address, and it has to wait for this to fail before trying IPv4. Maybe can skip this?
-                let tcp_connection = match TcpStream::connect(addr) {
-                    Ok(t) => {
-                        debug!("Connected! {:?}", t);
-                        t
-                    }
-                    Err(e) => {
-                        error!("Failed to connect to network port: {}", e);
-                        return None;
+                let tcp_connection = {
+                    profile_this!("Connecting");
+                    match TcpStream::connect(addr) {
+                        Ok(t) => {
+                            debug!("Connected! {:?}", t);
+                            t
+                        }
+                        Err(e) => {
+                            error!("Failed to connect to network port: {}", e);
+                            return None;
+                        }
                     }
                 };
 
@@ -413,6 +416,7 @@ fn output_reader_thread_main(
 /// with a randomly generated secret shared key for encryption, which is returned to the caller
 /// for setting up encrypted communication over the network connection.
 fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str, remote_port_for_comms: u16) -> SshDoerLaunchResult {
+    profile_this!();
     let user_prefix = if remote_user.is_empty() {
         "".to_string()
     } else {
@@ -466,6 +470,7 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str, remote_port_for
     // Some of the output from ssh (errors etc.) comes on stderr, so we need to display both stdout and stderr
     // to the user, before the handshake is estabilished.
     debug!("Waiting for remote copy to send version handshake");
+    let mut handshake_start_timer = Some(start_timer("Waiting for handshake start"));
 
     // unwrap is fine here, as the streams should always be available as we piped them all
     let mut ssh_stdin = LineWriter::new(ssh_process.stdin.take().unwrap());
@@ -503,6 +508,7 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str, remote_port_for
         secret_key: Option<Key<Aes128Gcm>>,
     }
     let mut handshook_data = HandshookStdoutAndStderr::default();
+    let mut _handshaking_timer = None;
     loop {
         match receiver.recv() {
             Ok((stream_type, OutputReaderThreadMsg::Line(l))) => {
@@ -518,6 +524,8 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str, remote_port_for
                 }
             }
             Ok((stream_type, OutputReaderThreadMsg::HandshakeStarted(line))) => {
+                handshake_start_timer.take();
+                _handshaking_timer = Some(start_timer("Handshaking"));
                 debug!("Handshake started on {}: {}", stream_type, line);
 
                 let remote_version = line.split_at(HANDSHAKE_STARTED_MSG.len()).1;

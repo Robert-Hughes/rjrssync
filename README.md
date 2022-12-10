@@ -278,6 +278,7 @@ Performance
   - Syncing large tree when nothing has changed
   - Copying single large file
   - Copying lots of small files
+* If launching two remote doers, then it would be quicker to run the two setup_comms in parallel
 
 
 

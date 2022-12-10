@@ -331,30 +331,35 @@ impl Display for Comms {
 }
 
 pub fn doer_main() -> ExitCode {
-    let timer = start_timer(function_name!()); 
+    let main_timer = start_timer(function_name!()); 
 
     let args = DoerCliArgs::parse();
 
-    // Configure logging.
-    // Because the doer is launched via SSH, and on Windows there isn't an easy way of setting the
-    // RUST_LOG environment variable, we support configuring logging via a command-line arg, passed
-    // from the boss.
-    // Note that we can't use stdout as that is our communication channel with the boss.
-    // We use stderr instead, which the boss will read from and echo for easier debugging.
-    // TODO: We could additionally log to a file, which might be useful for cases where the logs don't
-    // make it back to the boss (e.g. communication errors)
-    let mut builder = env_logger::Builder::from_env(Env::default().default_filter_or(args.log_filter));
-    builder.target(env_logger::Target::Stderr);
-    // Configure format so that the boss can parse and re-log it
-    builder.format(|buf, record| {
-        writeln!(
-            buf,
-            "{} {}",
-            record.level(),
-            record.args()
-        )
-    });
-    builder.init();
+    {
+        profile_this!("Configuring logging");
+        // Configure logging.
+        // Because the doer is launched via SSH, and on Windows there isn't an easy way of setting the
+        // RUST_LOG environment variable, we support configuring logging via a command-line arg, passed
+        // from the boss.
+        // Note that we can't use stdout as that is our communication channel with the boss.
+        // We use stderr instead, which the boss will read from and echo for easier debugging.
+        // TODO: We could additionally log to a file, which might be useful for cases where the logs don't
+        // make it back to the boss (e.g. communication errors)
+        let mut builder = env_logger::Builder::from_env(Env::default().default_filter_or(args.log_filter));
+        builder.target(env_logger::Target::Stderr);
+        // Configure format so that the boss can parse and re-log it
+        builder.format(|buf, record| {
+            writeln!(
+                buf,
+                "{} {}",
+                record.level(),
+                record.args()
+            )
+        });
+        builder.init();
+    }
+
+    let timer = start_timer("Handshaking");
 
     // The first thing we send is a special handshake message that the Boss will recognise,
     // to know that we've started up correctly and to make sure we are running compatible versions.
@@ -404,6 +409,10 @@ pub fn doer_main() -> ExitCode {
     println!("{}", HANDSHAKE_COMPLETED_MSG);
     eprintln!("{}", HANDSHAKE_COMPLETED_MSG);
 
+    stop_timer(timer);
+    
+    let timer = start_timer("Waiting for connection");
+
     // Wait for a connection from the boss
     let tcp_connection = match listener.accept() {
         Ok((socket, addr)) => {
@@ -415,6 +424,8 @@ pub fn doer_main() -> ExitCode {
             return ExitCode::from(25);
         }
     };
+    
+    stop_timer(timer);
 
     // Start command processing loop, receiving commands and sending responses over the TCP connection, with encryption
     // so that we know it's the boss.
@@ -430,7 +441,7 @@ pub fn doer_main() -> ExitCode {
         return ExitCode::from(20)
     }
 
-    stop_timer(timer);
+    stop_timer(main_timer);
 
     // Send our profiling data (if enabled) back to the boss process so it can combine it with its own
     #[cfg(feature="profiling")]
@@ -462,6 +473,7 @@ struct DoerContext {
 // This function returns when we receive a Shutdown Command, or there is an unrecoverable error
 // (recoverable errors while handling Commands will not stop the loop).
 fn message_loop(comms: &mut Comms) -> Result<(), ()> {
+    profile_this!();
     let mut context : Option<DoerContext> = None;
     loop {
         match comms.receive_command() {
