@@ -779,7 +779,7 @@ fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, filters: &[F
     Ok(())
 }
 
-fn handle_create_symlink(path: RootRelativePath, context: &mut DoerContext, kind: SymlinkKind, target: SymlinkTarget) -> Result<(), String> {
+fn handle_create_symlink(path: RootRelativePath, context: &mut DoerContext, #[allow(unused)] kind: SymlinkKind, target: SymlinkTarget) -> Result<(), String> {
     let full_path = path.get_full_path(&context.root);
     trace!("Creating symlink at '{}'", full_path.display());
 

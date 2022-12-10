@@ -172,7 +172,59 @@ fn test_symlink_change_kind_folder_to_file() {
     run_expect_success(&src, &dest, expected_actions);
 }
 
-//TODO: other versions of the above, inc broken symlink on Unix?
+/// Tests that syncing a symlink that has the same target address but a different kind is updated correctly.
+/// File => Folder
+#[test]
+fn test_symlink_change_kind_file_to_folder() {
+    let src = folder! {
+        "symlink" => symlink_folder("target"),
+        "target" => empty_folder(),
+    };
+    let dest = folder! {
+        "symlink" => symlink_file("target"),
+        "target" => file_with_modified("contents", SystemTime::UNIX_EPOCH),
+    };
+    // On Windows, the symlink will need deleting and recreating, as it's a different kind.
+    #[cfg(windows)]
+    let expected_actions = NumActions { deleted_files: 1, created_folders: 1, deleted_symlinks: 1, copied_symlinks: 1, ..Default::default() };
+    // On Linux though, all symlinks are the same so nothing needs doing!
+    #[cfg(not(windows))]
+    let expected_actions = NumActions { deleted_files: 1, created_folders: 1, deleted_symlinks: 0, copied_symlinks: 0, ..Default::default() };
+    
+    run_expect_success(&src, &dest, expected_actions);
+}
+
+/// Tests that syncing a symlink that has the same target address but a different kind is updated correctly.
+/// File => Broken
+/// Folder => Broken
+/// Broken => File
+/// Broken => Folder
+/// This test isn't relevant for Windows, because all symlinks would be file/folder. 
+/// There is a test further down for syncing a broken symlink from Unix to Windows (cross-platform).
+#[test]
+#[cfg(not(windows))] 
+fn test_symlink_change_kind_broken() {
+    let src = folder! {
+        "symlink1" => symlink_generic("target1"),
+        "symlink2" => symlink_generic("target2"),
+        "symlink3" => symlink_file("target3"),
+        "symlink3" => symlink_folder("target4"),
+        "target3" => file_with_modified("contents", SystemTime::UNIX_EPOCH),
+        "target4" => empty_folder(),
+    };
+    let dest = folder! {
+        "symlink1" => symlink_folder("target1"),
+        "symlink2" => symlink_file("target2"),
+        "symlink3" => symlink_generic("target3"),
+        "symlink3" => symlink_generic("target4"),
+        "target1" => empty_folder(),
+        "target2" => file_with_modified("contents", SystemTime::UNIX_EPOCH),
+    };
+    run_expect_success(&src, &dest, NumActions { deleted_files: 1, copied_files: 1,
+        deleted_folders: 1, created_folders: 1,
+        // No symlinks should be recreated, as they don't need to change
+        deleted_symlinks: 0, copied_symlinks: 0, ..Default::default() });
+}
 
 /// Tests that an existing symlink (both directory and file) is deleted from the dest
 /// when it is not present on the source side.
@@ -382,6 +434,3 @@ fn test_unknown_symlink_unix_to_windows() {
 // Might need some logic to deal with an existing windows symlink on the dest side, and then a broken/unknown
 // symlink on the source side. If the target address is the same, then maybe we should just leave it as-is
 // rather than deleting it then failing to re-create it because it has unknown kind? Not sure what good behaviour is here.
-
-//TODO: test case where symlink already exists and has the same target address, but is the wrong kind 
-// (on Windows would need to recreate, but on Linux wouldn't need to do anything!)
