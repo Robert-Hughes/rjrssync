@@ -98,6 +98,25 @@ fn format_root_relative(path: &RootRelativePath, root: &str) -> String {
     }
 }
 
+/// Validates if a trailing slash was provided incorrectly on the given entry.
+/// Referring to an existing file with a trailing slash is an error, because it implies
+/// that the user thinks it is a folder, and so could lead to unwanted behaviour.
+/// In some environments (e.g. Linux), this is caught on the doer side when it attempts to
+/// get the metadata for the root, but on some environments it isn't caught (Windows, depending on the drive)
+/// so we have to do our own check here.
+fn validate_trailing_slash(root_path: &str, entry_details: &EntryDetails) -> Result<(), String> {
+    // Note that we can't use std::path::is_separator because this might be a remote path, so the current platform
+    // is irrelevant
+    if matches!(entry_details, EntryDetails::File {..} | EntryDetails::Symlink { .. }) {
+        // Note that we can't use std::path::is_separator because this might be a remote path, so the current platform
+        // is irrelevant
+        if root_path.chars().last().unwrap() == '/' || root_path.chars().last().unwrap() == '\\' {
+            return Err(format!("'{}' is a file but is referred to with a trailing slash.", root_path));
+        }
+    }
+    Ok(())
+}
+
 pub fn sync(
     src_root: &str,
     mut dest_root: String,
@@ -121,23 +140,11 @@ pub fn sync(
     src_comms.send_command(Command::SetRoot { root: src_root.to_string() })?;
     let src_root_details = match src_comms.receive_response() {
         Ok(Response::RootDetails { root_details, platform_differentiates_symlinks: _ }) => {
-            match root_details {
+            match &root_details {
                 None => return Err(format!("src path '{src_root}' doesn't exist!")),
-                Some(EntryDetails::File { .. }) => {
-                    // Referring to an existing file with a trailing slash is an error, because it implies
-                    // that the user thinks it is a folder, and so could lead to unwanted behaviour.
-                    // In some environments (e.g. Linux), this is caught on the doer side when it attempts to
-                    // get the metadata for the root, but on some environments it isn't caught (Windows, depending on the drive)
-                    // so we have to do our own check here.
-                    // Note that we can't use std::path::is_separator because this might be a remote path, so the current platform
-                    // is irrelevant
-                    if src_root.chars().last().unwrap() == '/' || src_root.chars().last().unwrap() == '\\' {
-                        return Err(format!("src path '{}' is a file but is referred to with a trailing slash.", src_root));
-                    }
-                },
-                Some(EntryDetails::Folder) => (),  // Nothing special to do
-                Some(EntryDetails::Symlink { .. }) => (),  // Nothing special to do //TODO: should we check if it ends in a trailing slash and is a file symlink and make this disallowed?
-                //TODO: what about folder symlinks? They are treated as if they are files, so maybe shouldn't have a trailing slash, but then tab-complete might be probletmatic..
+                Some(d) => if let Err(e) = validate_trailing_slash(src_root, &d) {
+                    return Err(format!("src path {}", e));
+                }
             };
             root_details
         }
@@ -151,23 +158,11 @@ pub fn sync(
     dest_comms.send_command(Command::SetRoot { root: dest_root.to_string() })?;
     let (mut dest_root_details, dest_platform_differentiates_symlinks) = match dest_comms.receive_response() {
         Ok(Response::RootDetails { root_details, platform_differentiates_symlinks }) => {
-            match root_details {
+            match &root_details {
                 None => (), // Dest root doesn't exist, but that's fine (we will create it later)
-                Some(EntryDetails::File { .. }) => {
-                    // Referring to an existing file with a trailing slash is an error, because it implies
-                    // that the user thinks it is a folder, and so could lead to unwanted behaviour
-                    // In some environments (e.g. Linux), this is caught on the doer side when it attempts to
-                    // get the metadata for the root, but on some environments it isn't caught (Windows, depending on the drive)
-                    // so we have to do our own check here.
-                    // Note that we can't use std::path::is_separator because this might be a remote path, so the current platform
-                    // is irrelevant
-                    if dest_root.chars().last().unwrap() == '/' || dest_root.chars().last().unwrap() == '\\' {
-                        return Err(format!("dest path '{}' is a file but is referred to with a trailing slash.", dest_root));
-                    }
+                Some(d) => if let Err(e) = validate_trailing_slash(&dest_root, &d) {
+                    return Err(format!("dest path {}", e));
                 }
-                Some(EntryDetails::Folder) => (), // Nothing special to do
-                Some(EntryDetails::Symlink { .. }) => (),  // Nothing special to do //TODO: should we check if it ends in a trailing slash and is a file symlink and make this disallowed?
-                //TODO: what about folder symlinks? They are treated as if they are files, so maybe shouldn't have a trailing slash, but then tab-complete might be probletmatic..
             }
             (root_details, platform_differentiates_symlinks)
         }

@@ -321,4 +321,15 @@ fn test_non_existent_to_others() {
     run_trailing_slashes_test_expected_failure(None, "/", None, "/", Regex::new("doesn't exist").unwrap());
 }
 
-//TODO: add cases for different cases of symlinks too (see README for all the different types/situations)?
+// ====================================================================================
+// Symlinks - these are treated the same as files (i.e. no trailing slash allowed), no matter their kind
+// ====================================================================================
+
+#[test]
+fn test_symlinks() {
+    run_trailing_slashes_test_expected_failure(Some(&symlink_file("hello")), "/", Some(&file("contents")), "", get_file_trailing_slash_error());
+    run_trailing_slashes_test_expected_failure(Some(&file("hello")), "", Some(&symlink_file("hello")), "/", get_file_trailing_slash_error());
+
+    run_trailing_slashes_test_expected_failure(Some(&symlink_folder("hello")), "/", Some(&file("contents")), "", get_file_trailing_slash_error());
+    run_trailing_slashes_test_expected_failure(Some(&file("hello")), "", Some(&symlink_folder("hello")), "/", get_file_trailing_slash_error());
+}

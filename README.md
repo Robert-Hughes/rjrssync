@@ -136,21 +136,25 @@ It also prevents unintended creation of nested folders with the same name which 
 Trailing slashes on files are always invalid, because this gives the impression that the file is actually a folder,
 and so could lead to unexpected behaviour.
 
+Symlinks are treated the same as files, because that's essentially how rjrssync treats symlinks (it syncs 
+the link address, as if it was a small text file). Therefore they can't have trailing slashes.
+Note that tab-completion (on bash and cmd at least) does not put a trailing slash on symlinks automatically,
+so this shouldn't be a problem. (For folders, bash does do this which is why it's useful to allow trailing
+slashes on folder names).
+
 Notes on symlinks
 ==================
 
 Symlinks could be present as ancestors in the path(s) being synced (`a/b/symlink/c`),
 the path being synced itself (`a/b/symlink`, one or both sides), or as one of the items inside a folder being synced.
 
-Symlinks can point to either a file, a folder, nothing (broken), or another symlink, which itself could point to
-any of those.
+Symlinks can point to either a file, a folder, nothing (broken), or another symlink, which itself could point to any of those.
 
 Symlinks can cause cycles and DAGs, including pointing to itself. This shouldn't be too important for us,
 as we (generally) never follow symlinks and so will never observe these cases.
 
 On Windows, a symlink is either a "file symlink" or "directory symlink" (specified on creation),
-whereas on Linux it is simply a symlink. A "directory symlink" that points to a file (possibly via other symlinks)
-or a "file symlink" that points to a directory is considered broken (similar to the target not existing at all).
+whereas on Linux it is simply a symlink. A "directory symlink" that points to a file (possibly via other symlinks) or a "file symlink" that points to a directory is considered broken (similar to the target not existing at all).
 
 It is possible to create an invalid symlink (target is the wrong 'type' or doesn't exist)
 
@@ -162,13 +166,9 @@ syncing files, because their contents might be huge, but a link target is small)
 There can be multiple symlinks followed in a path being synced, e.g. <ROOT>/symlink1/folder2/symlink3/file,
 but this would only be observed if rjrssync was unaware of symlinks (otherwise it would never walk into the first symlink), so we can't actually encounter this.
 
-See https://crates.io/crates/symlink
+This crate has some useful explanation of some of these concepts: https://crates.io/crates/symlink.
 
-The link address on Windows might contain backslashes, which would need converting when sending over to Linux.
-The other way round should be fine, because Windows supports forward slashes too.
-TODO: we're currently just copying over the link data exactly as it is, so this probably needs to change!
-
-How do symlinks interact with trailing slashes on files/folders (see above section)?
+The target link address on Windows might contain backslashes, which would need converting when sending over to Linux. The other way round should be fine, because Windows supports forward slashes too.
 
 rjrssync treats symlinks as if they were simple text files containing their target address.
 They are not (generally) followed or validated. They will be reproduced as accurately as possible on
@@ -254,6 +254,7 @@ Syncing logic
 * Use of SystemTime
    -  is this compatible between platforms, time zone changes, precision differences, etc. etc.
    - can we safely serialize this on one platform and deserialize on another?
+* Consider warning for unexpected deletions (esp with replacing files with folders, see table in above section)
 
 
 
