@@ -244,7 +244,12 @@ fn entry_details_from_metadata(m: std::fs::Metadata, path: &Path) -> Result<Entr
 /// the result of a Command.
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Response {
-    RootDetails(Option<EntryDetails>), // Option<> because the root might not exist at all
+    RootDetails {
+        root_details: Option<EntryDetails>, // Option<> because the root might not exist at all
+        /// Whether or not this platform differentiates between file and folder symlinks (e.g. Windows),
+        /// vs. treating all symlinks the same (e.g. Linux).
+        platform_differentiates_symlinks: bool,
+    },
 
     // The result of GetEntries is split into lots of individual messages (rather than one big list)
     // so that the boss can start doing stuff before receiving the full list.
@@ -608,6 +613,8 @@ fn handle_set_root(comms: &mut Comms, context: &mut Option<DoerContext>, root: S
     });
     let context = context.as_ref().unwrap();
 
+    let platform_differentiates_symlinks = cfg!(windows);
+
     // Respond to the boss with what type of file/folder the root is, as it makes some decisions
     // based on this.
     // We use symlink_metadata so that we see the metadata of a symlink, not its target
@@ -615,11 +622,11 @@ fn handle_set_root(comms: &mut Comms, context: &mut Option<DoerContext>, root: S
     match metadata {
         Ok(m) => {
             let entry_details = entry_details_from_metadata(m, &context.root)?;
-            comms.send_response(Response::RootDetails(Some(entry_details))).unwrap();
+            comms.send_response(Response::RootDetails { root_details: Some(entry_details), platform_differentiates_symlinks }).unwrap();
         },
         Err(e) if e.kind() == ErrorKind::NotFound => {
             // Report this as a special error, as we handle it differently on the boss side
-            comms.send_response(Response::RootDetails(None)).unwrap();
+            comms.send_response(Response::RootDetails { root_details: None, platform_differentiates_symlinks }).unwrap();
         }
         Err(e) => return Err(format!(
                     "root '{}' can't be read: {}", context.root.display(), e)),

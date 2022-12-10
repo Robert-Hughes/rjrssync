@@ -120,8 +120,8 @@ pub fn sync(
     let timer = start_timer("SetRoot src");
     src_comms.send_command(Command::SetRoot { root: src_root.to_string() })?;
     let src_root_details = match src_comms.receive_response() {
-        Ok(Response::RootDetails(d)) => {
-            match d {
+        Ok(Response::RootDetails { root_details, platform_differentiates_symlinks: _ }) => {
+            match root_details {
                 None => return Err(format!("src path '{src_root}' doesn't exist!")),
                 Some(EntryDetails::File { .. }) => {
                     // Referring to an existing file with a trailing slash is an error, because it implies
@@ -139,7 +139,7 @@ pub fn sync(
                 Some(EntryDetails::Symlink { .. }) => (),  // Nothing special to do //TODO: should we check if it ends in a trailing slash and is a file symlink and make this disallowed?
                 //TODO: what about folder symlinks? They are treated as if they are files, so maybe shouldn't have a trailing slash, but then tab-complete might be probletmatic..
             };
-            d
+            root_details
         }
         r => return Err(format!("Unexpected response getting root details from src: {:?}", r)),
     };
@@ -149,9 +149,9 @@ pub fn sync(
     // Dest SetRoot
     let timer = start_timer("SetRoot dest");
     dest_comms.send_command(Command::SetRoot { root: dest_root.to_string() })?;
-    let mut dest_root_details = match dest_comms.receive_response() {
-        Ok(Response::RootDetails(d)) => {
-            match d {
+    let (mut dest_root_details, dest_platform_differentiates_symlinks) = match dest_comms.receive_response() {
+        Ok(Response::RootDetails { root_details, platform_differentiates_symlinks }) => {
+            match root_details {
                 None => (), // Dest root doesn't exist, but that's fine (we will create it later)
                 Some(EntryDetails::File { .. }) => {
                     // Referring to an existing file with a trailing slash is an error, because it implies
@@ -169,7 +169,7 @@ pub fn sync(
                 Some(EntryDetails::Symlink { .. }) => (),  // Nothing special to do //TODO: should we check if it ends in a trailing slash and is a file symlink and make this disallowed?
                 //TODO: what about folder symlinks? They are treated as if they are files, so maybe shouldn't have a trailing slash, but then tab-complete might be probletmatic..
             }
-            d
+            (root_details, platform_differentiates_symlinks)
         }
         r => return Err(format!("Unexpected response getting root details from dest: {:?}", r)),
     };
@@ -192,7 +192,7 @@ pub fn sync(
 
             dest_comms.send_command(Command::SetRoot { root: dest_root.clone() })?;
             dest_root_details = match dest_comms.receive_response() {
-                Ok(Response::RootDetails(t)) => t,
+                Ok(Response::RootDetails { root_details, platform_differentiates_symlinks: _ }) => root_details,
                 r => return Err(format!("Unexpected response getting root details from dest: {:?}", r)),
             }
         }
@@ -329,7 +329,7 @@ pub fn sync(
     let delete_start = Instant::now();
     for (dest_path, dest_details) in dest_entries.iter().rev() {
         let s = src_entries_lookup.get(dest_path);
-        if !s.is_some() || should_delete(s.unwrap(), dest_details) {
+        if !s.is_some() || should_delete(s.unwrap(), dest_details, dest_platform_differentiates_symlinks) {
             debug!("Deleting from dest {}", format_root_relative(&dest_path, &dest_root));
             let c = match dest_details {
                 EntryDetails::File { size, .. } => {
@@ -375,7 +375,7 @@ pub fn sync(
     for (path, src_details) in src_entries {
         let dest_details = dest_entries_lookup.get(&path);
         match dest_details {
-            Some(dest_details) if !should_delete (&src_details, dest_details) => {
+            Some(dest_details) if !should_delete (&src_details, dest_details, dest_platform_differentiates_symlinks) => {
                 // Dest already has this entry - check if it is up-to-date
                 match src_details {
                     EntryDetails::File { size, modified_time: src_modified_time } => {
@@ -520,7 +520,7 @@ pub fn sync(
 
 /// Checks if a given src entry could be updated to match the dest, or if it needs
 /// to be deleted and recreated instead.
-pub fn should_delete(src: &EntryDetails, dest: &EntryDetails) -> bool {
+pub fn should_delete(src: &EntryDetails, dest: &EntryDetails, dest_platform_differentiates_symlinks: bool) -> bool {
     match src {
         EntryDetails::File { .. } => match dest {
             EntryDetails::File { .. } => false,
@@ -532,10 +532,12 @@ pub fn should_delete(src: &EntryDetails, dest: &EntryDetails) -> bool {
         },
         EntryDetails::Symlink { kind: src_kind, target: src_target } => match dest {
             EntryDetails::Symlink { kind: dest_kind, target: dest_target } => {
-                if src_kind == dest_kind && src_target == dest_target {
-                    false
-                } else {
+                if src_target != dest_target {
                     true
+                } else if src_kind != dest_kind && dest_platform_differentiates_symlinks {
+                    true
+                } else {
+                    false
                 }
             }
             _ => true,
