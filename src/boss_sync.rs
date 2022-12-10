@@ -170,16 +170,16 @@ pub fn sync(
     };
     stop_timer(timer);
 
-    // If src is a file, and the dest path ends in a slash, then we want to sync the file
-    // _inside_ the folder, rather then replacing the folder with the file (see README for reasoning).
+    // If src is a file (or symlink, which we treat as a file), and the dest path ends in a slash, 
+    // then we want to sync the file _inside_ the folder, rather then replacing the folder with the file
+    // (see README for reasoning).
     // To do this, we modify the dest path and then continue as if that was the path provided by the
     // user.
     let last_dest_char = dest_root.chars().last();
     // Note that we can't use std::path::is_separator (or similar) because this might be a remote path, so the current platform
     // isn't appropriate.
     let dest_trailing_slash = last_dest_char == Some('/') || last_dest_char == Some('\\');
-    //TODO: what about if src root is a symlink to a file, we should probably do the same!
-    if matches!(src_root_details, EntryDetails::File {..}) && dest_trailing_slash {
+    if matches!(src_root_details, EntryDetails::File {..} | EntryDetails::Symlink { .. }) && dest_trailing_slash {
         let src_filename = src_root.split(|c| c == '/' || c == '\\').last();
         if let Some(c) = src_filename {
             dest_root = dest_root.to_string() + c;

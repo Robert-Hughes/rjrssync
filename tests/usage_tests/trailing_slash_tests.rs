@@ -36,7 +36,11 @@ fn run_trailing_slashes_test_expect_success_override_dest(src_node: Option<&File
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
-            Regex::new(&regex::escape(&format!("Copied {} file(s)", expected_num_copies))).unwrap(),
+            if matches!(src_node, Some(FilesystemNode::Symlink { .. })) {
+                Regex::new(&regex::escape(&format!("copied {} symlink(s)", expected_num_copies))).unwrap()
+            } else {
+                Regex::new(&regex::escape(&format!("Copied {} file(s)", expected_num_copies))).unwrap()
+            }
         ],
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(src_node.unwrap())), // Source should always be unchanged
@@ -322,7 +326,8 @@ fn test_non_existent_to_others() {
 }
 
 // ====================================================================================
-// Symlinks - these are treated the same as files (i.e. no trailing slash allowed), no matter their kind
+// Symlinks with trailing slashes - these are treated the same as files (i.e. no trailing slash allowed), no matter their kind,
+//   however there is a quirk with Linux and symlink folders.
 // ====================================================================================
 
 /// On Windows, any trailing slash on a symlink is an error.
@@ -331,11 +336,12 @@ fn test_non_existent_to_others() {
 fn test_symlinks_broken_targets() {
     run_trailing_slashes_test_expected_failure(Some(&symlink_file("hello")), "/", Some(&file("contents")), "", get_file_trailing_slash_error());
     run_trailing_slashes_test_expected_failure(Some(&file("hello")), "", Some(&symlink_file("hello")), "/", get_file_trailing_slash_error());
+    run_trailing_slashes_test_expected_failure(Some(&symlink_file("hello")), "/", Some(&symlink_file("hello")), "/", get_file_trailing_slash_error());
 
     run_trailing_slashes_test_expected_failure(Some(&symlink_folder("hello")), "/", Some(&file("contents")), "", get_file_trailing_slash_error());
     run_trailing_slashes_test_expected_failure(Some(&file("hello")), "", Some(&symlink_folder("hello")), "/", get_file_trailing_slash_error());
+    run_trailing_slashes_test_expected_failure(Some(&symlink_folder("hello")), "/", Some(&symlink_folder("hello")), "/", get_file_trailing_slash_error());
 }
-
 
 /// But on Linux, trailing slashes on symlinks mean to _follow_ the symlink (this is OS behaviour that we don't
 /// really want to override). There is therefore different behaviour for valid or invalid symlinks.
@@ -359,7 +365,6 @@ fn test_symlinks_broken_targets() {
         Regex::new("Error creating folder and ancestors .* File exists").unwrap());
 }
 
-
 /// There is different behaviour for valid or invalid symlinks.
 #[test]
 #[cfg(unix)]
@@ -368,6 +373,7 @@ fn test_symlinks_valid_targets() {
     let existing_file = std::env::current_exe().unwrap().to_string_lossy().to_string(); // an arbitrary extant file
     run_trailing_slashes_test_expected_failure(Some(&symlink_file(&existing_file)), "/", Some(&file("contents")), "", get_file_trailing_slash_error());
     run_trailing_slashes_test_expected_failure(Some(&file("hello")), "", Some(&symlink_file(&existing_file)), "/", get_file_trailing_slash_error());
+    run_trailing_slashes_test_expected_failure(Some(&symlink_file(&existing_file)), "/", Some(&symlink_file(&existing_file)), "/", get_file_trailing_slash_error());
 
     // symlink folders with trailing slashes though will be interpreted as the destination itself, and so should actually work fine
     // without any validation error.
@@ -452,3 +458,50 @@ fn test_symlinks_valid_targets() {
         ..Default::default()
     }.with_expected_actions(NumActions { deleted_files: 1, copied_files: 1, ..Default::default() }));
 }
+
+// ====================================================================================
+// Symlinks without trailing slashes - these are treated the same as files, no matter their kind
+// ====================================================================================
+
+/// Tries syncing a symlink to a folder. This should replace the folder with the symlink.
+#[test]
+fn test_symlink_no_trailing_slash_to_folder_no_trailing_slash() {
+    run_trailing_slashes_test_expect_success(Some(&symlink_file("target1")), "", Some(&empty_folder()), "", 1);
+}
+
+/// Tries syncing a symlink to a folder/. This should place the symlink inside the folder 
+#[test]
+fn test_symlink_no_trailing_slash_to_folder_trailing_slash() {
+    run_trailing_slashes_test_expect_success_override_dest(Some(&symlink_file("target")), "", Some(&empty_folder()), "/", 1, "$TEMP/dest/src");
+}
+
+/// Tries syncing a folder to a symlink. This should replace the symlink with the folder.
+#[test]
+fn test_folder_no_trailing_slash_to_symlink_no_trailing_slash() {
+    let src_folder = folder! {
+        "file" => file("contents"),
+    };
+    run_trailing_slashes_test_expect_success(Some(&src_folder), "", Some(&symlink_file("target2")), "", 1);
+}
+
+/// Tries syncing a folder/ to a symlink. This should replace the symlink with the folder.
+#[test]
+fn test_folder_trailing_slash_to_symlink_no_trailing_slash() {
+    let src_folder = folder! {
+        "file" => file("contents"),
+    };
+    run_trailing_slashes_test_expect_success(Some(&src_folder), "/", Some(&symlink_file("target2")), "", 1);
+}
+
+/// Tries syncing a symlink to a non-existent path. Should create a new symlink.
+#[test]
+fn test_symlink_no_trailing_slash_to_non_existent_no_trailing_slash() {
+    run_trailing_slashes_test_expect_success(Some(&symlink_file("target1")), "", None, "", 1);
+}
+
+/// Tries syncing a symlink to a non-existent path/. This should create a new folder to put the symlink in.
+#[test]
+fn test_symlink_no_trailing_slash_to_non_existent_trailing_slash() {
+    run_trailing_slashes_test_expect_success_override_dest(Some(&symlink_file("target")), "", None, "/", 1, "$TEMP/dest/src");
+}
+

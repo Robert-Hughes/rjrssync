@@ -94,26 +94,28 @@ The cell contents describe the behaviour given those inputs:
    - 'X' means this is an error
    - 'b' means that the source is copied over to the path b, creating, updating or replacing whatever might be there.
    - 'b/a' means that the source is copied over to the path b/a, creating, updating or replacing whatever might be there.
-   - '*' indicates that the behaviour might be surprising/destructive because it deletes an existing file or folder and replaces it
+   - '!' indicates that the behaviour might be surprising/destructive because it deletes an existing file or folder and replaces it
         with a folder/file. We should probably warn for this.
 
 |---------------------------------------------------------------------|
-|          Dest ->    |  Non-existent |      File     |    Folder     |
+|          Dest ->    |  Non-existent |File or symlink|    Folder     |
 |                     |---------------|---------------|---------------|
-|  Source v           |   b   |  b/   |   b   |  b/   |   b   |  b/   |
+|  Source v           |   b   |  b/   |   b   |  b/ * |   b   |  b/   |
 |---------------------|-------|-------|-------|-------|-------|-------|
 |              src/a  |               |               |               |
 | Non-existent        |       X       |       X       |       X       |
 |              src/a/ |               |               |               |
 |---------------------|-------|-------|-------|-------|-------|-------|
-|              src/a  |   b   |  b/a  |   b   |   X   |   b*  |  b/a  |
-| File                |-------|-------|-------|-------|-------|-------|
-|              src/a/ |   X   |   X   |   X   |   X   |   X   |   X   |
+|              src/a  |   b   |  b/a  |   b   |   X   |   b!  |  b/a  |
+| File or             |-------|-------|-------|-------|-------|-------|
+| symlink     src/a/ *|   X   |   X   |   X   |   X   |   X   |   X   |
 |---------------------|-------|-------|-------|-------|-------|-------|
-|              src/a  |   b   |   b   |   b*  |   X   |   b   |   b   |
+|              src/a  |   b   |   b   |   b!  |   X   |   b   |   b   |
 | Folder              |-------|-------|-------|-------|-------|-------|
-|              src/a/ |   b   |   b   |   b*  |   X   |   b   |   b   |
+|              src/a/ |   b   |   b   |   b!  |   X   |   b   |   b   |
 |---------------------|-------|-------|-------|-------|-------|-------|
+
+*: On Linux, a symlink with a trailing slash that points to a folder is treated as the target folder.
 
 The behaviour can be summarised as a "golden rule" which is that after the sync, the object pointed to by the destination path will be identical to the object pointed to by the source path, i.e. `tree $SRC == tree $DEST`.
 
@@ -138,7 +140,8 @@ so this shouldn't be a problem. (For folders, bash does do this which is why it'
 slashes on folder names).
 
 Note though that on Linux, the OS treats a trailing slash on a symlink to refer to the _target_
-of the symlink, not the symlink itself, and so rjrssync doesn't actually see these as symlinks at all.
+of the symlink, not the symlink itself, and so rjrssync doesn't actually see these as symlinks at all, so they
+behave as folders.
 
 Notes on symlinks
 ==================
