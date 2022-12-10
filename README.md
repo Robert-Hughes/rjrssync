@@ -174,18 +174,21 @@ rjrssync treats symlinks as if they were simple text files containing their targ
 They are not (generally) followed or validated. They will be reproduced as accurately as possible on
 the destination.
 Note that this only applies to symlinks that are part of the sync (including as the root);
-symlinks that are ancestors of the path provided as source or dest will always be followed.
+symlinks that are ancestors of the path provided as source or dest will always be followed in order
+to get to the transfer root.
 
-//TODO: Might need some logic to deal with an existing windows symlink on the dest side, and then a broken/unknown
-// symlink on the source side. If the target address is the same, then maybe we should just leave it as-is
-// rather than deleting it then failing to re-create it because it has unknown kind? Not sure what good behaviour is here.
+Known quirks with the current behaviour:
+
+Existing windows symlink on the dest side, and then a broken Unix symlink on the source side, with the same target link address: 
+Currently this will result in an error, as we will attempt to create a Generic symlink on the dest, which will fail. In this case it's pretty likely that the user would prefer us to simply leave the dest symlink as it is
+(whether it be a file or folder symlink).
 
 
 It was considered for rjrssync to have two 'modes', as to whether it ignores the symlinks (treats them as
 their targets) or syncs them as the links. However it was decided against this because of the increase in
 complexity of the testing and some quirky behaviour in the "unaware" mode (see below):
 
-Quirks:
+Quirks of unaware mode:
 
 On Linux, if there's a symlink to a folder and we're in unaware mode, then we won't be able to delete it because on Linux, deleting a symlink has to be done via remove_file, not remove_dir. However when in unaware mode, we see it as a dir, and so use remove_dir.
 
