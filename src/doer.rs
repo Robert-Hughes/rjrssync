@@ -609,6 +609,7 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut Option<DoerCo
                 Err(e) => comms.send_response(Response::Error(format!("Error deleting symlink '{}': {e}", full_path.display()))).unwrap(),
             }
         },
+        #[cfg(feature="profiling")]
         Command::ProfilingTimeSync => {
             comms.send_response(Response::ProfilingTimeSync(PROFILING_START.elapsed())).unwrap();
         },

@@ -104,7 +104,7 @@ impl Drop for Comms {
                 thread.unwrap().join().unwrap();
             }
             Comms::Remote { debug_name, .. } => {
-                let debug_name = debug_name.clone();
+                let _debug_name = debug_name.clone();
                 // Synchronise the profiling clocks between local and remote profiling.
                 // Do this by sending a special Command which the doer responds to immediately with its local 
                 // profiling timer. We then compare that value with our own profiling clock to work out the offset.
@@ -140,7 +140,7 @@ impl Drop for Comms {
                 // Wait for remote doers to send back any profiling data, if enabled
                 #[cfg(feature="profiling")]
                 match self.receive_response() {
-                    Ok(Response::ProfilingData(x)) => add_remote_profiling(x, debug_name, profiling_offset),
+                    Ok(Response::ProfilingData(x)) => add_remote_profiling(x, _debug_name, profiling_offset),
                     _ => panic!("Unexpected response"),
                 }
             }
