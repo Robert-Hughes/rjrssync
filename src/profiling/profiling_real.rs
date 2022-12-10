@@ -12,7 +12,7 @@ use lazy_static::{lazy_static};
 
 lazy_static! {
     // Only initialize profiling when the first entry is added.
-    static ref PROFILING_START: Instant = Instant::now();
+    pub static ref PROFILING_START: Instant = Instant::now();
 
     static ref GLOBAL_PROFILING_DATA: Mutex<GlobalProfilingData> = Mutex::new(GlobalProfilingData::default());
 }
@@ -21,6 +21,8 @@ thread_local! {
     // Each thread will have it's own vec of profiling entries to avoid weird race conditions
     static PROFILING_DATA: RefCell<ThreadRecorder> = RefCell::new(ThreadRecorder { entries: Vec::with_capacity(1_000_000) });
 }
+
+const LOCAL_PROCESS_NAME: &str = "<Local>";
 
 #[macro_export]
 macro_rules! profile_this {
@@ -52,10 +54,9 @@ struct ThreadRecorder {
 }
 impl Drop for ThreadRecorder {
     fn drop(&mut self) {
-        let process_name = std::env::current_exe().unwrap().file_name().unwrap().to_string_lossy().to_string();
         let thread_name = std::thread::current().name().unwrap().to_string();
         trace!("Moving thread profiling data to global for thread '{}'", thread_name);
-        GLOBAL_PROFILING_DATA.lock().expect("Locking error").processes.entry(process_name)
+        GLOBAL_PROFILING_DATA.lock().expect("Locking error").processes.entry(LOCAL_PROCESS_NAME.to_string())
             .or_default().threads.insert(thread_name, ThreadProfilingData {
                 entries: std::mem::take(&mut self.entries)
             });
@@ -70,6 +71,7 @@ pub struct ThreadProfilingData {
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct ProcessProfilingData {
+    timestamp_offset: Duration,
     threads: HashMap<String, ThreadProfilingData>,
 }
 
@@ -142,8 +144,7 @@ impl GlobalProfilingData {
 
         for (process_name, process_profiling_data) in &self.processes {
             let pid = get_pid_for_process_name(&mut name_to_pid, process_name.clone());
-            process_name_to_first_event.push((process_name.clone(), process_profiling_data.threads.iter().next().unwrap().1.entries[0].start));
- 
+
             // Keep track of which tid maps to which thread name
             let mut name_to_tid = HashMap::new();
             let get_tid_for_thread_name = |name_to_tid: &mut HashMap<_, _>, thread_name| {
@@ -155,13 +156,14 @@ impl GlobalProfilingData {
 
             for (thread_name, thread_profiling_data) in &process_profiling_data.threads {
 
-                thread_name_to_first_event.push((thread_name.clone(), thread_profiling_data.entries[0].start));
+                thread_name_to_first_event.push((thread_name.clone(), thread_profiling_data.entries.last().unwrap().start
+                    + process_profiling_data.timestamp_offset));
 
                 for entry in &thread_profiling_data.entries {
                     let name = entry.scope_name.clone();
                     let cat = "None".to_string();
                     let tid = get_tid_for_thread_name(&mut name_to_tid, thread_name.clone());
-                    let ts = entry.start.as_nanos();
+                    let ts = (entry.start + process_profiling_data.timestamp_offset).as_nanos();
                     let beginning = ChromeTracing {
                         name,
                         cat: cat.clone(),
@@ -172,7 +174,7 @@ impl GlobalProfilingData {
                         args: HashMap::new(),
                     };
                     json_entries.push(beginning);
-                    let end_ts = entry.end.as_nanos();
+                    let end_ts = (entry.end + process_profiling_data.timestamp_offset).as_nanos();
                     let name = entry.scope_name.clone();
                     let end = ChromeTracing {
                         name,
@@ -197,6 +199,8 @@ impl GlobalProfilingData {
                 name_to_tid.insert(new_thread_name, v);
             }
 
+            process_name_to_first_event.push((process_name.clone(), thread_name_to_first_event[0].1));
+
             // Add metadata to define thread names
             for (thread_name, tid) in &name_to_tid {
                 let entry = ChromeTracing {
@@ -217,7 +221,10 @@ impl GlobalProfilingData {
         let keys : Vec<String> = name_to_pid.keys().map(|t| (*t).clone()).collect();
         for process_name in keys {
             let idx = process_name_to_first_event.iter().position(|x| x.0 == process_name).unwrap();
-            let new_process_name = format!("{idx} {process_name}");
+            let mut new_process_name = format!("{idx} {process_name}");
+            if process_name == LOCAL_PROCESS_NAME {
+                new_process_name = "0 Boss".to_string();
+            }
             let v = name_to_pid.remove(&process_name).unwrap();
             name_to_pid.insert(new_process_name, v);
         }
@@ -261,12 +268,11 @@ fn get_all_profiling() -> GlobalProfilingData {
 }
 
 pub fn get_local_process_profiling() -> ProcessProfilingData {
-    // Assume the local process is the first one - there should only be one as we call this on the doer only.
-    get_all_profiling().processes.into_iter().next().unwrap().1
+    std::mem::take(get_all_profiling().processes.get_mut(LOCAL_PROCESS_NAME).unwrap())
 }
 
-
-pub fn add_remote_profiling(remote_profiling_data: ProcessProfilingData, process_name: String) {
+pub fn add_remote_profiling(mut remote_profiling_data: ProcessProfilingData, process_name: String, offset: Duration) {
     trace!("add_remote_profiling");
+    remote_profiling_data.timestamp_offset = offset;
     GLOBAL_PROFILING_DATA.lock().unwrap().processes.insert(process_name, remote_profiling_data);
 }

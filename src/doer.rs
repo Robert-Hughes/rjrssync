@@ -146,6 +146,10 @@ pub enum Command {
         path: RootRelativePath,
         kind: SymlinkKind,
     },
+
+    #[cfg(feature = "profiling")]
+    ProfilingTimeSync,
+
     Shutdown,
 }
 
@@ -259,6 +263,8 @@ pub enum Response {
     FileContent { data: Vec<u8> },
 
     #[cfg(feature = "profiling")]
+    ProfilingTimeSync(std::time::Duration),
+    #[cfg(feature = "profiling")]
     ProfilingData(ProcessProfilingData),
 
     Ack,
@@ -325,6 +331,8 @@ impl Display for Comms {
 }
 
 pub fn doer_main() -> ExitCode {
+    let timer = start_timer(function_name!()); 
+
     let args = DoerCliArgs::parse();
 
     // Configure logging.
@@ -416,11 +424,13 @@ pub fn doer_main() -> ExitCode {
         sending_nonce_counter: 1, // Nonce counters must be different, so sender and receiver don't reuse
         receiving_nonce_counter: 0,
     };
-
+    
     if let Err(e) = message_loop(&mut comms) {
         debug!("doer process finished with error: {:?}", e);
         return ExitCode::from(20)
     }
+
+    stop_timer(timer);
 
     // Send our profiling data (if enabled) back to the boss process so it can combine it with its own
     #[cfg(feature="profiling")]
@@ -598,10 +608,13 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut Option<DoerCo
                 Ok(()) => comms.send_response(Response::Ack).unwrap(),
                 Err(e) => comms.send_response(Response::Error(format!("Error deleting symlink '{}': {e}", full_path.display()))).unwrap(),
             }
-        }
+        },
+        Command::ProfilingTimeSync => {
+            comms.send_response(Response::ProfilingTimeSync(PROFILING_START.elapsed())).unwrap();
+        },
         Command::Shutdown => {
             return Ok(false);
-        }
+        },
     }
     Ok(true)
 }

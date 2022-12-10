@@ -95,24 +95,55 @@ impl Drop for Comms {
     // They should exit anyway due to a disconnection (of their channel or stdin), but this
     // gives a cleaner exit without errors.
     fn drop(&mut self) {
-        // There's not much we can do about an error here, other than log it, which send_command already does, so we ignore any error.
-        let _ = self.send_command(Command::Shutdown);
         match self {
             Comms::Local { thread , ..} => {
+                let thread = thread.take();
+                // There's not much we can do about an error here, other than log it, which send_command already does, so we ignore any error.
+                let _ = self.send_command(Command::Shutdown);
                 // Join threads so that they're properly cleaned up including the profiling data
-                thread.take().unwrap().join().unwrap();
+                thread.unwrap().join().unwrap();
             }
-            #[cfg(feature="profiling")]
-            Comms::Remote { debug_name , .. } => {
-                // Wait for remote doers to send back any profiling data, if enabled
+            Comms::Remote { debug_name, .. } => {
                 let debug_name = debug_name.clone();
+                // Synchronise the profiling clocks between local and remote profiling.
+                // Do this by sending a special Command which the doer responds to immediately with its local 
+                // profiling timer. We then compare that value with our own profiling clock to work out the offset.
+                #[cfg(feature="profiling")]
+                let profiling_offset = {
+                    // Do this a couple of times and take the average
+                    let mut samples = vec![];
+                    for i in 0..5 {
+                        let start = PROFILING_START.elapsed();
+                        self.send_command(Command::ProfilingTimeSync).expect("Failed to send profiling time sync");
+                        match self.receive_response() {
+                            Ok(Response::ProfilingTimeSync(remote_timestamp)) => {
+                                let end = PROFILING_START.elapsed();
+                                trace!("Profiling sync: start: {:?}, end: {:?}, diff: {:?}, remote: {:?}", start, end, end-start, remote_timestamp);
+                                if i >= 2 { // Skip the first two to make sure the doer is ready to go (e.g. code cached)
+                                    // Take the average of our local start/end timestamps, assuming that the round trip is symmetrical.
+                                    let sample = (start + end) / 2 - remote_timestamp;
+                                    trace!("Profiling sync sample: {:?}", sample);
+                                    samples.push(sample);
+                                }
+                            }
+                            x => panic!("Unexpected response for profiling time sync: {:?}", x),
+                        }
+                    }
+                    let average = samples.iter().sum::<std::time::Duration>() / samples.len() as u32;
+                    trace!("Profiling sync average: {:?}", average);
+                    average
+                };
+
+                // There's not much we can do about an error here, other than log it, which send_command already does, so we ignore any error.
+                let _ = self.send_command(Command::Shutdown);
+
+                // Wait for remote doers to send back any profiling data, if enabled
+                #[cfg(feature="profiling")]
                 match self.receive_response() {
-                    Ok(Response::ProfilingData(x)) => add_remote_profiling(x, debug_name),
+                    Ok(Response::ProfilingData(x)) => add_remote_profiling(x, debug_name, profiling_offset),
                     _ => panic!("Unexpected response"),
                 }
             }
-            #[cfg(not(feature="profiling"))]
-            _ => (),
         }
     }
 }
