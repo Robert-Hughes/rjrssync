@@ -150,6 +150,30 @@ fn test_symlink_new_target() {
     run_expect_success(&src, &dest, copied_files_and_symlinks(1, 1));
 }
 
+/// Tests that syncing a symlink that has the same target address but a different kind is updated correctly.
+/// Folder => File
+#[test]
+fn test_symlink_change_kind_folder_to_file() {
+    let src = folder! {
+        "symlink" => symlink_file("target"),
+        "target" => file_with_modified("contents", SystemTime::UNIX_EPOCH),
+    };
+    let dest = folder! {
+        "symlink" => symlink_folder("target"),
+        "target" => empty_folder(),
+    };
+    // On Windows, the symlink will need deleting and recreating, as it's a different kind.
+    #[cfg(windows)]
+    let expected_actions = NumActions { deleted_folders: 1, copied_files: 1, deleted_symlinks: 1, copied_symlinks: 1, ..Default::default() };
+    // On Linux though, all symlinks are the same so nothing needs doing!
+    #[cfg(not(windows))]
+    let expected_actions = NumActions { deleted_folders: 1, copied_files: 1, deleted_symlinks: 0, copied_symlinks: 0, ..Default::default() };
+    
+    run_expect_success(&src, &dest, expected_actions);
+}
+
+//TODO: other versions of the above, inc broken symlink on Unix?
+
 /// Tests that an existing symlink (both directory and file) is deleted from the dest
 /// when it is not present on the source side.
 #[test]
@@ -262,6 +286,7 @@ use crate::{remote_tests::RemotePlatform, test_framework::run_process_with_live_
 use super::*;
 
 /// Tests that syncing a symlink to another platform will replace the slashes in the target as appropriate.
+/// Checks both a symlink file and symlink folder, to cover syncing these between platforms.
 #[test]
 fn test_symlink_target_slashes() {
     // (using temp_dir here is just an arbitrary way to get an absolute path)
@@ -325,23 +350,32 @@ fn test_symlink_target_slashes() {
     }
 }
 
-/// Tests that syncing a symlink of each kind (file, folder, unknown) from Unix to Windows
-/// works as expected
+/// Tests that syncing a broken/unknown symlink of from Unix to Windows raises an error as expected.
 #[test]
-fn test_symlink_kinds_unix_to_windows() {
-    //TODO: copy stuff from above?
+//#[cfg(unix)]
+fn test_unknown_symlink_unix_to_windows() {
+    let src = symlink_generic("broken!");
+    let (remote_user_and_host, remote_test_folder) = RemotePlatform::Windows.get_config();
+    let dest = remote_test_folder.to_string() + "/test_unknown_symlink_unix_to_windows";
+
+    run(TestDesc {
+        setup_filesystem_nodes: vec![
+            ("$TEMP/src", &src),
+        ],
+        args: vec![
+            "$TEMP/src".to_string(),
+            format!("{remote_user_and_host}:{dest}")
+        ],
+        expected_exit_code: 12,
+        expected_output_messages: vec! [
+            Regex::new(&regex::escape("Can't create symlink of unknown kind on this platform")).unwrap()
+        ],
+        ..Default::default()
+    });
 }
 
-/// Tests that syncing a symlink of each kind (file, folder) from Windows to Unix
-/// works as expected
-#[test]
-fn test_symlink_kinds_windows_to_unix() {
-    //TODO: copy stuff from above?
 }
 
-}
-
-//TODO: test cross-platform syncing - e.g. trying to create file symlink on unix, or vice versa.
 //TODO: - when syncing windows to linux, the type of symlink might be different (e.g. File vs Generic), and so it would
 // delete then re-create the symlink, which we might not want. Add test to make sure that nothing happens when 
 // we have some symlinks that are up-to-date.
@@ -349,4 +383,5 @@ fn test_symlink_kinds_windows_to_unix() {
 // symlink on the source side. If the target address is the same, then maybe we should just leave it as-is
 // rather than deleting it then failing to re-create it because it has unknown kind? Not sure what good behaviour is here.
 
-//TODO: test case where symlink already exists and has the same target address, but is the wrong kind (only relevant on Windows)
+//TODO: test case where symlink already exists and has the same target address, but is the wrong kind 
+// (on Windows would need to recreate, but on Linux wouldn't need to do anything!)

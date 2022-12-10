@@ -216,7 +216,7 @@ Interface
 * If a dir is excluded by the filters (after resolving all filters), then we don't walk inside that dir, so stuff inside it will be excluded *even if the filters would have matched them*. Document this?
 * --dry-run (and the same for -v) should make it clearer exactly what is being copied to where, e.g. give absolute paths. If there is a long path up to the root (or afterwards), could shorten it with ellipses, e.g. "Copying T:\work\...\bob\folder\...\thing.txt to X:\backups\...\newbackup\folder\...\thing.txt"
 * Option to override the "dest file is newer" error
-* Should filters expect to see trailing slashes on folder names or not?
+* Should filters expect to see trailing slashes on folder names or not? What about folder symlinks?
 
 Remote launching
 ----------------
@@ -285,7 +285,7 @@ ERROR | rjrssync::boss_frontend: Sync error: Unexpected response from dest GetEn
 * Improve compile times. Is it the RustEmbed crate? Maybe the debug-embed feature of the crate could help?
 * Maybe should extend test framework to support doing things remotely, like saving and loading filesystem nodes, making and clearing out a temporary folder etc.
 * Upload to crates.io, so that we can "cargo install" from anywhere?
-
+* Warning if filter doesn't match anything, possibly after GetEntries but before actually doing anything (to prevent mistaken filter?)
 
 
 Idea for filters, with re-usable "functions":

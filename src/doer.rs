@@ -579,7 +579,7 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut Option<DoerCo
                 match kind {
                     SymlinkKind::File => std::fs::remove_file(&full_path),
                     SymlinkKind::Folder => std::fs::remove_dir(&full_path),
-                    // Unspecified is only used for Unix, and remove_file is the correct way to delete these.
+                    // We should never be asked to delete an Unknown symlink on Windows, but just in case:
                     SymlinkKind::Unknown => {
                         comms.send_response(Response::Error(format!("Can't delete symlink of unknown type '{}'", full_path.display()))).unwrap();
                         return Ok(true);
@@ -782,42 +782,20 @@ fn handle_create_symlink(path: RootRelativePath, context: &mut DoerContext, kind
         SymlinkTarget::NotNormalized(s) => s, // No normalisation was possible on the src, so leave it as-is
     };
 
+    #[cfg(windows)]
     let res = match kind {
-        SymlinkKind::File => {
-            #[cfg(windows)]
-            {
-                std::os::windows::fs::symlink_file(target, &full_path)
-            }
-            // Non-windows platforms can't create explicit file symlinks, but we can just create a generic
-            // symlink, which will behave the same.
-            #[cfg(not(windows))]
-            {
-                std::os::unix::fs::symlink(target, &full_path)
-            }
-        },
-        SymlinkKind::Folder => {
-            #[cfg(windows)]
-            {
-                std::os::windows::fs::symlink_dir(target, &full_path)
-            }
-            // Non-windows platforms can't create explicit folder symlinks, but we can just create a generic
-            // symlink, which will behave the same.
-            #[cfg(not(windows))]
-            {
-                std::os::unix::fs::symlink(target, &full_path)
-            }
-        }
+        SymlinkKind::File => std::os::windows::fs::symlink_file(target, &full_path),
+        SymlinkKind::Folder => std::os::windows::fs::symlink_dir(target, &full_path),
         SymlinkKind::Unknown => {
-            #[cfg(unix)]
-            {
-                std::os::unix::fs::symlink(target, &full_path)
-            }
-            #[cfg(not(unix))] // Windows can't create unknown symlinks - it needs to be either a file or folder symlink
-            {
-                return Err(format!("Can't create symlink of unknown kind on this platform '{}'", full_path.display()));
-            }
+            // Windows can't create unknown symlinks - it needs to be either a file or folder symlink
+            return Err(format!("Can't create symlink of unknown kind on this platform '{}'", full_path.display()));
         },
     };
+    #[cfg(not(windows))]
+    // Non-windows platforms can't create explicit file/folder symlinks, but we can just create a generic
+    // symlink, which will behave the same. All types of symlink are just generic ones.
+    let res = std::os::unix::fs::symlink(target, &full_path);
+
     if let Err(e) = res {
         return Err(format!("Failed to create symlink '{}': {e}", full_path.display()));
     }

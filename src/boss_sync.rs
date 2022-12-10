@@ -137,6 +137,7 @@ pub fn sync(
                 },
                 Some(EntryDetails::Folder) => (),  // Nothing special to do
                 Some(EntryDetails::Symlink { .. }) => (),  // Nothing special to do //TODO: should we check if it ends in a trailing slash and is a file symlink and make this disallowed?
+                //TODO: what about folder symlinks? They are treated as if they are files, so maybe shouldn't have a trailing slash, but then tab-complete might be probletmatic..
             };
             d
         }
@@ -166,6 +167,7 @@ pub fn sync(
                 }
                 Some(EntryDetails::Folder) => (), // Nothing special to do
                 Some(EntryDetails::Symlink { .. }) => (),  // Nothing special to do //TODO: should we check if it ends in a trailing slash and is a file symlink and make this disallowed?
+                //TODO: what about folder symlinks? They are treated as if they are files, so maybe shouldn't have a trailing slash, but then tab-complete might be probletmatic..
             }
             d
         }
