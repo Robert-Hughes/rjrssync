@@ -86,13 +86,12 @@ fn test_dest_ancestors_dont_exist() {
             "$TEMP/dest1/dest2/dest3/dest.txt".to_string(),
         ],
         expected_exit_code: 0,
-        expected_output_messages: copied_files(1).get_expected_output_messages(),
         expected_filesystem_nodes: vec![
             ("$TEMP/src.txt", Some(src)), // Source should always be unchanged
             ("$TEMP/dest1/dest2/dest3/dest.txt", Some(src)), // Dest should be identical to source
         ],
         ..Default::default()
-    });
+    }.with_expected_actions(copied_files(1)));
 }
 
 #[test]
@@ -128,13 +127,12 @@ fn test_filters() {
             "-.*/sc1".to_string(),
         ],
         expected_exit_code: 0,
-        expected_output_messages: copied_files_and_folders(2, 2).get_expected_output_messages(),
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&src_folder)), // Source should always be unchanged
             ("$TEMP/dest", Some(&expected_dest_folder)),
         ],
         ..Default::default()
-    });
+    }.with_expected_actions(copied_files_and_folders(2, 2)));
 }
 
 #[test]
@@ -231,13 +229,12 @@ fn test_relative_paths() {
             "dest".to_string(),
         ],
         expected_exit_code: 0,
-        expected_output_messages: copied_files_and_folders(1, 1).get_expected_output_messages(),
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&src_folder)), // Source should always be unchanged
             ("$TEMP/dest", Some(&src_folder)), // Dest should be same as source
         ],
         ..Default::default()
-    });
+    }.with_expected_actions(copied_files_and_folders(1, 1)));
 }
 
 /// Tests that the --spec option works instead of specifying SRC and DEST directly.

@@ -321,6 +321,13 @@ pub struct TestDesc<'a> {
     /// The filesystem at the given paths are expected to be as described (including None, for non-existent)
     pub expected_filesystem_nodes: Vec<(&'a str, Option<&'a FilesystemNode>)>
 }
+impl TestDesc<'_> {
+    pub fn with_expected_actions(mut self, actions: NumActions) -> Self {
+        self.expected_output_messages.append(&mut actions.get_expected_output_messages());
+        self.unexpected_output_messages.append(&mut actions.get_unexpected_output_messages());
+        self
+    }
+}
 
 /// Checks that running rjrssync with the setup described by the TestDesc behaves as described by the TestDesc.
 /// See TestDesc for more details.
@@ -422,6 +429,17 @@ impl NumActions {
         }
         result
     }
+
+    pub fn get_unexpected_output_messages(&self) -> Vec<Regex> {
+        let mut result = vec![];
+        if self.copied_files + self.created_folders + self.copied_symlinks == 0 {
+            result.push(Regex::new("Copied|copied|created").unwrap());            
+        }
+        if self.deleted_files + self.deleted_folders + self.deleted_symlinks == 0 {
+            result.push(Regex::new("Deleted|deleted").unwrap());            
+        }
+        result
+    }
 }
 
 /// Runs a test that syncs the given src FilesystemNode (e.g. file or folder) to the given dest 
@@ -438,12 +456,11 @@ pub fn run_expect_success(src_node: &FilesystemNode, dest_node: &FilesystemNode,
             "$TEMP/dest".to_string()
         ],
         expected_exit_code: 0,
-        expected_output_messages: expected_actions.get_expected_output_messages(),
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(src_node)), // Source should always be unchanged
             ("$TEMP/dest", Some(src_node)), // Dest should be identical to source
         ],
         ..Default::default()
-    });
+    }.with_expected_actions(expected_actions));
 }
 

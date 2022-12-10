@@ -2,14 +2,14 @@ use std::time::{SystemTime, Duration};
 
 use regex::Regex;
 
-use crate::test_framework::{file, copied_files_and_symlinks, run_expect_success, NumActions, copied_files_folders_and_symlinks};
+use crate::test_framework::{file, copied_files_and_symlinks, run_expect_success, NumActions, copied_files_folders_and_symlinks, copied_symlinks};
 #[allow(unused)]
 use crate::{test_framework::{symlink_generic, run, empty_folder, TestDesc, symlink_file, symlink_folder, folder, file_with_modified}, folder};
 use map_macro::map;
 use std::path::Path;
 
 /// Tests that syncing a folder that contains a file symlink to another file in the folder,
-/// when running in symlink preserve mode, will sync the symlink and not the pointed-to file.
+/// will sync the symlink and not the pointed-to file.
 #[test]
 fn test_symlink_file() {
     let src = folder! {
@@ -20,7 +20,7 @@ fn test_symlink_file() {
 }
 
 /// Tests that syncing a folder that contains a folder symlink to another folder,
-/// when running in symlink preserve mode, will sync the symlink and not the pointed-to folder.
+/// will sync the symlink and not the pointed-to folder.
 #[test]
 fn test_symlink_folder() {
     let src = folder! {
@@ -33,20 +33,17 @@ fn test_symlink_folder() {
     run_expect_success(&src, &empty_folder(), copied_files_folders_and_symlinks(2, 1, 1));
 }
 
-/// Tests that syncing a folder that contains a broken symlink (i.e. of SymlinkKind::Unknown)
+/// Tests that syncing a folder that contains a broken symlink
 /// will sync the symlink successfully.
 #[test]
-#[cfg(unix)] // generic-symlinks are only on Unix
 fn test_symlink_broken() {
-    use crate::test_framework::copied_symlinks;
-
     let src = folder! {
-        "symlink" => symlink_generic("target"),
+        "symlink" => symlink_file("target"),
     };
     run_expect_success(&src, &empty_folder(), copied_symlinks(1));
 }
 
-/// Tests that symlinks as ancestors of the root path are followed, regardless of the symlink mode.
+/// Tests that symlinks as ancestors of the root path are followed.
 #[test]
 fn test_symlink_folder_above_root() {
     let src = folder! {
@@ -64,17 +61,16 @@ fn test_symlink_folder_above_root() {
             "$TEMP/dest.txt".to_string(),
         ],
         expected_exit_code: 0,
-        expected_output_messages: copied_files_and_symlinks(1, 0).get_expected_output_messages(),
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&src)), // Source should always be unchanged
             ("$TEMP/dest.txt", Some(&file_with_modified("contents1", SystemTime::UNIX_EPOCH))),
         ],
         ..Default::default()
-    });
+    }.with_expected_actions(copied_files_and_symlinks(1, 0)));
 }
 
 /// Tests that specifying a root which is itself a file symlink symlink to another file,
-/// when running in symlink preserve mode, will sync the symlink itself rather than the pointed-to file.
+/// will sync the symlink itself rather than the pointed-to file.
 #[test]
 fn test_symlink_file_root() {
     let src = symlink_file("target.txt");
@@ -88,17 +84,16 @@ fn test_symlink_file_root() {
             "$TEMP/dest".to_string(),
         ],
         expected_exit_code: 0,
-        expected_output_messages: copied_files_and_symlinks(0, 1).get_expected_output_messages(),
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&src)), // Source should always be unchanged
             ("$TEMP/dest", Some(&src)), // Dest should be a symlink too
         ],
         ..Default::default()
-    });
+    }.with_expected_actions(copied_files_and_symlinks(0, 1)));
 }
 
 /// Tests that specifying a root which is itself a folder symlink to another folder,
-/// when running in symlink preserve mode, will sync the symlink itself, not the contents of the pointed-to folder.
+/// will sync the symlink itself, not the contents of the pointed-to folder.
 #[test]
 fn test_symlink_folder_root() {
     let src = symlink_folder("target");
@@ -115,15 +110,14 @@ fn test_symlink_folder_root() {
             "$TEMP/dest".to_string(),
         ],
         expected_exit_code: 0,
-        // We should only be copying the symlink - not any files! (this was a sneaky bug where we copy the symlink but also all the things inside it!)
-        expected_output_messages: copied_files_folders_and_symlinks(0, 0, 1).get_expected_output_messages(),
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&src)), // Source should always be unchanged
             ("$TEMP/dest", Some(&src)), // Dest should be the same symlink as the source
             ("$TEMP/target", Some(&target_folder)) // Target folder should not have been changed
         ],
         ..Default::default()
-    });
+        // We should only be copying the symlink - not any files! (this was a sneaky bug where we copy the symlink but also all the things inside it!)
+    }.with_expected_actions(copied_files_folders_and_symlinks(0, 0, 1)));
 }
 
 /// Tests that syncing a symlink that hasn't changed results in nothing being done.
@@ -136,7 +130,7 @@ fn test_symlink_unchanged() {
     run_expect_success(&src, &src, copied_files_and_symlinks(0, 0));
 }
 
-/// Tests that syncing a symlink that has a different target link is updated.
+/// Tests that syncing a symlink that has a different target address is updated.
 #[test]
 fn test_symlink_new_target() {
     let src = folder! {
@@ -147,7 +141,7 @@ fn test_symlink_new_target() {
         "symlink" => symlink_file("target2.txt"),
         "target2.txt" => file_with_modified("contents", SystemTime::UNIX_EPOCH),
     };
-    run_expect_success(&src, &dest, copied_files_and_symlinks(1, 1));
+    run_expect_success(&src, &dest, NumActions { deleted_symlinks: 1, copied_symlinks: 1, copied_files: 1, deleted_files: 1, ..Default::default() });
 }
 
 /// Tests that syncing a symlink that has the same target address but a different kind is updated correctly.
@@ -254,17 +248,16 @@ fn test_symlink_delete_from_dest() {
         deleted_files: 3, deleted_folders: 1, deleted_symlinks: 4 });
 }
 
-/// Tests that syncing a symlink as the root which is a broken symlink still works in preserve mode.
+/// Tests that syncing a symlink as the root which is a broken symlink works.
 /// This is relevant because the WalkDir crate doesn't handle this.
 #[test]
 fn test_symlink_root_broken() {
     let src = symlink_file("target doesn't exist");
-    run_expect_success(&src, &empty_folder(), copied_files_and_symlinks(0, 1));
+    run_expect_success(&src, &empty_folder(), NumActions { copied_symlinks: 1, deleted_folders: 1, ..Default::default() });
 }
 
-/// Tests that having a symlink file as the dest root will be replaced by the source
-/// when in preserve mode, but only the symlink itself will be deleted -
-/// the target will remain as it was.
+/// Tests that having a symlink file as the dest root will be replaced by the source, 
+/// but only the symlink itself will be deleted - the target will remain as it was.
 #[test]
 fn test_file_to_symlink_file_dest_root() {
     let src = file_with_modified("just a regular file", SystemTime::UNIX_EPOCH + Duration::from_secs(1));
@@ -295,9 +288,8 @@ fn test_file_to_symlink_file_dest_root() {
     });
 }
 
-/// Tests that having a symlink folder as the dest root will be replaced by the source
-/// when in preserve mode, but only the symlink itself will be deleted -
-/// the target will remain as it was.
+/// Tests that having a symlink folder as the dest root will be replaced by the source,
+/// but only the symlink itself will be deleted - the target will remain as it was.
 #[test]
 fn test_file_to_symlink_folder_dest_root() {
     let src = file_with_modified("just a regular file", SystemTime::UNIX_EPOCH + Duration::from_secs(1));
@@ -377,9 +369,8 @@ fn test_symlink_target_slashes() {
                 format!("{remote_user_and_host}:{dest}")
             ],
             expected_exit_code: 0,
-            expected_output_messages: copied_files_folders_and_symlinks(1, 1, 2).get_expected_output_messages(),
             ..Default::default()
-        });
+        }.with_expected_actions(copied_files_folders_and_symlinks(1, 1, 2)));
 
         let mut cmd = std::process::Command::new("ssh");
         let cmd = cmd.arg(format!("{remote_user_and_host}"));
@@ -402,9 +393,9 @@ fn test_symlink_target_slashes() {
     }
 }
 
-/// Tests that syncing a broken/unknown symlink of from Unix to Windows raises an error as expected.
+/// Tests that syncing a broken/unknown symlink from Unix to Windows raises an error as expected.
 #[test]
-//#[cfg(unix)]
+#[cfg(unix)]
 fn test_unknown_symlink_unix_to_windows() {
     let src = symlink_generic("broken!");
     let (remote_user_and_host, remote_test_folder) = RemotePlatform::Windows.get_config();
@@ -427,10 +418,3 @@ fn test_unknown_symlink_unix_to_windows() {
 }
 
 }
-
-//TODO: - when syncing windows to linux, the type of symlink might be different (e.g. File vs Generic), and so it would
-// delete then re-create the symlink, which we might not want. Add test to make sure that nothing happens when 
-// we have some symlinks that are up-to-date.
-// Might need some logic to deal with an existing windows symlink on the dest side, and then a broken/unknown
-// symlink on the source side. If the target address is the same, then maybe we should just leave it as-is
-// rather than deleting it then failing to re-create it because it has unknown kind? Not sure what good behaviour is here.

@@ -176,6 +176,10 @@ the destination.
 Note that this only applies to symlinks that are part of the sync (including as the root);
 symlinks that are ancestors of the path provided as source or dest will always be followed.
 
+//TODO: Might need some logic to deal with an existing windows symlink on the dest side, and then a broken/unknown
+// symlink on the source side. If the target address is the same, then maybe we should just leave it as-is
+// rather than deleting it then failing to re-create it because it has unknown kind? Not sure what good behaviour is here.
+
 
 It was considered for rjrssync to have two 'modes', as to whether it ignores the symlinks (treats them as
 their targets) or syncs them as the links. However it was decided against this because of the increase in
@@ -286,7 +290,7 @@ ERROR | rjrssync::boss_frontend: Sync error: Unexpected response from dest GetEn
 * Maybe should extend test framework to support doing things remotely, like saving and loading filesystem nodes, making and clearing out a temporary folder etc.
 * Upload to crates.io, so that we can "cargo install" from anywhere?
 * Warning if filter doesn't match anything, possibly after GetEntries but before actually doing anything (to prevent mistaken filter?)
-
+* Running remote tests in parallel seems to cause hangs
 
 Idea for filters, with re-usable "functions":
 ===============
