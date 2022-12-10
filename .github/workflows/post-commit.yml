@@ -61,6 +61,9 @@ jobs:
       # The below "remote-platforms" job tests remote connection by using WSL.
       run: cargo test --verbose -- --skip "remote"
 
+    - name: Build (with profiling)
+      run: cargo build --verbose --features=profiling
+
   # This job sets up a Windows runner with WSL, so that tests that require remote
   # platforms (e.g. a Linux to Windows sync) can be tested.
   remote-platforms:

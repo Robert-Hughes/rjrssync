@@ -271,7 +271,6 @@ Performance
 * Investigate if parallelising some stages would speed it up, e.g. walking the dir structure on multiple threads, or sending data across network on multiple threads
    - Could have one thread just doing filesystem calls to fill up a queue, and another thread processing those entries.
    - Maybe check if WalkDir is slow, by comparing its performance with direct std::fs stuff or even native OS stuff?
-* Parallelise querying  - see parallel-query branch
 * Investigate if pipelining some stages would speed it up, e.g. sending file list while also sending it
 * Probably better to batch together File() Responses, to avoid overhead from sending loads of messages
 * Perf comparison with regular rsync (for cases where there are zero or few changes, and for cases with more changes)
@@ -279,8 +278,6 @@ Performance
   - Syncing large tree when nothing has changed
   - Copying single large file
   - Copying lots of small files
-* Separate remote doers onto separate processes in Chrome
-* Sync time between boss and remote doers - Sync remote and local by setting remote zero equal to the time at which we receivr the first signs of life from the doer?
 
 
 
