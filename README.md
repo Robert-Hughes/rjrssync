@@ -275,6 +275,7 @@ Performance
 * Probably better to batch together File() Responses, to avoid overhead from sending loads of messages
 * Add to benchmark some remote tests (currently just testing local ones), and to/from WSL folders
    - Perhaps a separate table for local -> local, local -> WSL, local -> remote etc. etc.
+   - Copy results into here (or similar), so can look at them without waiting for them to run
 * Run benchmark tests on GitHub actions?
 * Perf comparison with regular rsync (for cases where there are zero or few changes, and for cases with more changes)
 * Performance tests, so we know if we've made something slower
@@ -306,6 +307,7 @@ could see that the Command/Response struct layout has changed.
 * Turning profiling on/off results in incompatible network protocol, which isn't detected by the version number
 * Something is messing up the line endings when running "cargo test" on windows. I replaced a bunch of ssh
 commands with run_process_with_live_output to try to fix this, but it's still happening :( Possibly rjrssync itself is doing this?
+* Investigate if Github Wiki would be useful for a lot of the stuff currently dumped in the README
 
 Idea for filters, with re-usable "functions":
 ===============
