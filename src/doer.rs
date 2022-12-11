@@ -25,8 +25,9 @@ struct DoerCliArgs {
     #[arg(long)]
     doer: bool,
     /// The network port to listen on for a connection from the boss.
+    /// If not specified, a free port is chosen.
     #[arg(long)]
-    port: u16,
+    port: Option<u16>,
     /// Logging configuration.
     #[arg(long, default_value="info")]
     log_filter: String,
@@ -333,6 +334,9 @@ impl Display for Comms {
 pub fn doer_main() -> ExitCode {
     let main_timer = start_timer(function_name!()); 
 
+    //TODO: parsing the args before doing the handshake means that if we change hte command line args
+    // (e.g. adding a new required parameter), then we won't be able to launch the doer, and users
+    // will be forced to do a --force-redeploy which isn't very nice.
     let args = DoerCliArgs::parse();
 
     {
@@ -391,11 +395,16 @@ pub fn doer_main() -> ExitCode {
     };
     let secret_key = GenericArray::from_slice(&secret_bytes);
 
-    // Start listening on the requested port. Listen on all interfaces as we don't know which one is needed.
-    let addr = ("0.0.0.0", args.port);
+    // Start listening on the requested port, or 0 (automatic). 
+    // Automatic is better as we don't know which ones might be free, and we might have more than one doer
+    // running on the same device, which would then need different ports.
+    // It also reduces issues if we ever leave behind orphaned doer instances which would otherwise block us 
+    // from using that port.
+    // Listen on all interfaces as we don't know which one is needed.
+    let addr = ("0.0.0.0", args.port.unwrap_or(0));
     let listener = match TcpListener::bind(addr) {
         Ok(l) => {
-            debug!("Listening on {:?}", addr);
+            debug!("Listening on {:?}", l.local_addr()); // This will include the actual port chosen, if we bound to 0
             l
         }
         Err(e) => {
@@ -404,10 +413,12 @@ pub fn doer_main() -> ExitCode {
         }
     };
 
-    // Let the boss know that we are ready for the network connection
+    // Let the boss know that we are ready for the network connection,
+    // and tell them which port to connect on (we may have chosen automatically).
     // We need to do this on both stdout and stderr, because both those streams need to be synchronised on the receiving end.
-    println!("{}", HANDSHAKE_COMPLETED_MSG);
-    eprintln!("{}", HANDSHAKE_COMPLETED_MSG);
+    let msg = format!("{}{}", HANDSHAKE_COMPLETED_MSG, listener.local_addr().unwrap().port());
+    println!("{}", msg);
+    eprintln!("{}", msg);
 
     stop_timer(timer);
     

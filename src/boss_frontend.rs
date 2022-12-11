@@ -48,9 +48,12 @@ pub struct BossCliArgs {
     #[arg(name="filter", long, allow_hyphen_values(true))]
     pub filters: Vec<String>,
     //TODO: "The source/dest root is never checked against the filter - this is always considered as included." - test this!
-    /// Override the port used to connect to hostnames specified in src or dest.
-    #[arg(long, default_value_t = 40129)]
-    pub remote_port: u16,
+    
+    /// Overrides the TCP port that any remote copy(s) of rjrssync on hostnames specified in src or dest
+    /// will listen on, used for network communication between the local and remote copies.
+    /// If not specified, a free port will be chosen.
+    #[arg(long)]
+    pub remote_port: Option<u16>,
 
     #[arg(long)]
     pub dry_run: bool,

@@ -12,7 +12,7 @@ use boss_launch::*;
 use doer::*;
 use profiling::*;
 
-pub const VERSION: i32 = 74;
+pub const VERSION: i32 = 75;
 
 // Message printed by a doer copy of the program to indicate that it has loaded and is ready
 // to receive data over its stdin. Once the boss receives this, it knows that ssh has connected
@@ -22,8 +22,8 @@ pub const VERSION: i32 = 74;
 pub const HANDSHAKE_STARTED_MSG: &str = "rjrssync doer v"; // Version number will be appended
 
 // Message sent by the doer back to the boss to indicate that it has received the secret key and
-// is listening on a network port for a connection,
-pub const HANDSHAKE_COMPLETED_MSG: &str = "Waiting for incoming network connection";
+// is listening on a network port for a connection.
+pub const HANDSHAKE_COMPLETED_MSG: &str = "Waiting for incoming network connection on port "; // Port number will be appended.
 
 pub const REMOTE_TEMP_UNIX: &str = "/tmp/";
 pub const REMOTE_TEMP_WINDOWS: &str = r"%TEMP%\";

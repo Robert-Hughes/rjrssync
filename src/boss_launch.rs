@@ -152,7 +152,7 @@ impl Drop for Comms {
 pub fn setup_comms(
     remote_hostname: &str,
     remote_user: &str,
-    remote_port_for_comms: u16,
+    remote_port_for_comms: Option<u16>,
     debug_name: String,
     force_redeploy: bool,
 ) -> Option<Comms> {
@@ -222,13 +222,14 @@ pub fn setup_comms(
                 stdout,
                 stderr,
                 secret_key,
+                actual_port,
             } => {
                 // Start a background thread to print out log messages from the remote doer,
                 // which it can send over its stderr.
                 let stderr_reading_thread = std::thread::spawn(move || remote_doer_logging_thread(stderr));
 
                 // Connect to the network port that the doer should be listening on
-                let addr = (remote_hostname, remote_port_for_comms);
+                let addr = (remote_hostname, actual_port);
                 debug!("Connecting to doer over network at {:?}", addr);
                 //TODO: this has a delay ~1 sec even when connecting to localhost, apparently because it first tries connecting to the
                 // IPv6 local address, and it has to wait for this to fail before trying IPv4. Maybe can skip this?
@@ -295,7 +296,7 @@ enum SshDoerLaunchResult {
     /// This would be expected if this computer has never been used as a remote target before.
     NotPresentOnRemote,
     /// ssh exited before the handshake with rjrssync took place. This could be due to many reasons,
-    /// for example rjrssync couldn't launch correctly.
+    /// for example rjrssync couldn't launch correctly because it bind to a free port.
     ExitedUnexpectedly,
     /// Failed to send/receive some data on stdin/stdout commuicating with the doer.
     CommunicationError,
@@ -303,7 +304,7 @@ enum SshDoerLaunchResult {
     /// isn't compatible with our version.
     HandshakeIncompatibleVersion,
     /// rjrssync launched successfully on the remote computer, is a compatible version, and is now
-    /// listening for an incoming network connection on the requested port. It has been provided
+    /// listening for an incoming network connection on the actual_port. It has been provided
     /// with a secret shared key for encryption, which is stored here too.
     /// The fields here can be used to communicate with the remote rjrssync via its stdin/stdout,
     /// but we use the network connection for the main data transfer because it is faster (see README.md).
@@ -313,6 +314,7 @@ enum SshDoerLaunchResult {
         stdout: BufReader<ChildStdout>,
         stderr: BufReader<ChildStderr>,
         secret_key: Key<Aes128Gcm>,
+        actual_port: u16
     },
 }
 
@@ -322,7 +324,7 @@ enum OutputReaderThreadMsg {
     Error(std::io::Error),
     StreamClosed,
     HandshakeStarted(String),
-    HandshakeCompleted(OutputReaderStream), // Also sends back the stream, so the main thread can take back control
+    HandshakeCompleted(String, OutputReaderStream), // Also sends back the stream, so the main thread can take back control
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -392,12 +394,12 @@ fn output_reader_thread_main(
                         stream_type,
                         OutputReaderThreadMsg::HandshakeStarted(l),
                     ))?;
-                } else if l == HANDSHAKE_COMPLETED_MSG {
+                } else if l.starts_with(HANDSHAKE_COMPLETED_MSG) {
                     // Remote end has booted up properly and is ready for network connection.
                     // Finish this thread and return control of the stdout to the main thread, so it can communicate directly
                     sender.send((
                         stream_type,
-                        OutputReaderThreadMsg::HandshakeCompleted(stream),
+                        OutputReaderThreadMsg::HandshakeCompleted(l, stream),
                     ))?;
                     return Ok(());
                 }
@@ -415,7 +417,7 @@ fn output_reader_thread_main(
 /// listening for an incoming network connection on the requested port. It is also provided
 /// with a randomly generated secret shared key for encryption, which is returned to the caller
 /// for setting up encrypted communication over the network connection.
-fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str, remote_port_for_comms: u16) -> SshDoerLaunchResult {
+fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str, remote_port_for_comms: Option<u16>) -> SshDoerLaunchResult {
     profile_this!();
     let user_prefix = if remote_user.is_empty() {
         "".to_string()
@@ -435,9 +437,15 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str, remote_port_for
         format!(" --log-filter {} ", log::max_level()) // max_level will be affected by --quiet/--verbose
     };
 
+    // Forward any specific port request to the remote doer
+    let port_arg = match remote_port_for_comms {
+        Some(p) => format!(" --port {p}"),
+        None => "".to_string()
+    };
+
     // Note we don't cd, so that relative paths for the path specified by the user on the remote
     // will be correct (relative to their ssh default dir, e.g. home dir)
-    let doer_args = format!("--doer {} --port {}", log_arg, remote_port_for_comms);
+    let doer_args = format!("--doer {} {}", log_arg, port_arg);
     // Try launching using both Unix and Windows paths, as we don't know what the remote system is
     // We run a command that doesn't print out anything on both Windows and Linux, so we don't pollute the output
     // (we show all output from ssh, in case it contains prompts etc. that are useful/required for the user to see).
@@ -553,12 +561,20 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str, remote_port_for
                     handshook_data.secret_key = Some(key); // Remember the key - we'll need it too!
                 }
             }
-            Ok((stream_type, OutputReaderThreadMsg::HandshakeCompleted(s))) => {
-                debug!("Handshake completed on {}", stream_type);
+            Ok((stream_type, OutputReaderThreadMsg::HandshakeCompleted(line, s))) => {
+                debug!("Handshake completed on {}: {}", stream_type, line);
                 match s {
                     OutputReaderStream::Stdout(b) => handshook_data.stdout = Some(b),
                     OutputReaderStream::Stderr(b) => handshook_data.stderr = Some(b),
                 }
+
+                let actual_port : u16 = match line.split_at(HANDSHAKE_COMPLETED_MSG.len()).1.parse() {
+                    Ok(p) => p,
+                    Err(e) => {
+                        error!("Failed to parse port number from line '{}': {e}", line);
+                        return SshDoerLaunchResult::CommunicationError;
+                    } 
+                };
 
                 // Need to wait for both stdout and stderr to pass the handshake
                 if let HandshookStdoutAndStderr { stdout: Some(stdout), stderr: Some(stderr), secret_key: Some(secret_key) } = handshook_data {
@@ -568,6 +584,7 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str, remote_port_for
                         stdout,
                         stderr,
                         secret_key,
+                        actual_port,
                     };
                 };
             }
