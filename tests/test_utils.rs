@@ -175,12 +175,14 @@ where S : std::io::Read {
 // a Windows and Linux remote hostname are required.
 // One way of achieving this is to use WSL.
 
+#[allow(unused)] // Because this file is compiled in two targets (usage tests and benchmarks), and one doesn't use it
 pub enum RemotePlatform {
     Windows,
     Linux
 }
 
 impl RemotePlatform {
+    #[allow(unused)] // Because this file is compiled in two targets (usage tests and benchmarks), and one doesn't use it
     pub fn get_config(&self) -> &(String, String) {
         match self {
             RemotePlatform::Windows => REMOTE_WINDOWS_CONFIG.deref(),

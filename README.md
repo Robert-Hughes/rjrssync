@@ -262,6 +262,7 @@ Syncing logic
    -  is this compatible between platforms, time zone changes, precision differences, etc. etc.
    - can we safely serialize this on one platform and deserialize on another?
 * Consider warning for unexpected deletions (esp with replacing files with folders, see table in above section)
+* --dry-run isn't honoured when creating dest ancestors! It should instead say that it _would_ create the ancestors.
 
 
 
