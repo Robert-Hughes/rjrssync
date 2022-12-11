@@ -325,7 +325,7 @@ fn test_file_to_symlink_folder_dest_root() {
 // "Tag" these tests as they require remote platforms (GitHub Actions differentiates these)
 mod remote {
 
-use crate::{remote_tests::RemotePlatform, test_framework::run_process_with_live_output};
+use crate::{remote_tests::RemotePlatform, test_utils::run_process_with_live_output};
 
 use super::*;
 
