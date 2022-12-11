@@ -235,7 +235,7 @@ fn run_benchmarks<F>(id: &str, sync_fn: F, target: Target, result_table: &mut Ve
 
     // Sync a single large file
     println!("    {id} example-repo single large file...");
-    let elapsed = run(Path::new("src").join("example-repo").to_string_lossy().to_string(), dest_prefix.clone() + "large-file");
+    let elapsed = run(Path::new("src").join("large-file").to_string_lossy().to_string(), dest_prefix.clone() + "large-file");
     println!("    {id} example-repo single large file: {:?}", elapsed);
     results.push(format!("{:?}", elapsed));
 
