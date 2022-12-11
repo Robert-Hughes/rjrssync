@@ -36,14 +36,13 @@ fn main () {
     results.push((r"Local -> \\wsl$\...", run_benchmarks_for_target(Target::Local(PathBuf::from(r"\\wsl$\\Ubuntu\\tmp\\rjrssync-benchmark-dest\\")))));
     
     #[cfg(unix)]
-    results.push(("Local -> /mnt/...", run_benchmarks_for_target(Target::Local(PathBuf::from("/mnt")))));
+    results.push(("Local -> /mnt/...", run_benchmarks_for_target(Target::Local(PathBuf::from("/mnt/t/Temp/rjrssync-benchmarks/dest")))));
     
-    //TODO: share the same logic as the automatic remote detection we do in remote_tests.rs
-    results.push(("Local -> Remote Windows.", run_benchmarks_for_target(
-        Target::Remote { is_windows: true, user_and_host: "192.168.12.125".to_string(), folder: "T:\\Temp\\rjrssync-benchmarks\\dest".to_string() })));
+    results.push(("Local -> Remote Windows", run_benchmarks_for_target(
+        Target::Remote { is_windows: true, user_and_host: test_utils::REMOTE_WINDOWS_CONFIG.0.clone(), folder: test_utils::REMOTE_WINDOWS_CONFIG.1.clone() + "\\benchmark-dest" })));
     
     results.push(("Local -> Remote Linux", run_benchmarks_for_target(
-        Target::Remote { is_windows: false, user_and_host: "rob@127.0.0.1".to_string(), folder: "/tmp/rjrssync-benchmarks/dest".to_string() })));
+        Target::Remote { is_windows: false, user_and_host: test_utils::REMOTE_LINUX_CONFIG.0.clone(), folder: test_utils::REMOTE_LINUX_CONFIG.1.clone() + "/benchmark-dest" })));
 
     let mut ascii_table = AsciiTable::default();
     ascii_table.column(0).set_header("Method");
@@ -99,6 +98,14 @@ fn set_up_src_folders() {
     std::fs::remove_dir_all("src/example-repo/.git").expect("Failed to delete .git");
     std::fs::remove_dir_all("src/example-repo-slight-change/.git").expect("Failed to delete .git");
 
+    // Delete some particularly deeply-nested folders, which cause scp.exe on windows to crash with a
+    // stack overflow.
+    std::fs::remove_dir_all("src/example-repo/src/modules/previewpane/MonacoPreviewHandler/monacoSRC/min/vs").expect("Failed to delete nested folders");
+    std::fs::remove_dir_all("src/example-repo/src/settings-ui/Settings.UI.UnitTests/BackwardsCompatibility/TestFiles/").expect("Failed to delete nested folders");
+  
+    std::fs::remove_dir_all("src/example-repo-slight-change/src/modules/previewpane/MonacoPreviewHandler/monacoSRC/min/vs").expect("Failed to delete nested folders");
+    std::fs::remove_dir_all("src/example-repo-slight-change/src/settings-ui/Settings.UI.UnitTests/BackwardsCompatibility/TestFiles/").expect("Failed to delete nested folders");
+
     // Single large file
     std::fs::create_dir_all("src/large-file").expect("Failed to create dir");
     let mut f = std::fs::File::create("src/large-file/large.bin").expect("Failed to create file");
@@ -116,13 +123,10 @@ fn run_benchmarks_for_target(target: Target) -> Vec<Vec<String>> {
     run_benchmarks_using_program(rjrssync_path, &["$SRC", "$DEST"], target.clone(), &mut result_table);
    
     #[cfg(unix)]
-    run_benchmarks_using_program("rsync", &["--archive", "--delete", "$SRC", "$DEST"], target.clone(), &mut result_table);
+    // Note trailing slash on the src is important for rsync!
+    run_benchmarks_using_program("rsync", &["--archive", "--delete", "$SRC/", "$DEST"], target.clone(), &mut result_table);
    
-    if cfg!(windows) && matches!(target, Target::Remote { .. }) {
-        println!("Skipping scp to remotes from windows as it crashes!");
-    } else {
-        run_benchmarks_using_program("scp", &["-r", "-q", "$SRC", "$DEST"], target.clone(), &mut result_table);
-    }
+    run_benchmarks_using_program("scp", &["-r", "-q", "$SRC", "$DEST"], target.clone(), &mut result_table);
    
     #[cfg(unix)]
     run_benchmarks_using_program("cp", &["-r", "$SRC", "$DEST"], target.clone(), &mut result_table);
@@ -158,7 +162,8 @@ fn run_benchmarks_using_program(program: &str, args: &[&str], target: Target, re
         let mut cmd = std::process::Command::new(program);
         let result = cmd
             .args(args.iter().map(|a| substitute(a)));
-        let result = test_utils::run_process_with_live_output(result);
+        let hide_stdout = program == "scp"; // scp spams its stdout, and we can't turn this off, so we hide it.
+        let result = test_utils::run_process_with_live_output_impl(result, hide_stdout, false);
         if program == "robocopy" {
             // robocopy has different exit codes (0 isn't what we want)
             let code = result.exit_status.code().unwrap();

@@ -19,17 +19,34 @@ pub struct ProcessOutput {
 /// This is mostly a copy-paste of the same function from boss_launch.rs, but we don't have a good way to share the code
 /// and this version is slightly different, more suitable for tests (e.g. simpler error checking, logging printed with println).
 pub fn run_process_with_live_output(c: &mut std::process::Command) -> ProcessOutput {
+    run_process_with_live_output_impl(c, false, false)
+}
+
+/// Runs a child processes and waits for it to exit. The stdout and stderr of the child process
+/// are captured and forwarded to our own.
+/// Simply letting the child process inherit out stdout/stderr seems to cause problems with line endings getting messed
+/// up and losing output, and unwanted clearing of the screen.
+/// This is mostly a copy-paste of the same function from boss_launch.rs, but we don't have a good way to share the code
+/// and this version is slightly different, more suitable for tests (e.g. simpler error checking, logging printed with println).
+pub fn run_process_with_live_output_impl(c: &mut std::process::Command, hide_stdout: bool, hide_stderr: bool) -> ProcessOutput {
     println!("Running {:?} {:?}...", c.get_program(), c.get_args());
 
-    let mut child = c
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+    let mut child = c;
+    if hide_stdout {
+        child = child.stdout(Stdio::null())
+    } else {
+        child = child.stdout(Stdio::piped())
+    }
+    if hide_stderr {
+        child = child.stderr(Stdio::null())
+    } else {
+        child = child.stderr(Stdio::piped())
+    }
+
+    let mut child = child
         .spawn()
         .expect("Failed to launch child process");
 
-    // unwrap is fine here, as the streams should always be available as we piped them all
-    let child_stdout = child.stdout.take().unwrap();
-    let child_stderr = child.stderr.take().unwrap();
 
     // Spawn a background thread for each stdout and stderr, to process messages we get from the child
     // and forward them to the main thread. This is easier than some kind of async IO stuff.
@@ -38,14 +55,26 @@ pub fn run_process_with_live_output(c: &mut std::process::Command) -> ProcessOut
         Receiver<OutputReaderThreadMsg2>,
     ) = mpsc::channel();
     let sender2 = sender1.clone();
-    let thread_builder = thread::Builder::new().name("child_stdout_reader".to_string());
-    thread_builder.spawn(move || {
-        output_reader_thread_main2(child_stdout, OutputReaderStreamType::Stdout, sender1)
-    }).unwrap();
-    let thread_builder = thread::Builder::new().name("child_stderr_reader".to_string());
-    thread_builder.spawn(move || {
-        output_reader_thread_main2(child_stderr, OutputReaderStreamType::Stderr, sender2)
-    }).unwrap();
+
+    if !hide_stdout {
+        let child_stdout = child.stdout.take().unwrap();
+        let thread_builder = thread::Builder::new().name("child_stdout_reader".to_string());
+        thread_builder.spawn(move || {
+            output_reader_thread_main2(child_stdout, OutputReaderStreamType::Stdout, sender1)
+        }).unwrap();
+    } else {
+        drop(sender1);
+    }
+
+    if !hide_stderr {
+        let thread_builder = thread::Builder::new().name("child_stderr_reader".to_string());
+        let child_stderr = child.stderr.take().unwrap();
+        thread_builder.spawn(move || {
+            output_reader_thread_main2(child_stderr, OutputReaderStreamType::Stderr, sender2)
+        }).unwrap();
+    } else {
+        drop(sender2);
+    }
 
     let mut captured_stdout = String::new();
     let mut captured_stderr = String::new();
