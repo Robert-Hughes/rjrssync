@@ -1,6 +1,6 @@
 use aes_gcm::aead::{OsRng};
 use aes_gcm::{Aes128Gcm, KeyInit, Key};
-use log::{debug, error, info, warn, log, trace};
+use log::{debug, error, info, log, trace};
 use rust_embed::RustEmbed;
 use std::borrow::Cow;
 use std::ffi::OsStr;
@@ -516,7 +516,7 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str, remote_port_for
                 if l.contains("No such file or directory") ||
                     l.contains("The system cannot find the path specified") ||
                     l.contains("is not recognized as an internal or external command") {
-                    warn!("rjrssync not present on remote computer");
+                    debug!("rjrssync not present on remote computer");
                     // Note the stdin of the ssh will be dropped and this will tidy everything up nicely
                     return SshDoerLaunchResult::NotPresentOnRemote;
                 }
@@ -528,7 +528,7 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str, remote_port_for
 
                 let remote_version = line.split_at(HANDSHAKE_STARTED_MSG.len()).1;
                 if remote_version != VERSION.to_string() {
-                    warn!(
+                    debug!(
                         "Remote server has incompatible version ({} vs local version {})",
                         remote_version, VERSION
                     );
@@ -609,7 +609,9 @@ const EMBEDDED_CARGO_LOCK : &[u8] = include_bytes!("../Cargo.lock");
 
 /// Deploys the source code of rjrssync to the given remote computer and builds it, ready to be executed.
 fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> {
-    debug!("Deploying onto '{}'", &remote_hostname);
+    // We're about to show a bunch of output from scp/ssh, so this log message may as well be the same severity,
+    // so the user knows what's happening.
+    info!("Deploying onto '{}'", &remote_hostname); 
 
     let user_prefix = if remote_user.is_empty() {
         "".to_string()

@@ -12,7 +12,7 @@ use boss_launch::*;
 use doer::*;
 use profiling::*;
 
-pub const VERSION: i32 = 73;
+pub const VERSION: i32 = 74;
 
 // Message printed by a doer copy of the program to indicate that it has loaded and is ready
 // to receive data over its stdin. Once the boss receives this, it knows that ssh has connected
