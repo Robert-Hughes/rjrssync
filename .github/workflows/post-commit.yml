@@ -54,7 +54,7 @@ jobs:
         key: native-${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
     - name: Build
-      run: cargo build --verbose
+      run: cargo build --verbose --all-targets
 
     - name: Run tests
       # Skip tests that require a remote, as this isn't available in this environment.
@@ -62,7 +62,7 @@ jobs:
       run: cargo test --verbose -- --skip "remote"
 
     - name: Build (with profiling)
-      run: cargo build --verbose --features=profiling
+      run: cargo build --verbose --all-targets --features=profiling
 
   # This job sets up a Windows runner with WSL, so that tests that require remote
   # platforms (e.g. a Linux to Windows sync) can be tested.
