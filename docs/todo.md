@@ -8,7 +8,7 @@ Interface
 * Perhaps could have hard/soft includes/excludes - soft would keep evaluating other filters which may change the decision, hard would stop evaluating and keep that as the final decision.
 * If a dir is excluded by the filters (after resolving all filters), then we don't walk inside that dir, so stuff inside it will be excluded *even if the filters would have matched them*. Document this?
 * --dry-run (and the same for -v) should make it clearer exactly what is being copied to where, e.g. give absolute paths. If there is a long path up to the root (or afterwards), could shorten it with ellipses, e.g. "Copying T:\work\...\bob\folder\...\thing.txt to X:\backups\...\newbackup\folder\...\thing.txt"
-* Option to override the "dest file is newer" error
+* Option to override the "dest file is newer" error. Test this behaviour (not sure if it's tested atm)
 * Should filters expect to see trailing slashes on folder names or not? What about folder symlinks?
 
 Remote launching
@@ -18,6 +18,8 @@ Remote launching
 * SSH host key verification prompt doesn't echo the user's typing, but it does seem to work anyway
 * Sometimes remote processes are left orphaned
 * Using temporary dir means that rebooting the remote will mean we have to rebuild from scratch (on Linux)
+* We could first attempt to use an already-installed version of rjrssync (in the PATH), and only if this 
+doesn't exist or is incompatible do we deploy/build from scratch?
 * Sometimes see "ssh stderr: mesg: ttyname failed: Inappropriate ioctl for device" when deploying to remote (I think 
 on 'F**A' platforms). Can we hide this using "-T" for example?
 
