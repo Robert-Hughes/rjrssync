@@ -439,8 +439,6 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str, remote_port_for
     // will be correct (relative to their ssh default dir, e.g. home dir)
     let doer_args = format!("--doer {} --port {}", log_arg, remote_port_for_comms);
     // Try launching using both Unix and Windows paths, as we don't know what the remote system is
-    // uname and ver are used to check the OS before attempting to run using that path, but we pipe
-    // their result to /dev/null (or equivalent) so they don't appear in the output.
     // We run a command that doesn't print out anything on both Windows and Linux, so we don't pollute the output
     // (we show all output from ssh, in case it contains prompts etc. that are useful/required for the user to see).
     // Note the \n to send a two-line command - it seems Windows ignores this, but Linux runs it.
@@ -684,13 +682,11 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> 
         }
     }
 
-
     // Determine if the target system is Windows or Linux, so that we know where to copy our files to
-    // uname for Linux, ver for Windows. Note we do ver first because some Windows systems might have cygwin/msys2
-    // installed, which would make uname successful.
-    //TODO: try to hide the error from not finding ver, as it looks like something has gone wrong. Maybe do the weird comment
-    // trick like we do for launching rjrssync.
-    let remote_command = "ver || uname";
+    // We run a command that doesn't print out anything on both Windows and Linux, so we don't pollute the output
+    // (we show all output from ssh, in case it contains prompts etc. that are useful/required for the user to see).
+    // Note the \n to send a two-line command - it seems Windows ignores this, but Linux runs it.
+    let remote_command = format!("echo >/dev/null # >nul & echo This is a Windows system\necho This is a Linux system");
     debug!("Running remote command: {}", remote_command);
     let os_test_output = match run_process_with_live_output("ssh", &[user_prefix.clone() + remote_hostname, remote_command.to_string()]) {
         Err(e) => {
