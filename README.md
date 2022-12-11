@@ -273,12 +273,16 @@ Performance
    - Maybe check if WalkDir is slow, by comparing its performance with direct std::fs stuff or even native OS stuff?
 * Investigate if pipelining some stages would speed it up, e.g. sending file list while also sending it
 * Probably better to batch together File() Responses, to avoid overhead from sending loads of messages
+* Add to benchmark some remote tests (currently just testing local ones), and to/from WSL folders
+   - Perhaps a separate table for local -> local, local -> WSL, local -> remote etc. etc.
+* Run benchmark tests on GitHub actions?
 * Perf comparison with regular rsync (for cases where there are zero or few changes, and for cases with more changes)
 * Performance tests, so we know if we've made something slower
   - Syncing large tree when nothing has changed
   - Copying single large file
   - Copying lots of small files
 * If launching two remote doers, then it would be quicker to run the two setup_comms in parallel
+* Could investigate using UDP or something else to reduce TCP overhead, possibly this could speed up the TCP connection time?
 
 
 
