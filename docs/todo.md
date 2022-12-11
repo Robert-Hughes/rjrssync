@@ -16,11 +16,10 @@ Remote launching
 
 * Additional SSH options as command-line arguments (separate for source and dest?)
 * SSH host key verification prompt doesn't echo the user's typing, but it does seem to work anyway
-* Sometimes remote processes are left orphaned, preventing new ones from listening on the same port
+* Sometimes remote processes are left orphaned
 * Using temporary dir means that rebooting the remote will mean we have to rebuild from scratch (on Linux)
-* Sometimes see "ssh stderr: mesg: ttyname failed: Inappropriate ioctl for device" when deploying to remote. Can we hide this using "-T" for example?
-* What if remote port is taken? This can happen easily if launching two remote doers on the same platform, or one on Windows and one on WSL. Or perhaps we should automatically pick a free port, and report this back to the boss via ssh?
-This would be more reliable, for example with any leftover rjrssync processes.
+* Sometimes see "ssh stderr: mesg: ttyname failed: Inappropriate ioctl for device" when deploying to remote (I think 
+on 'F**A' platforms). Can we hide this using "-T" for example?
 
 Syncing logic
 -------------
