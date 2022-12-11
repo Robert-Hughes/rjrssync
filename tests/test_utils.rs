@@ -12,7 +12,7 @@ pub struct ProcessOutput {
 /// Simply letting the child process inherit out stdout/stderr seems to cause problems with line endings getting messed
 /// up and losing output, and unwanted clearing of the screen.
 /// This is mostly a copy-paste of the same function from boss_launch.rs, but we don't have a good way to share the code
-/// and this version is slightly different, more suitable for tests (e.g. simpler error checking).
+/// and this version is slightly different, more suitable for tests (e.g. simpler error checking, logging printed with println).
 pub fn run_process_with_live_output(c: &mut std::process::Command) -> ProcessOutput {
     println!("Running {:?} {:?}...", c.get_program(), c.get_args());
 
@@ -74,6 +74,7 @@ pub fn run_process_with_live_output(c: &mut std::process::Command) -> ProcessOut
                     Ok(r) => r,
                     Err(e) => panic!("Error waiting for child process: {}", e),
                 };
+                println!("Exit status: {:?}", result);
                 return ProcessOutput { exit_status: result, stdout: captured_stdout, stderr: captured_stderr };
             }
         }

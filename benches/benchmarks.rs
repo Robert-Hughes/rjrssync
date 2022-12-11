@@ -1,43 +1,46 @@
-use std::{time::Instant, path::{Path, PathBuf}, process::Stdio, io::Write};
+use std::{time::Instant, path::{Path, PathBuf}, io::Write};
 
 use ascii_table::AsciiTable;
 use fs_extra::dir::CopyOptions;
+
+#[path = "../tests/test_utils.rs"]
+mod test_utils;
+
+#[derive(Debug, Clone)]
+enum Target {
+    Local(PathBuf),
+    Remote {
+        is_windows: bool,
+        user_and_host: String,
+        folder: String,
+    }
+}
 
 fn main () {
     // Change working directory to a temporary folder which we will run all our benchmarks in
     let temp_dir = std::env::temp_dir().join("rjrssync-benchmarks");
     std::fs::create_dir_all(&temp_dir).expect("Failed to create temp dir");
-    std::env::set_current_dir(temp_dir).expect("Failed to set working directory");
+    std::env::set_current_dir(&temp_dir).expect("Failed to set working directory");
 
     set_up_src_folders();
 
-    let mut result_table: Vec<Vec<String>> = vec![];
-
-   
-    let rjrssync_path = env!("CARGO_BIN_EXE_rjrssync");
-    run_benchmarks_using_program(rjrssync_path, &["$SRC", "$DEST"], &mut result_table);
-   
-    #[cfg(unix)]
-    run_benchmarks_using_program("rsync", &["--archive", "--delete", "$SRC", "$DEST"], &mut result_table);
-   
-    run_benchmarks_using_program("scp", &["-r", "-q", "$SRC", "$DEST"], &mut result_table);
-   
-    #[cfg(unix)]
-    run_benchmarks_using_program("cp", &["-r", "$SRC", "$DEST"], &mut result_table);
-   
+    
+    let mut results = vec![];
+    
+    results.push(("Local -> Local", run_benchmarks_for_target(Target::Local(temp_dir.join("dest")))));
+    
     #[cfg(windows)]
-    run_benchmarks_using_program("xcopy", &["/i", "/s", "/q", "/y", "$SRC", "$DEST"], &mut result_table);
-   
-    #[cfg(windows)]
-    run_benchmarks_using_program("robocopy", &["/MIR", "/nfl", "/NJH", "/NJS", "/nc", "/ns", "/np", "/ndl", "$SRC", "$DEST"], &mut result_table);
-
-    run_benchmarks("APIs", |src, dest| {
-        if !Path::new(dest).exists() {
-            std::fs::create_dir_all(dest).expect("Failed to create dest folder");
-        }
-        fs_extra::dir::copy(src, dest, &CopyOptions { content_only: true, overwrite: true, ..Default::default() })
-            .expect("Copy failed");
-    }, &mut result_table);
+    results.push((r"Local -> \\wsl$\...", run_benchmarks_for_target(Target::Local(PathBuf::from(r"\\wsl$\\Ubuntu\\tmp\\rjrssync-benchmark-dest\\")))));
+    
+    #[cfg(unix)]
+    results.push(("Local -> /mnt/...", run_benchmarks_for_target(Target::Local(PathBuf::from("/mnt")))));
+    
+    //TODO: share the same logic as the automatic remote detection we do in remote_tests.rs
+    results.push(("Local -> Remote Windows.", run_benchmarks_for_target(
+        Target::Remote { is_windows: true, user_and_host: "192.168.12.125".to_string(), folder: "T:\\Temp\\rjrssync-benchmarks\\dest".to_string() })));
+    
+    results.push(("Local -> Remote Linux", run_benchmarks_for_target(
+        Target::Remote { is_windows: false, user_and_host: "rob@127.0.0.1".to_string(), folder: "/tmp/rjrssync-benchmarks/dest".to_string() })));
 
     let mut ascii_table = AsciiTable::default();
     ascii_table.column(0).set_header("Method");
@@ -46,27 +49,11 @@ fn main () {
     ascii_table.column(3).set_header("Small change");
     ascii_table.column(4).set_header("Large file");
 
-    println!();
-    println!("Local -> Local");
-    ascii_table.print(result_table);
-
-    #[cfg(windows)]
-    {
+    for (table_name, table_data) in results {
         println!();
-        println!(r"Local -> \\wsl$\...");
+        println!("{}", table_name);
+        ascii_table.print(table_data);    
     }
-
-    #[cfg(unix)]
-    {
-        println!();
-        println!("Local -> /mnt/...");
-    }
-
-    println!();
-    println!("Local -> Remote Windows");
-
-    println!();
-    println!("Local -> Remote Linux");
 }
 
 fn set_up_src_folders() {
@@ -118,39 +105,96 @@ fn set_up_src_folders() {
     }
 }
 
-fn run_benchmarks_using_program(program: &str, args: &[&str], result_table: &mut Vec<Vec<String>>) {
-    let id = Path::new(program).file_name().unwrap().to_string_lossy().to_string();
-    let f = |src: &'static str, dest: &'static str| {
-        let src = src.replace("/", &std::path::MAIN_SEPARATOR.to_string());
-        let dest = dest.replace("/", &std::path::MAIN_SEPARATOR.to_string());
+fn run_benchmarks_for_target(target: Target) -> Vec<Vec<String>> {
+    println!("Target: {:?}", target);
+    let mut result_table = vec![];
 
+    let rjrssync_path = env!("CARGO_BIN_EXE_rjrssync");
+    run_benchmarks_using_program(rjrssync_path, &["$SRC", "$DEST"], target.clone(), &mut result_table);
+   
+    #[cfg(unix)]
+    run_benchmarks_using_program("rsync", &["--archive", "--delete", "$SRC", "$DEST"], target.clone(), &mut result_table);
+   
+    if cfg!(windows) && matches!(target, Target::Remote { .. }) {
+        println!("Skipping scp to remotes from windows as it crashes!");
+    } else {
+        run_benchmarks_using_program("scp", &["-r", "-q", "$SRC", "$DEST"], target.clone(), &mut result_table);
+    }
+   
+    #[cfg(unix)]
+    run_benchmarks_using_program("cp", &["-r", "$SRC", "$DEST"], target.clone(), &mut result_table);
+   
+    if matches!(target, Target::Local(..)) { // xcopy is local only
+        #[cfg(windows)]
+        run_benchmarks_using_program("xcopy", &["/i", "/s", "/q", "/y", "$SRC", "$DEST"], target.clone(), &mut result_table);
+    }
+   
+    if matches!(target, Target::Local(..)) { // robocopy is local only
+        #[cfg(windows)]
+        run_benchmarks_using_program("robocopy", &["/MIR", "/nfl", "/NJH", "/NJS", "/nc", "/ns", "/np", "/ndl", "$SRC", "$DEST"], target.clone(), &mut result_table);
+    }
+
+    if matches!(target, Target::Local(..)) { // APIs are local only
+            run_benchmarks("APIs", |src, dest| {
+            if !Path::new(&dest).exists() {
+                std::fs::create_dir_all(&dest).expect("Failed to create dest folder");
+            }
+            fs_extra::dir::copy(src, dest, &CopyOptions { content_only: true, overwrite: true, ..Default::default() })
+                .expect("Copy failed");
+        }, target.clone(), &mut result_table);
+    }
+
+    result_table
+}
+
+fn run_benchmarks_using_program(program: &str, args: &[&str], target: Target, result_table: &mut Vec<Vec<String>>) {
+    let id = Path::new(program).file_name().unwrap().to_string_lossy().to_string();
+    let f = |src: String, dest: String| {
         let substitute = |p: &str| PathBuf::from(p.replace("$SRC", &src).replace("$DEST", &dest));
        // println!("{:?}", args.iter().map(|a| substitute(a)).collect::<Vec<PathBuf>>());
-        let result = std::process::Command::new(program)
-            .args(args.iter().map(|a| substitute(a)))
-            .stdout(Stdio::null()) // To hide output from e.g. scp which is very noisy :(
-            .stderr(Stdio::null())
-            .status().expect("Failed to launch program");
+        let mut cmd = std::process::Command::new(program);
+        let result = cmd
+            .args(args.iter().map(|a| substitute(a)));
+        let result = test_utils::run_process_with_live_output(result);
         if program == "robocopy" {
             // robocopy has different exit codes (0 isn't what we want)
-            let code = result.code().unwrap();
+            let code = result.exit_status.code().unwrap();
             // println!("code = {code}");
             assert!(code == 0 || code == 1 || code == 3);
         } else {
-            assert!(result.success());
+            assert!(result.exit_status.success());
         }
     };
-    run_benchmarks(&id, f, result_table);
+    run_benchmarks(&id, f, target, result_table);
 }
 
-fn run_benchmarks<F>(id: &str, sync_fn: F, result_table: &mut Vec<Vec<String>>) where F : Fn(&'static str, &'static str) {
-    println!("Subject: {id}");
+fn run_benchmarks<F>(id: &str, sync_fn: F, target: Target, result_table: &mut Vec<Vec<String>>) where F : Fn(String, String) {
+    println!("  Subject: {id}");
 
     // Delete any old dest folder from other subjects
-    if Path::new("dest").exists() {
-        std::fs::remove_dir_all("dest").expect("Failed to delete old dest folder");
-    }
-    std::fs::create_dir("dest").expect("Failed to create dest dir");
+    let dest_prefix = match target {
+        Target::Local(d) => {
+            if Path::new(&d).exists() {
+                std::fs::remove_dir_all(&d).expect("Failed to delete old dest folder");
+            }
+            std::fs::create_dir(&d).expect("Failed to create dest dir");
+            d.to_string_lossy().to_string() + &std::path::MAIN_SEPARATOR.to_string()
+        }
+        Target::Remote { is_windows, user_and_host, folder } => {
+            if is_windows {
+                // Use run_process_with_live_output to avoid messing up terminal line endings
+                let _ = test_utils::run_process_with_live_output(std::process::Command::new("ssh").arg(&user_and_host).arg(format!("rmdir /Q /S {folder}")));
+                // This one can fail, if the folder doesn't exist
+
+                let result = test_utils::run_process_with_live_output(std::process::Command::new("ssh").arg(&user_and_host).arg(format!("mkdir {folder}")));
+                assert!(result.exit_status.success());
+            } else {
+                let result = test_utils::run_process_with_live_output(std::process::Command::new("ssh").arg(&user_and_host).arg(format!("rm -rf '{folder}' && mkdir -p '{folder}'")));
+                assert!(result.exit_status.success());
+            }
+            user_and_host + ":" + &folder + "/"
+        }
+    };
 
     let run = |src, dest| {
         let start = Instant::now();
@@ -162,23 +206,27 @@ fn run_benchmarks<F>(id: &str, sync_fn: F, result_table: &mut Vec<Vec<String>>) 
     let mut results = vec![id.to_string()];
 
     // Sync example-repo to an empty folder, so this is a simple copy
-    let elapsed = run("src/example-repo", "dest/example-repo");
-    println!("{id} example-repo simple copy: {:?}", elapsed);
+    println!("    {id} example-repo simple copy...");
+    let elapsed = run(Path::new("src").join("example-repo").to_string_lossy().to_string(), dest_prefix.clone() + "example-repo");
+    println!("    {id} example-repo simple copy: {:?}", elapsed);
     results.push(format!("{:?}", elapsed));
     
     // Sync again - this should be a no-op, but still needs to check that everything is up-to-date
-    let elapsed = run("src/example-repo", "dest/example-repo");
-    println!("{id} example-repo no-op: {:?}", elapsed);
+    println!("    {id} example-repo no-op...");
+    let elapsed = run(Path::new("src").join("example-repo").to_string_lossy().to_string(), dest_prefix.clone() + "example-repo");
+    println!("    {id} example-repo no-op: {:?}", elapsed);
     results.push(format!("{:?}", elapsed));
 
     // Make some small changes, e.g. check out a new version
-    let elapsed = run("src/example-repo-slight-change", "dest/example-repo");
-    println!("{id} example-repo small change: {:?}", elapsed);
+    println!("    {id} example-repo small change...");
+    let elapsed = run(Path::new("src").join("example-repo-slight-change").to_string_lossy().to_string(), dest_prefix.clone() + "example-repo");
+    println!("    {id} example-repo small change: {:?}", elapsed);
     results.push(format!("{:?}", elapsed));
 
     // Sync a single large file
-    let elapsed = run("src/large-file", "dest/large-file");
-    println!("{id} example-repo large file: {:?}", elapsed);
+    println!("    {id} example-repo large file...");
+    let elapsed = run(Path::new("src").join("example-repo").to_string_lossy().to_string(), dest_prefix.clone() + "large-file");
+    println!("    {id} example-repo large file: {:?}", elapsed);
     results.push(format!("{:?}", elapsed));
 
     result_table.push(results);
