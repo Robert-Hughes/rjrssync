@@ -1,3 +1,6 @@
+// This file contains test utilities which is used by both the usage_tests binary
+// and the benchmarks binary.
+
 use std::{process::Stdio, sync::mpsc::{Sender, Receiver, self, SendError}, thread, fmt::{Display, self}, io::{BufReader, BufRead}};
 use network_interface::NetworkInterface;
 use network_interface::NetworkInterfaceConfig;
