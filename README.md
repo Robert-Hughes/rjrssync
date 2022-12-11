@@ -300,6 +300,7 @@ ERROR | rjrssync::boss_frontend: Sync error: Unexpected response from dest GetEn
 * Improve compile times. Is it the RustEmbed crate? Maybe the debug-embed feature of the crate could help?
 * Maybe should extend test framework to support doing things remotely, like saving and loading filesystem nodes, making and clearing out a temporary folder etc.
 * Upload to crates.io, so that we can "cargo install" from anywhere?
+* "cargo install" should only install rjrssync, not the other binaries like piper etc.
 * Warning if filter doesn't match anything, possibly after GetEntries but before actually doing anything (to prevent mistaken filter?)
 * Running remote tests in parallel seems to cause hangs
 * Would be nice to automatically detect cases where the version number hasn't been updated, e.g. if we 
@@ -326,3 +327,91 @@ Idea for filters, with re-usable "functions":
    "artifacts/.*\.bin": include,
    "other/artifacts/.*\.bin" : include,
 ]
+
+Benchmarking results
+=======================
+
+`cargo bench`, see benchmarks.rs
+
+From Windows
+------------
+
+Local -> Local
+┌──────────────┬───────────────────┬────────────────┬─────────────┬───────────────────┐
+│ Method       │ Everything copied │ Nothing copied │ Some copied │ Single large file │
+├──────────────┼───────────────────┼────────────────┼─────────────┼───────────────────┤
+│ rjrssync.exe │ 4.151241s         │ 231.0237ms     │ 228.0292ms  │ 5.3086938s        │
+│ scp          │ 2.8562636s        │ 2.8678677s     │ 2.6323207s  │ 2.5213262s        │
+│ xcopy        │ 2.7228312s        │ 2.2716768s     │ 2.2347686s  │ 2.7214628s        │
+│ robocopy     │ 2.6623245s        │ 95.7693ms      │ 245.8578ms  │ 1.9447525s        │
+│ APIs         │ 2.6579592s        │ 1.8505093s     │ 1.8184937s  │ 2.3965763s        │
+└──────────────┴───────────────────┴────────────────┴─────────────┴───────────────────┘
+
+Local -> \\wsl$\...
+┌──────────────┬───────────────────┬────────────────┬─────────────┬───────────────────┐
+│ Method       │ Everything copied │ Nothing copied │ Some copied │ Single large file │
+├──────────────┼───────────────────┼────────────────┼─────────────┼───────────────────┤
+│ rjrssync.exe │ 9.4277645s        │ 544.0733ms     │ 613.3402ms  │ 9.2789156s        │
+│ scp          │ 25.0829639s       │ 24.6381014s    │ 24.7009857s │ 24.5150527s       │
+│ xcopy        │ 25.3466955s       │ 25.3828999s    │ 25.6379354s │ 24.384782s        │
+│ robocopy     │ 44.5992288s       │ 922.4987ms     │ 1.0220214s  │ 14.1150518s       │
+│ APIs         │ 10.6802285s       │ 9.4649887s     │ 10.57274s   │ 10.0479327s       │
+└──────────────┴───────────────────┴────────────────┴─────────────┴───────────────────┘
+
+Local -> Remote Windows
+┌──────────────┬───────────────────┬────────────────┬─────────────┬───────────────────┐
+│ Method       │ Everything copied │ Nothing copied │ Some copied │ Single large file │
+├──────────────┼───────────────────┼────────────────┼─────────────┼───────────────────┤
+│ rjrssync.exe │ 4.7790781s        │ 1.5591088s     │ 444.9136ms  │ 5.5628759s        │
+│ scp          │ 7.0699924s        │ 6.8088286s     │ 7.95754s    │ 6.8389296s        │
+└──────────────┴───────────────────┴────────────────┴─────────────┴───────────────────┘
+
+Local -> Remote Linux
+┌──────────────┬───────────────────┬────────────────┬─────────────┬───────────────────┐
+│ Method       │ Everything copied │ Nothing copied │ Some copied │ Single large file │
+├──────────────┼───────────────────┼────────────────┼─────────────┼───────────────────┤
+│ rjrssync.exe │ 14.1525369s       │ 540.9589ms     │ 1.7784736s  │ 14.0738782s       │
+│ scp          │ 13.0779693s       │ 11.8039196s    │ 12.5018349s │ 12.331365s        │
+└──────────────┴───────────────────┴────────────────┴─────────────┴───────────────────┘
+
+From Linux
+-----------
+
+Local -> Local
+┌──────────┬───────────────────┬────────────────┬─────────────┬───────────────────┐
+│ Method   │ Everything copied │ Nothing copied │ Some copied │ Single large file │
+├──────────┼───────────────────┼────────────────┼─────────────┼───────────────────┤
+│ rjrssync │ 564.9033ms        │ 54.4827ms      │ 598.9148ms  │ 599.3649ms        │
+│ rsync    │ 235.476ms         │ 31.4897ms      │ 48.5689ms   │ 235.8413ms        │
+│ scp      │ 205.6638ms        │ 170.7896ms     │ 136.1662ms  │ 159.203ms         │
+│ cp       │ 123.1224ms        │ 112.5064ms     │ 117.3004ms  │ 136.1243ms        │
+│ APIs     │ 128.7413ms        │ 182.8906ms     │ 204.9748ms  │ 145.2749ms        │
+└──────────┴───────────────────┴────────────────┴─────────────┴───────────────────┘
+
+Local -> /mnt/...
+┌──────────┬───────────────────┬────────────────┬─────────────┬───────────────────┐
+│ Method   │ Everything copied │ Nothing copied │ Some copied │ Single large file │
+├──────────┼───────────────────┼────────────────┼─────────────┼───────────────────┤
+│ rjrssync │ 27.6029861s       │ 24.6532638s    │ 25.7612349s │ 24.1238198s       │
+│ rsync    │ 41.3791196s       │ 24.1739738s    │ 25.3536176s │ 41.9399095s       │
+│ scp      │ 16.5856859s       │ 18.0444658s    │ 18.1859758s │ 16.96021s         │
+│ cp       │ 17.1177095s       │ 18.7105087s    │ 17.4703643s │ 16.6027132s       │
+│ APIs     │ 18.9366249s       │ 18.0421572s    │ 15.947956s  │ 17.4131055s       │
+└──────────┴───────────────────┴────────────────┴─────────────┴───────────────────┘
+
+Local -> Remote Windows
+┌──────────┬───────────────────┬────────────────┬─────────────┬───────────────────┐
+│ Method   │ Everything copied │ Nothing copied │ Some copied │ Single large file │
+├──────────┼───────────────────┼────────────────┼─────────────┼───────────────────┤
+│ rjrssync │ 4.9992808s        │ 319.8587ms     │ 4.6697796s  │ 4.9986032s        │
+│ scp      │ 5.7721834s        │ 5.7558876s     │ 5.4260519s  │ 5.5288437s        │
+└──────────┴───────────────────┴────────────────┴─────────────┴───────────────────┘
+
+Local -> Remote Linux
+┌──────────┬───────────────────┬────────────────┬─────────────┬───────────────────┐
+│ Method   │ Everything copied │ Nothing copied │ Some copied │ Single large file │
+├──────────┼───────────────────┼────────────────┼─────────────┼───────────────────┤
+│ rjrssync │ 1.103967s         │ 364.0738ms     │ 1.1243908s  │ 1.1092012s        │
+│ rsync    │ 613.1297ms        │ 332.841ms      │ 344.371ms   │ 617.8642ms        │
+│ scp      │ 1.7941618s        │ 1.7633846s     │ 1.7677013s  │ 1.7614294s        │
+└──────────┴───────────────────┴────────────────┴─────────────┴───────────────────┘

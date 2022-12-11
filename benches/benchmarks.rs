@@ -46,10 +46,10 @@ fn main () {
 
     let mut ascii_table = AsciiTable::default();
     ascii_table.column(0).set_header("Method");
-    ascii_table.column(1).set_header("Simple Copy");
-    ascii_table.column(2).set_header("No-op");
-    ascii_table.column(3).set_header("Small change");
-    ascii_table.column(4).set_header("Large file");
+    ascii_table.column(1).set_header("Everything copied");
+    ascii_table.column(2).set_header("Nothing copied");
+    ascii_table.column(3).set_header("Some copied");
+    ascii_table.column(4).set_header("Single large file");
 
     for (table_name, table_data) in results {
         println!();
@@ -122,15 +122,19 @@ fn run_benchmarks_for_target(target: Target) -> Vec<Vec<String>> {
     let rjrssync_path = env!("CARGO_BIN_EXE_rjrssync");
     run_benchmarks_using_program(rjrssync_path, &["$SRC", "$DEST"], target.clone(), &mut result_table);
    
-    #[cfg(unix)]
-    // Note trailing slash on the src is important for rsync!
-    run_benchmarks_using_program("rsync", &["--archive", "--delete", "$SRC/", "$DEST"], target.clone(), &mut result_table);
-   
+    if !matches!(target, Target::Remote{ is_windows, .. } if is_windows) { // rsync is Linux -> Linux only
+        #[cfg(unix)]
+        // Note trailing slash on the src is important for rsync!
+        run_benchmarks_using_program("rsync", &["--archive", "--delete", "$SRC/", "$DEST"], target.clone(), &mut result_table);
+    }
+
     run_benchmarks_using_program("scp", &["-r", "-q", "$SRC", "$DEST"], target.clone(), &mut result_table);
    
-    #[cfg(unix)]
-    run_benchmarks_using_program("cp", &["-r", "$SRC", "$DEST"], target.clone(), &mut result_table);
-   
+    if matches!(target, Target::Local(..)) { // cp is local only
+        #[cfg(unix)]
+        run_benchmarks_using_program("cp", &["-r", "$SRC", "$DEST"], target.clone(), &mut result_table);
+    }
+
     if matches!(target, Target::Local(..)) { // xcopy is local only
         #[cfg(windows)]
         run_benchmarks_using_program("xcopy", &["/i", "/s", "/q", "/y", "$SRC", "$DEST"], target.clone(), &mut result_table);
@@ -200,7 +204,8 @@ fn run_benchmarks<F>(id: &str, sync_fn: F, target: Target, result_table: &mut Ve
                 let result = test_utils::run_process_with_live_output(std::process::Command::new("ssh").arg(&user_and_host).arg(format!("rm -rf '{folder}' && mkdir -p '{folder}'")));
                 assert!(result.exit_status.success());
             }
-            user_and_host + ":" + &folder + "/"
+            let remote_sep = if is_windows { "\\" } else { "/" };
+            user_and_host + ":" + &folder + remote_sep
         }
     };
 
@@ -213,28 +218,28 @@ fn run_benchmarks<F>(id: &str, sync_fn: F, target: Target, result_table: &mut Ve
 
     let mut results = vec![id.to_string()];
 
-    // Sync example-repo to an empty folder, so this is a simple copy
-    println!("    {id} example-repo simple copy...");
+    // Sync example-repo to an empty folder, so this means everything is copied
+    println!("    {id} example-repo everything copied...");
     let elapsed = run(Path::new("src").join("example-repo").to_string_lossy().to_string(), dest_prefix.clone() + "example-repo");
-    println!("    {id} example-repo simple copy: {:?}", elapsed);
+    println!("    {id} example-repo everything copied: {:?}", elapsed);
     results.push(format!("{:?}", elapsed));
     
     // Sync again - this should be a no-op, but still needs to check that everything is up-to-date
-    println!("    {id} example-repo no-op...");
+    println!("    {id} example-repo nothing copied...");
     let elapsed = run(Path::new("src").join("example-repo").to_string_lossy().to_string(), dest_prefix.clone() + "example-repo");
-    println!("    {id} example-repo no-op: {:?}", elapsed);
+    println!("    {id} example-repo nothing copied: {:?}", elapsed);
     results.push(format!("{:?}", elapsed));
 
     // Make some small changes, e.g. check out a new version
-    println!("    {id} example-repo small change...");
+    println!("    {id} example-repo some copied...");
     let elapsed = run(Path::new("src").join("example-repo-slight-change").to_string_lossy().to_string(), dest_prefix.clone() + "example-repo");
-    println!("    {id} example-repo small change: {:?}", elapsed);
+    println!("    {id} example-repo some copied: {:?}", elapsed);
     results.push(format!("{:?}", elapsed));
 
     // Sync a single large file
-    println!("    {id} example-repo large file...");
+    println!("    {id} example-repo single large file...");
     let elapsed = run(Path::new("src").join("example-repo").to_string_lossy().to_string(), dest_prefix.clone() + "large-file");
-    println!("    {id} example-repo large file: {:?}", elapsed);
+    println!("    {id} example-repo single large file: {:?}", elapsed);
     results.push(format!("{:?}", elapsed));
 
     result_table.push(results);
