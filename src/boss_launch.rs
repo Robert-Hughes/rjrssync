@@ -606,7 +606,7 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str, remote_port_for
 #[exclude = "bin/*"] // No need to copy testing code
 struct EmbeddedSrcFolder;
 
-const EMBEDDED_CARGO_TOML : &[u8] = include_bytes!("../Cargo.toml");
+const EMBEDDED_CARGO_TOML : &'static str = include_str!("../Cargo.toml");
 const EMBEDDED_CARGO_LOCK : &[u8] = include_bytes!("../Cargo.lock");
 
 /// Deploys the source code of rjrssync to the given remote computer and builds it, ready to be executed.
@@ -641,7 +641,21 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> 
     let mut all_files_iter : Vec<(Cow<'static, str>, Cow<[u8]>)> = EmbeddedSrcFolder::iter().map(
         |p| (p.clone(), EmbeddedSrcFolder::get(&p).unwrap().data)
     ).collect();
-    all_files_iter.push((Cow::from("Cargo.toml"), Cow::from(EMBEDDED_CARGO_TOML)));
+    // Cargo.toml has some special processing to remove lines that aren't relevant for remotely deployed
+    // copies
+    let mut processed_cargo_toml: Vec<u8> = vec![];
+    let mut in_non_remote_block = false;
+    for line in EMBEDDED_CARGO_TOML.lines() {
+        match line {
+            "#if NonRemote" => in_non_remote_block = true,
+            "#end" => in_non_remote_block = false,
+            l => if !in_non_remote_block {
+                processed_cargo_toml.extend_from_slice(l.as_bytes());
+                processed_cargo_toml.push(b'\n');
+            }
+        }
+    }
+    all_files_iter.push((Cow::from("Cargo.toml"), Cow::from(processed_cargo_toml)));
     all_files_iter.push((Cow::from("Cargo.lock"), Cow::from(EMBEDDED_CARGO_LOCK)));
     for (path, contents) in all_files_iter {
         // Add an extra "rjrssync" folder with a fixed name (as opposed to the temp dir, whose name varies), to work around SCP weirdness below.
