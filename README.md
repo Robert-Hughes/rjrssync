@@ -304,6 +304,8 @@ ERROR | rjrssync::boss_frontend: Sync error: Unexpected response from dest GetEn
 * Would be nice to automatically detect cases where the version number hasn't been updated, e.g. if we 
 could see that the Command/Response struct layout has changed.
 * Turning profiling on/off results in incompatible network protocol, which isn't detected by the version number
+* Something is messing up the line endings when running "cargo test" on windows. I replaced a bunch of ssh
+commands with run_process_with_live_output to try to fix this, but it's still happening :( Possibly rjrssync itself is doing this?
 
 Idea for filters, with re-usable "functions":
 ===============

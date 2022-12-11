@@ -6,6 +6,7 @@ use network_interface::Addr::V4;
 use regex::Regex;
 
 use crate::test_framework::{run, TestDesc, empty_folder};
+use crate::test_utils;
 
 pub enum RemotePlatform {
     Windows,
@@ -76,9 +77,10 @@ fn get_remote_windows_config() -> (String, String) {
         Ok(x) => x,
         Err(std::env::VarError::NotPresent) => {
             // Figure out the remote temp dir, based on the remote environment variable %TEMP%
-            let output = std::process::Command::new("ssh").arg(&user_and_host).arg("echo %TEMP%\\rjrssync-tests").output().expect("Failed to query remote temp folder");
-            assert!(output.status.success());
-            String::from_utf8(output.stdout).expect("Unable to decode utf-8").trim().to_string()
+            // Use run_process_with_live_output to avoid messing up terminal line endings
+            let output = test_utils::run_process_with_live_output(std::process::Command::new("ssh").arg(&user_and_host).arg("echo %TEMP%\\rjrssync-tests"));
+            assert!(output.exit_status.success());
+            output.stdout.trim().to_string()
         }
         _ => panic!("Unexpected error"),
     };
@@ -99,10 +101,10 @@ fn get_remote_linux_config() -> (String, String) {
                 // by simply using localhost or 127.0.0.1. If both WSL SSH and windows SSH are both listening,
                 // then WSL takes precedence.
                 // The username is more complicated, as the WSL username might differ from Windows username
-                //TODO: running this command messes up terminal line endings briefly :(
-                let output = std::process::Command::new("wsl").arg("echo").arg("$USER").output().expect("Failed to query WSL username");
-                assert!(output.status.success());
-                let username = String::from_utf8(output.stdout).expect("Unable to decode utf-8").trim().to_string();
+                // Use run_process_with_live_output to avoid messing up terminal line endings
+                let output = test_utils::run_process_with_live_output(std::process::Command::new("wsl").arg("echo").arg("$USER"));
+                assert!(output.exit_status.success());
+                let username = output.stdout.trim().to_string();
                    
                 format!("{username}@127.0.0.1")
             } else if cfg!(unix) {
@@ -138,17 +140,16 @@ fn confirm_remote_test_environment(remote_user_and_host: &str, expected_os: &str
     };
 
     println!("Checking connection to {} with ssh command '{}'", remote_user_and_host, test_command);
-    let output = std::process::Command::new("ssh").arg(remote_user_and_host).arg(test_command)
-        .output().expect("Failed to check if remote host is available");
-    println!("ssh exit code: {}", output.status);
+    // Use run_process_with_live_output to avoid messing up terminal line endings
+    let output = test_utils::run_process_with_live_output(std::process::Command::new("ssh").arg(remote_user_and_host).arg(test_command));
+    println!("ssh exit code: {}", output.exit_status);
     println!("ssh stdout:");
-    let stdout_text = String::from_utf8(output.stdout).expect("Unable to decode utf-8");
-    println!("{}", stdout_text);
+    println!("{}", output.stdout);
     println!("ssh stderr:");
-    println!("{}", String::from_utf8(output.stderr).expect("Unable to decode utf-8"));
+    println!("{}", output.stderr);
 
-    assert!(output.status.success());
-    assert!(stdout_text.contains(expected_os));
+    assert!(output.exit_status.success());
+    assert!(output.stdout.contains(expected_os));
 }
 
 
