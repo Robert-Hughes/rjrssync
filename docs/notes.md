@@ -70,6 +70,8 @@ Windows -> WSL: ~500MB/s
 WSL -> Windows: 700-800MB/s
 WSL -> WSL: 900-1000MB/s
 
+Disabling PAM on sshd_config seems to speed up ssh login https://serverfault.com/questions/792486/ssh-connection-takes-forever-to-initiate-stuck-at-pledge-network
+
 
 Tree representation
 ===================
@@ -131,7 +133,7 @@ It also prevents unintended creation of nested folders with the same name which 
 
 Trailing slashes on files are always invalid, because this gives the impression that the file is actually a folder, and so could lead to unexpected behaviour.
 
-Symlinks are treated the same as files, because that's essentially how rjrssync treats symlinks (it syncs 
+Symlinks are treated the same as files, because that's essentially how rjrssync treats symlinks (it syncs
 the link address, as if it was a small text file). Therefore they can't have trailing slashes.
 Note that tab-completion (on bash and cmd at least) does not put a trailing slash on symlinks automatically,
 so this shouldn't be a problem. (For folders, bash does do this which is why it's useful to allow trailing
@@ -178,7 +180,7 @@ to get to the transfer root.
 
 Known quirks with the current behaviour:
 
-Existing windows symlink on the dest side, and then a broken Unix symlink on the source side, with the same target link address: 
+Existing windows symlink on the dest side, and then a broken Unix symlink on the source side, with the same target link address:
 Currently this will result in an error, as we will attempt to create a Generic symlink on the dest, which will fail. In this case it's pretty likely that the user would prefer us to simply leave the dest symlink as it is
 (whether it be a file or folder symlink).
 

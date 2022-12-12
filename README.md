@@ -18,7 +18,7 @@ A quick example:
 
 ```
 rjrssync local-folder/ user@hostname:/remote/folder
-``` 
+```
 
 See `rjrssync --help` for more.
 
@@ -40,7 +40,7 @@ syncs:
   - src: D:/Source
     dest: D:/Dest
     # Filters are regular expressions with a leading '+' or '-', indicating includes or excludes.
-    filter: [ "+\.txt", "-garbage\.txt" ]
+    filter: [ "+.*\.txt", "-garbage\.txt" ]
   - src: D:/Source2
     dest: D:/Dest2
 ```
