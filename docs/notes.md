@@ -301,3 +301,8 @@ Local -> Remote Linux
 │ rsync    │ 576.7668ms        │ 336.713ms      │ 548.8059ms  │ 592.6911ms        │
 │ scp      │ 1.7771327s        │ 1.7964356s     │ 1.7862826s  │ 1.7711581s        │
 └──────────┴───────────────────┴────────────────┴─────────────┴───────────────────┘
+
+Notes on filters
+================
+
+Currently, the same filter is applied on both source and dest sides and there is no way to have a different filter on each side. This is simpler, but means that if you run a sync which copies some files you forgot to exclude, then add the exclude and re-run the sync, those files will still be present on the dest (but just hidden by the filter). So you would need to manually remove them which isn't great. If we allowed separate source/dest filters, then you could exclude the files just on the source and then they would be removed from the dest. However, having separate filters could lead to other potential issues - if you exclude some files on the dest only, and those files do exist on the source, then they will be copied every time regardless. Perhaps files should only be excludable on the source, or on both, but never just on the dest? Or perhaps a file should never be copied to the dest, if it would be excluded by the dest filter?
