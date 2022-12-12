@@ -265,6 +265,8 @@ Local -> Remote Linux
 From Linux
 -----------
 
+TODO: Single large file for Linux looks wrong! Re-run it
+
 Local -> Local
 ┌──────────┬───────────────────┬────────────────┬─────────────┬───────────────────┐
 │ Method   │ Everything copied │ Nothing copied │ Some copied │ Single large file │
