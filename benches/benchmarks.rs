@@ -159,7 +159,6 @@ fn run_benchmarks_using_program(program: &str, args: &[&str], target: Target, re
     let id = Path::new(program).file_name().unwrap().to_string_lossy().to_string();
     let f = |src: String, dest: String| {
         let substitute = |p: &str| PathBuf::from(p.replace("$SRC", &src).replace("$DEST", &dest));
-       // println!("{:?}", args.iter().map(|a| substitute(a)).collect::<Vec<PathBuf>>());
         let mut cmd = std::process::Command::new(program);
         let result = cmd
             .args(args.iter().map(|a| substitute(a)));
@@ -181,7 +180,7 @@ fn run_benchmarks<F>(id: &str, sync_fn: F, target: Target, result_table: &mut Ve
     println!("  Subject: {id}");
 
     // Delete any old dest folder from other subjects
-    let dest_prefix = match target {
+    let dest_prefix = match &target {
         Target::Local(d) => {
             if Path::new(&d).exists() {
                 std::fs::remove_dir_all(&d).expect("Failed to delete old dest folder");
@@ -190,7 +189,7 @@ fn run_benchmarks<F>(id: &str, sync_fn: F, target: Target, result_table: &mut Ve
             d.to_string_lossy().to_string() + &std::path::MAIN_SEPARATOR.to_string()
         }
         Target::Remote { is_windows, user_and_host, folder } => {
-            if is_windows {
+            if *is_windows {
                 // Use run_process_with_live_output to avoid messing up terminal line endings
                 let _ = test_utils::run_process_with_live_output(std::process::Command::new("ssh").arg(&user_and_host).arg(format!("rmdir /Q /S {folder}")));
                 // This one can fail, if the folder doesn't exist
@@ -201,8 +200,8 @@ fn run_benchmarks<F>(id: &str, sync_fn: F, target: Target, result_table: &mut Ve
                 let result = test_utils::run_process_with_live_output(std::process::Command::new("ssh").arg(&user_and_host).arg(format!("rm -rf '{folder}' && mkdir -p '{folder}'")));
                 assert!(result.exit_status.success());
             }
-            let remote_sep = if is_windows { "\\" } else { "/" };
-            user_and_host + ":" + &folder + remote_sep
+            let remote_sep = if *is_windows { "\\" } else { "/" };
+            user_and_host.clone() + ":" + &folder + remote_sep
         }
     };
 
@@ -234,10 +233,14 @@ fn run_benchmarks<F>(id: &str, sync_fn: F, target: Target, result_table: &mut Ve
     results.push(format!("{:?}", elapsed));
 
     // Sync a single large file
-    println!("    {id} example-repo single large file...");
-    let elapsed = run(Path::new("src").join("large-file").to_string_lossy().to_string(), dest_prefix.clone() + "large-file");
-    println!("    {id} example-repo single large file: {:?}", elapsed);
-    results.push(format!("{:?}", elapsed));
+    if cfg!(unix) && matches!(target, Target::Remote{ is_windows, .. } if is_windows && id == "rjrssync") {
+        results.push(format!("Skipping (crashes!)")); // memory allocation of 1024000058 bytes failed
+    } else {
+        println!("    {id} example-repo single large file...");
+        let elapsed = run(Path::new("src").join("large-file").to_string_lossy().to_string(), dest_prefix.clone() + "large-file");
+        println!("    {id} example-repo single large file: {:?}", elapsed);
+        results.push(format!("{:?}", elapsed));
+    }
 
     result_table.push(results);
 }

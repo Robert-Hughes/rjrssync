@@ -334,9 +334,6 @@ impl Display for Comms {
 pub fn doer_main() -> ExitCode {
     let main_timer = start_timer(function_name!()); 
 
-    //TODO: parsing the args before doing the handshake means that if we change hte command line args
-    // (e.g. adding a new required parameter), then we won't be able to launch the doer, and users
-    // will be forced to do a --force-redeploy which isn't very nice.
     let args = DoerCliArgs::parse();
 
     {

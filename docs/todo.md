@@ -90,6 +90,9 @@ ERROR | rjrssync::boss_frontend: Sync error: Unexpected response from dest GetEn
 * Would be nice to automatically detect cases where the version number hasn't been updated, e.g. if we 
 could see that the Command/Response struct layout has changed.
 * Turning profiling on/off results in incompatible network protocol, which isn't detected by the version number
+* The doer parsing its cmd line args before doing the handshake means that if we change hte command line args
+ (e.g. adding a new required parameter), then we won't be able to launch the doer, and users
+ will be forced to do a --force-redeploy which isn't very nice.
 * Something is messing up the line endings when running "cargo test" on windows. I replaced a bunch of ssh
 commands with run_process_with_live_output to try to fix this, but it's still happening :( Possibly rjrssync itself is doing this?
 * Investigate if Github Wiki would be useful for a lot of the stuff currently dumped in the README. Seems
