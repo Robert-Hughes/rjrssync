@@ -334,6 +334,16 @@ impl Display for Comms {
 pub fn doer_main() -> ExitCode {
     let main_timer = start_timer(function_name!()); 
 
+    // The first thing we send is a special handshake message that the Boss will recognise,
+    // to know that we've started up correctly and to make sure we are running compatible versions.
+    // We need to do this on both stdout and stderr, because both those streams need to be synchronised on the receiving end.
+    // Note that this needs to be done even before parsing cmd line args, because the cmd line args interface might change
+    // (e.g. adding a new required parameter), then we wouldn't be able to launch the doer, and users
+    // will be forced to do a --force-redeploy which isn't very nice.
+    let msg = format!("{}{}", HANDSHAKE_STARTED_MSG, VERSION);
+    println!("{}", msg);
+    eprintln!("{}", msg);
+
     let args = DoerCliArgs::parse();
 
     {
@@ -362,12 +372,6 @@ pub fn doer_main() -> ExitCode {
 
     let timer = start_timer("Handshaking");
 
-    // The first thing we send is a special handshake message that the Boss will recognise,
-    // to know that we've started up correctly and to make sure we are running compatible versions.
-    // We need to do this on both stdout and stderr, because both those streams need to be synchronised on the receiving end.
-    let msg = format!("{}{}", HANDSHAKE_STARTED_MSG, VERSION);
-    println!("{}", msg);
-    eprintln!("{}", msg);
 
     // If the Boss isn't happy (e.g. we are an old version), they will stop us and deploy a new version.
     // So at this point we can assume they are happy and set up the network connection.
