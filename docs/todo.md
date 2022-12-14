@@ -88,7 +88,5 @@ ERROR | rjrssync::boss_frontend: Sync error: Unexpected response from dest GetEn
 * Upload to crates.io, so that we can "cargo install" from anywhere?
 * "cargo install" should only install rjrssync, not the other binaries like piper etc.
 * Warning if filter doesn't match anything, possibly after GetEntries but before actually doing anything (to prevent mistaken filter?)
-* Running remote tests in parallel seems to cause hangs, from Windows at least. Maybe try running with a test timeout
-so those tests fail, and we see the log of just that test  (--nocapture is too spammy)
 * Would be nice to automatically detect cases where the version number hasn't been updated, e.g. if we 
 could see that the Command/Response struct layout has changed.

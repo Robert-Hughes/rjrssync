@@ -34,7 +34,10 @@ pub fn run_process_with_live_output(c: &mut std::process::Command) -> ProcessOut
 pub fn run_process_with_live_output_impl(c: &mut std::process::Command, hide_stdout: bool, hide_stderr: bool) -> ProcessOutput {
     println!("Running {:?} {:?}...", c.get_program(), c.get_args());
 
-    let mut child = c;
+    // Setting stdin to null seems to fix issues with running all the tests in parallel (cargo test),
+    // where some ssh processes get stuck waiting for input (pressing Enter in the command prompt a few times
+    // seems to unstick it). It only seems to happen when running in parallel though strangely.
+    let mut child = c.stdin(Stdio::null()); 
     if hide_stdout {
         child = child.stdout(Stdio::null())
     } else {
