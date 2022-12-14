@@ -46,6 +46,11 @@ Syncing logic
    - can we safely serialize this on one platform and deserialize on another?
 * Consider warning for unexpected deletions (esp with replacing files with folders, see table in above section)
 * --dry-run isn't honoured when creating dest ancestors! It should instead say that it _would_ create the ancestors.
+* Large files need to be split so that we don't send them all in one huge message:
+  - better memory usage
+  - doesn't crash for really large files
+  - more opportunities for pipelining
+  - the optimum chunk size might vary, we could adjust this dynamically
 
 
 
@@ -61,13 +66,10 @@ Performance
    - Perhaps a separate table for local -> local, local -> WSL, local -> remote etc. etc.
    - Copy results into here (or similar), so can look at them without waiting for them to run
 * Run benchmark tests on GitHub actions?
-* Perf comparison with regular rsync (for cases where there are zero or few changes, and for cases with more changes)
-* Performance tests, so we know if we've made something slower
-  - Syncing large tree when nothing has changed
-  - Copying single large file
-  - Copying lots of small files
 * If launching two remote doers, then it would be quicker to run the two setup_comms in parallel
 * Could investigate using UDP or something else to reduce TCP overhead, possibly this could speed up the TCP connection time?
+* Waiting for an ack after each file transfer makes it slow. Instead we could "peek" for acks rather than waiting,
+and progress to the next file/chunk immediately if there's nothing waiting. Need to make sure we don't deadlock though, waiting for each other!
 
 
 
@@ -89,7 +91,6 @@ ERROR | rjrssync::boss_frontend: Sync error: Unexpected response from dest GetEn
 * Running remote tests in parallel seems to cause hangs
 * Would be nice to automatically detect cases where the version number hasn't been updated, e.g. if we 
 could see that the Command/Response struct layout has changed.
-* Turning profiling on/off results in incompatible network protocol, which isn't detected by the version number
 * Something is messing up the line endings when running "cargo test" on windows. I replaced a bunch of ssh
 commands with run_process_with_live_output to try to fix this, but it's still happening :( Possibly rjrssync itself is doing this?
 * Investigate if Github Wiki would be useful for a lot of the stuff currently dumped in the README. Seems
