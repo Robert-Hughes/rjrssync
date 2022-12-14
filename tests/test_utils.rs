@@ -1,7 +1,7 @@
 // This file contains test utilities which is used by both the usage_tests binary
 // and the benchmarks binary.
 
-use std::{process::Stdio, sync::mpsc::{Sender, Receiver, self, SendError}, thread, fmt::{Display, self}, io::{BufReader, BufRead}};
+use std::{process::Stdio, sync::mpsc::{Sender, Receiver, self, SendError}, thread, fmt::{Display, self}, io::{BufReader, BufRead, stdout}};
 use network_interface::NetworkInterface;
 use network_interface::NetworkInterfaceConfig;
 use network_interface::V4IfAddr;
@@ -263,8 +263,10 @@ fn get_remote_linux_config() -> (String, String) {
                 // We want to connect to the WSL instance which we assume is running, which can be done 
                 // by simply using localhost or 127.0.0.1. If both WSL SSH and windows SSH are both listening,
                 // then WSL takes precedence.
-                // The username is more complicated, as the WSL username might differ from Windows username
-                // Use run_process_with_live_output to avoid messing up terminal line endings
+                // The username is more complicated, as the WSL username might differ from Windows username                
+                // Running wsl.exe messes up line endings while it is running, so this lock prevents it messing
+                // up other tests running at the same time.
+                let _lock = stdout().lock();
                 let output = run_process_with_live_output(std::process::Command::new("wsl").arg("echo").arg("$USER"));
                 assert!(output.exit_status.success());
                 let username = output.stdout.trim().to_string();
