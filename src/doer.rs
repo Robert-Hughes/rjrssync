@@ -5,7 +5,7 @@ use env_logger::Env;
 use log::{debug, error, trace};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::io::ErrorKind;
+use std::io::{ErrorKind, Read};
 use std::path;
 use std::{
     fmt::{self, Display},
@@ -128,6 +128,10 @@ pub enum Command {
         path: RootRelativePath,
         data: Vec<u8>,
         set_modified_time: Option<SystemTime>,
+        /// If set, there is more data for this same file being sent in a following Command.
+        /// This is used to split up large files so that we don't send them all in one huge message.
+        /// See GetFileContent for more details.
+        more_to_follow: bool,
     },
     CreateSymlink {
         path: RootRelativePath,
@@ -261,7 +265,15 @@ pub enum Response {
     Entry((RootRelativePath, EntryDetails)),
     EndOfEntries,
 
-    FileContent { data: Vec<u8> },
+    FileContent { 
+        data: Vec<u8>,
+        /// If set, there is more data for this same file being sent in a following Response.
+        /// This is used to split up large files so that we don't send them all in one huge message:
+        ///   - better memory usage
+        ///   - doesn't crash for really large files
+        ///   - more opportunities for pipelining
+        more_to_follow: bool,
+    },
 
     #[cfg(feature = "profiling")]
     ProfilingTimeSync(std::time::Duration),
@@ -478,7 +490,9 @@ pub fn doer_thread_running_on_boss(receiver: Receiver<Command>, sender: Sender<R
 /// process' current directory), because there might be multiple doer threads in the same process
 /// (if these are local doers).
 struct DoerContext {
-    pub root: PathBuf,
+    root: PathBuf,
+    /// Stores details of a file we're partway through receiving.
+    in_progress_file_receive: Option<(RootRelativePath, std::fs::File)>,
 }
 
 // Repeatedly waits for Commands from the boss and processes them (possibly sending back Responses).
@@ -542,26 +556,52 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut Option<DoerCo
         }
         Command::GetFileContent { path } => {
             let full_path = path.get_full_path(&context.as_ref().unwrap().root);
-            trace!("Getting content of '{}'", full_path.display());
             profile_this!(format!("GetFileContent {}", path.to_string()));
-            match std::fs::read(&full_path) {
-                Ok(data) => comms.send_response(Response::FileContent { data }).unwrap(),
-                Err(e) => comms.send_response(Response::Error(format!("Error getting file content of '{}': {e}", full_path.display()))).unwrap(),
+            if let Err(e) = handle_get_file_contents(comms, &full_path) {
+                comms.send_response(Response::Error(e)).unwrap();
             }
         }
         Command::CreateOrUpdateFile {
             path,
             data,
             set_modified_time,
+            more_to_follow
         } => {
             let full_path = path.get_full_path(&context.as_ref().unwrap().root);
-            trace!("Creating/updating content of '{}'", full_path.display());
+            trace!("Creating/updating content of '{}'", full_path.display());            
             profile_this!(format!("CreateOrUpdateFile {}", path.to_string()));
-            let r = std::fs::write(&full_path, data);
+
+            // Check if this is the continuation of an existing file
+            let mut f = match context.as_mut().unwrap().in_progress_file_receive.take() {
+                Some((in_progress_path, f)) => {
+                    if in_progress_path == path {
+                        f
+                    } else {
+                        comms.send_response(Response::Error(format!("Unexpected continued file transfer!"))).unwrap();
+                        return Ok(true);        
+                    }
+                },
+                None => match std::fs::File::create(&full_path) {
+                    Ok(f) => f,
+                    Err(e) => {
+                        comms.send_response(Response::Error(format!("Error writing file contents to '{}': {e}", full_path.display()))).unwrap();
+                        return Ok(true);    
+                    }
+                }
+            };
+
+            let r = f.write_all(&data);
             if let Err(e) = r {
                 comms.send_response(Response::Error(format!("Error writing file contents to '{}': {e}", full_path.display()))).unwrap();
                 return Ok(true);
             }
+
+            // If there is more data to follow, store the open file handle for next time
+            context.as_mut().unwrap().in_progress_file_receive = if more_to_follow {
+                Some((path, f))
+            } else {
+                None
+            };
 
             // After changing the content, we need to override the modified time of the file to that of the original,
             // otherwise it will immediately count as modified again if we do another sync.
@@ -648,6 +688,7 @@ fn handle_set_root(comms: &mut Comms, context: &mut Option<DoerContext>, root: S
     // Store the root path for future operations
     *context = Some(DoerContext {
         root: PathBuf::from(root),
+        in_progress_file_receive: None,
     });
     let context = context.as_ref().unwrap();
 
@@ -815,6 +856,61 @@ fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, filters: &[F
     );
 
     Ok(())
+}
+
+fn handle_get_file_contents(comms: &mut Comms, full_path: &Path) -> Result<(), String> {
+    trace!("Getting content of '{}'", full_path.display());
+
+    let mut f = match std::fs::File::open(&full_path) {
+        Ok(f) => f,
+        Err(e) => return Err(format!("Error opening file '{}': {e}", full_path.display())),
+    };
+
+    // Split large files into several chunks (see more_to_follow flag for more details)
+    // Inspired somewhat by https://doc.rust-lang.org/src/std/io/mod.rs.html#358.
+    // We don't know how big the file is so this algorithm tries to handle any size efficiently.
+    // (We could find the size out beforehand but we'd have to either check the metadata (an extra filesystem call
+    // that might slow things down) or use the metadata that we already retrieved, but we don't have a nice way of getting 
+    // that here).
+    // Start with a small chunk size to minimize initialization overhead for small files, 
+    // but we'll increase this if the file is big
+    let mut chunk_size = 4 * 1024; 
+    let mut prev_buf = vec![0; 0];
+    let mut prev_buf_valid = 0;
+    let mut next_buf = vec![0; chunk_size];
+    loop {                
+        match f.read(&mut next_buf) {
+            Ok(n) if n == 0 => {
+                // End of file - send the data that we got previously, and report that there is no more data to follow.
+                prev_buf.truncate(prev_buf_valid);
+                comms.send_response(Response::FileContent { data: prev_buf, more_to_follow: false }).unwrap();
+                return Ok(());
+            },
+            Ok(n) => {
+                // Some data read - send any previously retrieved data, and report that there is more data to follow
+                if prev_buf_valid > 0 {
+                    prev_buf.truncate(prev_buf_valid);
+                    comms.send_response(Response::FileContent { data: prev_buf, more_to_follow: true }).unwrap();
+                }
+
+                // The data we just retrieved will be sent in the next iteration (once we know if there is more data to follow or not)
+                prev_buf = next_buf;
+                prev_buf_valid = n;
+
+                if n < prev_buf.len() {
+                    // We probably just found the end of the file, but we can't be sure until we read() again and get zero,
+                    // so allocate a small buffer instead of a big one for next time to minimize initialization overhead.
+                    next_buf = vec![0; 32];
+                } else {
+                    // There might be lots more data, so gradually increase the chunk size up to a practical limit
+                    chunk_size = std::cmp::min(chunk_size * 2, 1024*1024*4);  // 4 MB, chosen pretty arbitirarily
+
+                    next_buf = vec![0; chunk_size];
+                }
+            }
+            Err(e) => return Err(format!("Error getting file content of '{}': {e}", full_path.display())),
+        }
+    }
 }
 
 fn handle_create_symlink(path: RootRelativePath, context: &mut DoerContext, #[allow(unused)] kind: SymlinkKind, target: SymlinkTarget) -> Result<(), String> {

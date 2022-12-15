@@ -557,21 +557,29 @@ fn copy_file(
             .send_command(Command::GetFileContent {
                 path: path.clone(),
             })?;
-        let data = match src_comms.receive_response() {
-            Ok(Response::FileContent { data }) => data,
-            x => return Err(format!("Unexpected response fetching {} from src: {:?}", format_root_relative(&path, &src_root), x)),
-        };
-        trace!("Create/update on dest {}", format_root_relative(&path, &dest_root));
-        dest_comms
-            .send_command(Command::CreateOrUpdateFile {
-                path: path.clone(),
-                data,
-                set_modified_time: Some(modified_time),
-            })?;
-        match dest_comms.receive_response() {
-            Ok(doer::Response::Ack) => (),
-            x => return Err(format!("Unexpected response response creeating/updating on dest {}: {:?}", format_root_relative(&path, &dest_root), x)),
-        };
+        // Large files are split into chunks, loop until all chunks are transferred.
+        loop {
+            let (data, more_to_follow) = match src_comms.receive_response() {
+                Ok(Response::FileContent { data, more_to_follow }) => (data, more_to_follow),
+                x => return Err(format!("Unexpected response fetching {} from src: {:?}", format_root_relative(&path, &src_root), x)),
+            };
+            trace!("Create/update on dest {}", format_root_relative(&path, &dest_root));
+            dest_comms
+                .send_command(Command::CreateOrUpdateFile {
+                    path: path.clone(),
+                    data,
+                    set_modified_time: if more_to_follow { None } else { Some(modified_time) }, // Only set the modified time after the final chunk
+                    more_to_follow,
+                })?;
+            match dest_comms.receive_response() {
+                Ok(doer::Response::Ack) => (),
+                x => return Err(format!("Unexpected response response creeating/updating on dest {}: {:?}", format_root_relative(&path, &dest_root), x)),
+            };
+
+            if !more_to_follow {
+                break;
+            }
+        }
     } else {
         // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be copied
         info!("Would copy {} => {}",

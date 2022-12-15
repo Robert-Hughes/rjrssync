@@ -27,18 +27,24 @@ fn main () {
     
     let mut results = vec![];
     
-    results.push(("Local -> Local", run_benchmarks_for_target(Target::Local(temp_dir.join("dest")))));
+    let local_name = if cfg!(windows) {
+        "Windows"
+    } else {
+        "Linux"
+    };
+    
+    results.push((format!("{local_name} -> {local_name}"), run_benchmarks_for_target(Target::Local(temp_dir.join("dest")))));
     
     #[cfg(windows)]
-    results.push((r"Local -> \\wsl$\...", run_benchmarks_for_target(Target::Local(PathBuf::from(r"\\wsl$\\Ubuntu\\tmp\\rjrssync-benchmark-dest\\")))));
+    results.push((format!(r"{local_name} -> \\wsl$\..."), run_benchmarks_for_target(Target::Local(PathBuf::from(r"\\wsl$\\Ubuntu\\tmp\\rjrssync-benchmark-dest\\")))));
     
     #[cfg(unix)]
-    results.push(("Local -> /mnt/...", run_benchmarks_for_target(Target::Local(PathBuf::from("/mnt/t/Temp/rjrssync-benchmarks/dest")))));
+    results.push((format!("{local_name} -> /mnt/..."), run_benchmarks_for_target(Target::Local(PathBuf::from("/mnt/t/Temp/rjrssync-benchmarks/dest")))));
     
-    results.push(("Local -> Remote Windows", run_benchmarks_for_target(
+    results.push((format!("{local_name} -> Remote Windows"), run_benchmarks_for_target(
         Target::Remote { is_windows: true, user_and_host: test_utils::REMOTE_WINDOWS_CONFIG.0.clone(), folder: test_utils::REMOTE_WINDOWS_CONFIG.1.clone() + "\\benchmark-dest" })));
     
-    results.push(("Local -> Remote Linux", run_benchmarks_for_target(
+    results.push((format!("{local_name} -> Remote Linux"), run_benchmarks_for_target(
         Target::Remote { is_windows: false, user_and_host: test_utils::REMOTE_LINUX_CONFIG.0.clone(), folder: test_utils::REMOTE_LINUX_CONFIG.1.clone() + "/benchmark-dest" })));
 
     let mut ascii_table = AsciiTable::default();
@@ -233,14 +239,10 @@ fn run_benchmarks<F>(id: &str, sync_fn: F, target: Target, result_table: &mut Ve
     results.push(format!("{:?}", elapsed));
 
     // Sync a single large file
-    if cfg!(unix) && matches!(target, Target::Remote{ is_windows, .. } if is_windows && id == "rjrssync") {
-        results.push(format!("Skipping (crashes!)")); // memory allocation of 1024000058 bytes failed
-    } else {
         println!("    {id} example-repo single large file...");
         let elapsed = run(Path::new("src").join("large-file").to_string_lossy().to_string(), dest_prefix.clone() + "large-file");
         println!("    {id} example-repo single large file: {:?}", elapsed);
         results.push(format!("{:?}", elapsed));
-    }
 
     result_table.push(results);
 }

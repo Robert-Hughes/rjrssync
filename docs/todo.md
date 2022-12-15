@@ -36,6 +36,7 @@ Syncing logic
    - Between different OSes,to make sure the path normalisation works
 * Test for --dry-run
 * Test for --stats (maybe just all the command-line options...)
+* Tests for when filesystem operations fail, e.g. failing to read/write a file
 * Progress bar
 * What happens if src and dest both point to the same place?
    - Either directly, or via symlink(s)?
@@ -46,12 +47,10 @@ Syncing logic
    - can we safely serialize this on one platform and deserialize on another?
 * Consider warning for unexpected deletions (esp with replacing files with folders, see table in above section)
 * --dry-run isn't honoured when creating dest ancestors! It should instead say that it _would_ create the ancestors.
-* Large files need to be split so that we don't send them all in one huge message:
-  - better memory usage
-  - doesn't crash for really large files
-  - more opportunities for pipelining
-  - the optimum chunk size might vary, we could adjust this dynamically
-
+* When splitting large files, the optimum chunk size might vary, we could adjust this dynamically.
+Right now I just picked an arbitrary value which could possibly be improved a lot!
+Also the same buffer size this is used for both the filesystem read() buffer size, _and_ the size of data we send to the boss, _and_
+// the size of data written on the other doer. The same size might not be optimal for all of these!
 
 
 Performance
@@ -60,6 +59,8 @@ Performance
 * Investigate if parallelising some stages would speed it up, e.g. walking the dir structure on multiple threads, or sending data across network on multiple threads
    - Could have one thread just doing filesystem calls to fill up a queue, and another thread processing those entries.
    - Maybe check if WalkDir is slow, by comparing its performance with direct std::fs stuff or even native OS stuff?
+   - could have one thread for sending network messages, one for receiving, and sending the messages to the main thread via Channels so the main logic can do stuff asynchronously. This way the network never blocks anything
+   as it will be immediately placed into a Channel.
 * Investigate if pipelining some stages would speed it up, e.g. sending file list while also sending it
 * Probably better to batch together File() Responses, to avoid overhead from sending loads of messages
 * Add to benchmark some remote tests (currently just testing local ones), and to/from WSL folders
@@ -70,6 +71,7 @@ Performance
 * Could investigate using UDP or something else to reduce TCP overhead, possibly this could speed up the TCP connection time?
 * Waiting for an ack after each file transfer makes it slow. Instead we could "peek" for acks rather than waiting,
 and progress to the next file/chunk immediately if there's nothing waiting. Need to make sure we don't deadlock though, waiting for each other!
+* Benchmark program produces inconsistent results - maybe need to run several times and take minimum?
 
 
 
@@ -90,3 +92,4 @@ ERROR | rjrssync::boss_frontend: Sync error: Unexpected response from dest GetEn
 * Warning if filter doesn't match anything, possibly after GetEntries but before actually doing anything (to prevent mistaken filter?)
 * Would be nice to automatically detect cases where the version number hasn't been updated, e.g. if we 
 could see that the Command/Response struct layout has changed.
+* trace log level prints out the full file contents - too much spam!!

@@ -276,3 +276,12 @@ fn test_spec_file() {
         ..Default::default()
     });
 }
+
+/// Syncing a large file that therefore needs splitting into chunks
+#[test]
+fn test_large_file() {
+    let src_folder = folder! {
+        "file" => file(&"so much big!".repeat(1000*1000*10)), // Roughly 100MB
+    };
+    run_expect_success(&src_folder, &empty_folder(), copied_files(1));
+}
