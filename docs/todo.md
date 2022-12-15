@@ -38,6 +38,15 @@ Syncing logic
 * Test for --stats (maybe just all the command-line options...)
 * Tests for when filesystem operations fail, e.g. failing to read/write a file
 * Progress bar
+  - This looks good: https://docs.rs/indicatif/latest/indicatif/
+  - can replace the "thousands" crate?
+  - can format the bar with number of bytes, or number of files, and it provides e.t.a. and rate of progress
+  - separate bar for each stage? (querying, deleting, copying)
+  - Need to figure out how progress bar would work when other messages are shown too, like:
+     - errors
+     - --verbose or other log levels
+     - --dry-run
+     - --stats
 * What happens if src and dest both point to the same place?
    - Either directly, or via symlink(s)?
 * --no-encryption option, might be faster?
