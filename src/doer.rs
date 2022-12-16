@@ -126,6 +126,7 @@ pub enum Command {
     },
     CreateOrUpdateFile {
         path: RootRelativePath,
+        #[serde(with = "serde_bytes")] // Make serde fast
         data: Vec<u8>,
         set_modified_time: Option<SystemTime>,
         /// If set, there is more data for this same file being sent in a following Command.
@@ -265,7 +266,8 @@ pub enum Response {
     Entry((RootRelativePath, EntryDetails)),
     EndOfEntries,
 
-    FileContent { 
+    FileContent {
+        #[serde(with = "serde_bytes")] // Make serde fast
         data: Vec<u8>,
         /// If set, there is more data for this same file being sent in a following Response.
         /// This is used to split up large files so that we don't send them all in one huge message:
@@ -344,7 +346,7 @@ impl Display for Comms {
 }
 
 pub fn doer_main() -> ExitCode {
-    let main_timer = start_timer(function_name!()); 
+    let main_timer = start_timer(function_name!());
 
     // The first thing we send is a special handshake message that the Boss will recognise,
     // to know that we've started up correctly and to make sure we are running compatible versions.
@@ -408,10 +410,10 @@ pub fn doer_main() -> ExitCode {
     };
     let secret_key = GenericArray::from_slice(&secret_bytes);
 
-    // Start listening on the requested port, or 0 (automatic). 
+    // Start listening on the requested port, or 0 (automatic).
     // Automatic is better as we don't know which ones might be free, and we might have more than one doer
     // running on the same device, which would then need different ports.
-    // It also reduces issues if we ever leave behind orphaned doer instances which would otherwise block us 
+    // It also reduces issues if we ever leave behind orphaned doer instances which would otherwise block us
     // from using that port.
     // Listen on all interfaces as we don't know which one is needed.
     let addr = ("0.0.0.0", args.port.unwrap_or(0));
@@ -434,7 +436,7 @@ pub fn doer_main() -> ExitCode {
     eprintln!("{}", msg);
 
     stop_timer(timer);
-    
+
     let timer = start_timer("Waiting for connection");
 
     // Wait for a connection from the boss
@@ -448,7 +450,7 @@ pub fn doer_main() -> ExitCode {
             return ExitCode::from(25);
         }
     };
-    
+
     stop_timer(timer);
 
     // Start command processing loop, receiving commands and sending responses over the TCP connection, with encryption
@@ -459,7 +461,7 @@ pub fn doer_main() -> ExitCode {
         sending_nonce_counter: 1, // Nonce counters must be different, so sender and receiver don't reuse
         receiving_nonce_counter: 0,
     };
-    
+
     if let Err(e) = message_loop(&mut comms) {
         debug!("doer process finished with error: {:?}", e);
         return ExitCode::from(20)
@@ -568,7 +570,7 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut Option<DoerCo
             more_to_follow
         } => {
             let full_path = path.get_full_path(&context.as_ref().unwrap().root);
-            trace!("Creating/updating content of '{}'", full_path.display());            
+            trace!("Creating/updating content of '{}'", full_path.display());
             profile_this!(format!("CreateOrUpdateFile {}", path.to_string()));
 
             // Check if this is the continuation of an existing file
@@ -578,14 +580,14 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut Option<DoerCo
                         f
                     } else {
                         comms.send_response(Response::Error(format!("Unexpected continued file transfer!"))).unwrap();
-                        return Ok(true);        
+                        return Ok(true);
                     }
                 },
                 None => match std::fs::File::create(&full_path) {
                     Ok(f) => f,
                     Err(e) => {
                         comms.send_response(Response::Error(format!("Error writing file contents to '{}': {e}", full_path.display()))).unwrap();
-                        return Ok(true);    
+                        return Ok(true);
                     }
                 }
             };
@@ -662,7 +664,7 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut Option<DoerCo
                     SymlinkKind::Unknown => {
                         comms.send_response(Response::Error(format!("Can't delete symlink of unknown type '{}'", full_path.display()))).unwrap();
                         return Ok(true);
-                    } 
+                    }
                 }
             } else {
                 // On Linux, any kind of symlink is removed with remove_file
@@ -870,15 +872,15 @@ fn handle_get_file_contents(comms: &mut Comms, full_path: &Path) -> Result<(), S
     // Inspired somewhat by https://doc.rust-lang.org/src/std/io/mod.rs.html#358.
     // We don't know how big the file is so this algorithm tries to handle any size efficiently.
     // (We could find the size out beforehand but we'd have to either check the metadata (an extra filesystem call
-    // that might slow things down) or use the metadata that we already retrieved, but we don't have a nice way of getting 
+    // that might slow things down) or use the metadata that we already retrieved, but we don't have a nice way of getting
     // that here).
-    // Start with a small chunk size to minimize initialization overhead for small files, 
+    // Start with a small chunk size to minimize initialization overhead for small files,
     // but we'll increase this if the file is big
-    let mut chunk_size = 4 * 1024; 
+    let mut chunk_size = 4 * 1024;
     let mut prev_buf = vec![0; 0];
     let mut prev_buf_valid = 0;
     let mut next_buf = vec![0; chunk_size];
-    loop {                
+    loop {
         match f.read(&mut next_buf) {
             Ok(n) if n == 0 => {
                 // End of file - send the data that we got previously, and report that there is no more data to follow.
