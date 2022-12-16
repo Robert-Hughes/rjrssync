@@ -208,6 +208,7 @@ pub fn sync(
 
     // Fetch all the entries for the source path and the dest path, if they are folders
     // Do these each on a separate thread so they can be done in parallel with each other
+    //TODO: maybe don't need to have threads here now that we have the async comms?
     let timer = start_timer("GetEntries x 2");
     let thread_result : Result<_, String> = thread::scope(|scope| {
         // Source GetEntries

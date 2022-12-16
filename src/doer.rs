@@ -303,7 +303,8 @@ enum Comms {
 }
 impl Comms {
     //TODO: because this returns immediately, if the network is being slow then we will
-    // slowly take up more and more memory in the channel buffer!
+    // slowly take up more and more memory in the channel buffer! Maybe could use a channel with
+    // a max capacity and it blocks?
     pub fn send_response(&mut self, r: Response) {
         trace!("Sending response {:?} to {}", r, &self);
         let sender = match self {
@@ -324,6 +325,8 @@ impl Comms {
     }
 
     pub fn shutdown(mut self) {
+        //TODO: the profiling entries from the doer's async comms are not collected as those 
+        // threads get joined too late
         self.send_response(Response::ShutdownComplete);
         match self {
             Comms::Local{..} => (),
