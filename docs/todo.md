@@ -68,7 +68,10 @@ Performance
    - Could have one thread just doing filesystem calls to fill up a queue, and another thread processing those entries.
    - Maybe check if WalkDir is slow, by comparing its performance with direct std::fs stuff or even native OS stuff?
    - could have one thread for sending network messages, one for receiving, and sending the messages to the main thread via Channels so the main logic can do stuff asynchronously. This way the network never blocks anything
-   as it will be immediately placed into a Channel.
+   as it will be immediately placed into a Channel. In fact the interface we want is basically just a Channel,
+   as that has both blocking and non-blocking recvs. For the local case, this is simply the channel we already have,
+   and for the remote case this would be a channel linked to a thread doing the actual network comms (one for read,
+   one for write)
 * Investigate if pipelining some stages would speed it up, e.g. sending file list while also sending it
 * Probably better to batch together File() Responses, to avoid overhead from sending loads of messages
 * Add to benchmark some remote tests (currently just testing local ones), and to/from WSL folders
@@ -80,7 +83,7 @@ Performance
 * Waiting for an ack after each file transfer makes it slow. Instead we could "peek" for acks rather than waiting,
 and progress to the next file/chunk immediately if there's nothing waiting. Need to make sure we don't deadlock though, waiting for each other!
 * Benchmark program produces inconsistent results - maybe need to run several times and take minimum?
-
+* re-run benchmarks after serde-bytes fix
 
 
 Misc
