@@ -191,7 +191,7 @@ fn run_benchmarks<F>(id: &str, sync_fn: F, target: Target, result_table: &mut Ve
             if Path::new(&d).exists() {
                 std::fs::remove_dir_all(&d).expect("Failed to delete old dest folder");
             }
-            std::fs::create_dir(&d).expect("Failed to create dest dir");
+        std::fs::create_dir(&d).expect("Failed to create dest dir");
             d.to_string_lossy().to_string() + &std::path::MAIN_SEPARATOR.to_string()
         }
         Target::Remote { is_windows, user_and_host, folder } => {

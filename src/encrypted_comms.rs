@@ -53,12 +53,19 @@ pub fn receive<T>(tcp_connection: &mut TcpStream, cipher: &Aes128Gcm,
     receiving_nonce_counter: &mut u64, nonce_lsb: u64) -> Result<T, String>
     where T : for<'a> Deserialize<'a>
 {
-    let mut len_buf = [0_u8; 8];
-    tcp_connection.read_exact(&mut len_buf).map_err(|e| "Error reading len: ".to_string() + &e.to_string())?;
-    let encrypted_len = usize::from_le_bytes(len_buf);
+    profile_this!();
 
-    let mut encrypted_data = vec![0_u8; encrypted_len];
-    tcp_connection.read_exact(&mut encrypted_data).map_err(|e| "Error reading encrypted data: ".to_string() + &e.to_string())?;
+    let encrypted_data = {
+        profile_this!("Tcp Read");
+
+        let mut len_buf = [0_u8; 8];
+        tcp_connection.read_exact(&mut len_buf).map_err(|e| "Error reading len: ".to_string() + &e.to_string())?;
+        let encrypted_len = usize::from_le_bytes(len_buf);
+
+        let mut encrypted_data = vec![0_u8; encrypted_len];
+        tcp_connection.read_exact(&mut encrypted_data).map_err(|e| "Error reading encrypted data: ".to_string() + &e.to_string())?;
+        encrypted_data
+    };
 
     // Nonces for doer -> boss should always be odd, and even for vice versa. They can't be reused between them.
     assert!(*receiving_nonce_counter % 2 == nonce_lsb);
@@ -67,9 +74,15 @@ pub fn receive<T>(tcp_connection: &mut TcpStream, cipher: &Aes128Gcm,
     let nonce = Nonce::<Aes128Gcm>::from_slice(&nonce_bytes);
     receiving_nonce_counter.checked_add(2).unwrap(); // Increment by two so that it never overlaps with the nonce used by the boss
 
-    let unencrypted_data = cipher.decrypt(nonce, encrypted_data.as_ref()).map_err(|e| "Error decrypting: ".to_string() + &e.to_string())?;
+    let unencrypted_data = {
+        profile_this!("Decrypt");
+        cipher.decrypt(nonce, encrypted_data.as_ref()).map_err(|e| "Error decrypting: ".to_string() + &e.to_string())?
+    };
 
-    let response = bincode::deserialize(&unencrypted_data).map_err(|e| "Error deserializing: ".to_string() + &e.to_string())?;
+    let response = {
+        profile_this!("Deserialize");
+        bincode::deserialize(&unencrypted_data).map_err(|e| "Error deserializing: ".to_string() + &e.to_string())?
+    };
 
     Ok(response)
 }
