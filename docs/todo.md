@@ -19,9 +19,9 @@ Remote launching
 * SSH host key verification prompt doesn't echo the user's typing, but it does seem to work anyway
 * Sometimes remote processes are left orphaned
 * Using temporary dir means that rebooting the remote will mean we have to rebuild from scratch (on Linux)
-* We could first attempt to use an already-installed version of rjrssync (in the PATH), and only if this 
+* We could first attempt to use an already-installed version of rjrssync (in the PATH), and only if this
 doesn't exist or is incompatible do we deploy/build from scratch?
-* Sometimes see "ssh stderr: mesg: ttyname failed: Inappropriate ioctl for device" when deploying to remote (I think 
+* Sometimes see "ssh stderr: mesg: ttyname failed: Inappropriate ioctl for device" when deploying to remote (I think
 on 'F**A' platforms). Can we hide this using "-T" for example?
 
 Syncing logic
@@ -45,6 +45,7 @@ Syncing logic
   - hide progress bar for --dry-run?
   - hide progress bar for --quiet?
   - hide progress bar for --no-progress?
+  - do we want to show the Connecting spinner whilst deploying/building on a remote?
 * What happens if src and dest both point to the same place?
    - Either directly, or via symlink(s)?
 * --no-encryption option, might be faster?
@@ -97,6 +98,6 @@ ERROR | rjrssync::boss_frontend: Sync error: Unexpected response from dest GetEn
 * Upload to crates.io, so that we can "cargo install" from anywhere?
 * "cargo install" should only install rjrssync, not the other binaries like piper etc.
 * Warning if filter doesn't match anything, possibly after GetEntries but before actually doing anything (to prevent mistaken filter?)
-* Would be nice to automatically detect cases where the version number hasn't been updated, e.g. if we 
+* Would be nice to automatically detect cases where the version number hasn't been updated, e.g. if we
 could see that the Command/Response struct layout has changed.
 * trace log level prints out the full file contents - too much spam!!
