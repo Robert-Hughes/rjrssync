@@ -39,6 +39,8 @@ ascii_table = "=4.0.2"
 [features]
 profiling=["dep:serde_json"]
 
+# Note this is orthogonal to the profiling _feature_, and is for including symbols in a release build so that an
+# external profiling tool can be used.
 [profile.profiling]
 inherits = "release"
 debug = 1
