@@ -325,7 +325,7 @@ pub fn sync(
     // files being filtered so the folder is needed still as there are filtered-out files in there,
     // see test_remove_dest_folder_with_excluded_files())
     let progress = ProgressBar::new(dest_entries.len() as u64).with_message("Deleting...")
-        .with_style(ProgressStyle::with_template("[{elapsed}] {bar:40.cyan/blue} {human_pos:>7}/{human_len:7} {msg}").unwrap());
+        .with_style(ProgressStyle::with_template("[{elapsed}] {bar:40.green/black} {human_pos:>7}/{human_len:7} {msg}").unwrap());
     progress.enable_steady_tick(Duration::from_millis(250));
     let timer = start_timer("Deleting");
     let delete_start = Instant::now();
@@ -375,7 +375,7 @@ pub fn sync(
 
     // Copy entries that don't exist, or do exist but are out-of-date.
     let progress = ProgressBar::new(src_entries.len() as u64).with_message("Copying...")
-        .with_style(ProgressStyle::with_template("[{elapsed}] {bar:40.cyan/blue} {human_pos:>7}/{human_len:7} {msg}").unwrap());
+        .with_style(ProgressStyle::with_template("[{elapsed}] {bar:40.green/black} {human_pos:>7}/{human_len:7} {msg}").unwrap());
     progress.enable_steady_tick(Duration::from_millis(250));
     let timer = start_timer("Copying");
     let copy_start = Instant::now();

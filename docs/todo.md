@@ -40,6 +40,8 @@ Syncing logic
 * Tests for when filesystem operations fail, e.g. failing to read/write a file
 * Progress bar
   - can format the bar with number of bytes, or number of files, and it provides e.t.a. and rate of progress
+  - when copying large files, the progress bar won't move. Maybe have a sub-bar per-file for large files? Or change
+   the bar to be total bytes rather than total files?
   - hide progress bar for --dry-run?
   - hide progress bar for --quiet?
   - hide progress bar for --no-progress?
