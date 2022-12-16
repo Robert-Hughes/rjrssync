@@ -83,7 +83,8 @@ Performance
 * Waiting for an ack after each file transfer makes it slow. Instead we could "peek" for acks rather than waiting,
 and progress to the next file/chunk immediately if there's nothing waiting. Need to make sure we don't deadlock though, waiting for each other!
 * Benchmark program produces inconsistent results - maybe need to run several times and take minimum?
-
+* Compare profiling dumps between main and comms-threads branch, to see if the background threads are working
+like we expect.
 
 Misc
 -----

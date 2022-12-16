@@ -28,7 +28,7 @@ use crate::encrypted_comms::AsyncEncryptedComms;
 pub enum Comms {
     Local {
         debug_name: String, // To identify this Comms against others for debugging, when there are several
-        thread: Option<JoinHandle<()>>,
+        thread: JoinHandle<()>,
         sender: Sender<Command>,
         receiver: Receiver<Response>,
     },
@@ -63,29 +63,21 @@ impl Comms {
         };
         receiver.recv().expect("Error receiving from channel")
     }
-}
-impl Display for Comms {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Comms::Local { debug_name, .. } => write!(f, "{}", debug_name),
-            Comms::Remote { debug_name, .. } => write!(f, "{}", debug_name),
-        }
-    }
-}
-impl Drop for Comms {
+
     // Tell the other end (thread or process over network) to shutdown once we're finished.
     // They should exit anyway due to a disconnection (of their channel or stdin), but this
     // gives a cleaner exit without errors.
-    fn drop(&mut self) {
+    pub fn shutdown(mut self) {
         match self {
-            Comms::Local { thread , ..} => {
-                let thread = thread.take();
+            Comms::Local {..} => {
                 // There's not much we can do about an error here, other than log it, which send_command already does, so we ignore any error.
                 let _ = self.send_command(Command::Shutdown);
                 // Join threads so that they're properly cleaned up including the profiling data
-                thread.unwrap().join().unwrap();
+                if let Comms::Local { thread, .. } = self {
+                    thread.join().unwrap();
+                }
             }
-            Comms::Remote { debug_name, .. } => {
+            Comms::Remote { ref debug_name, .. } => {
                 let _debug_name = debug_name.clone();
                 // Synchronise the profiling clocks between local and remote profiling.
                 // Do this by sending a special Command which the doer responds to immediately with its local 
@@ -125,7 +117,20 @@ impl Drop for Comms {
                     /*Ok(*/Response::ProfilingData(x)/*)*/ => add_remote_profiling(x, _debug_name, profiling_offset),
                     _ => panic!("Unexpected response"),
                 }
+
+                // Finally get data from the encrypted comms threads
+                if let Comms::Remote { encrypted_comms, .. } = self {
+                    encrypted_comms.shutdown();
+                }
             }
+        }
+    }
+}
+impl Display for Comms {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Comms::Local { debug_name, .. } => write!(f, "{}", debug_name),
+            Comms::Remote { debug_name, .. } => write!(f, "{}", debug_name),
         }
     }
 }
@@ -158,7 +163,7 @@ pub fn setup_comms(
         }).unwrap();
         return Some(Comms::Local {
             debug_name,
-            thread: Some(thread),
+            thread,
             sender: command_sender,
             receiver: response_receiver,
         });

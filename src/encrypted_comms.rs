@@ -3,6 +3,7 @@ use std::{net::TcpStream, io::{Write, Read}, thread::{JoinHandle, self}, sync::m
 use aead::{Key, KeyInit};
 use bytes::{BytesMut, BufMut};
 use aes_gcm::{Aes128Gcm, aead::{Nonce, Aead}, AeadInPlace, AesGcm};
+use log::{error, trace};
 use serde::{Deserialize, Serialize};
 
 use crate::profile_this;
@@ -10,19 +11,20 @@ use crate::profile_this;
 /// Provides asynchronous, encrypted communication over a TcpStream, sending messages of type S
 /// and receiving messages of type R.
 pub struct AsyncEncryptedComms<S: Serialize, R: for<'a> Deserialize<'a>> {
+    tcp_connection: TcpStream,
+
     sending_thread: JoinHandle<()>,
     pub sender: Sender<S>,
 
     receiving_thread: JoinHandle<()>,
     pub receiver: Receiver<R>,
-
-    //TODO: impl drop to join the threads?
 }
 impl<S: Serialize + Send + 'static, R: for<'a> Deserialize<'a> + Send + 'static> AsyncEncryptedComms<S, R> {
     pub fn new(mut tcp_connection: TcpStream, secret_key: Key<Aes128Gcm>, sending_nonce_lsb: u64, receiving_nonce_lsb: u64,
         debug_name: &str) -> AsyncEncryptedComms<S, R> 
     {
-        let mut tcp_connection_clone = tcp_connection.try_clone().expect("Failed to clone TCP stream");
+        let mut tcp_connection_clone1 = tcp_connection.try_clone().expect("Failed to clone TCP stream");
+        let mut tcp_connection_clone2 = tcp_connection.try_clone().expect("Failed to clone TCP stream");
 
         let (sender, thread_receiver) = mpsc::channel();
         let sending_thread = thread::Builder::new()
@@ -31,10 +33,16 @@ impl<S: Serialize + Send + 'static, R: for<'a> Deserialize<'a> + Send + 'static>
                 let mut sending_nonce_counter = sending_nonce_lsb;
                 let cipher = Aes128Gcm::new(&secret_key);
                 loop {
-                    let s = thread_receiver.recv().expect("Failed to recv from channel");
-                    send(s, &mut tcp_connection, &cipher, &mut sending_nonce_counter, sending_nonce_lsb);
-                    //TODO: handle errors
+                    let s = match thread_receiver.recv() {
+                        Ok(s) => s,
+                        Err(_) => break, // The sender must have been dropped, so stop this background thread
+                    };
+                    if let Err(e) = send(s, &mut tcp_connection_clone1, &cipher, &mut sending_nonce_counter, sending_nonce_lsb) {
+                        //TODO: handle errors
+                        break;
+                    }                    
                 }
+                tcp_connection_clone1.shutdown(std::net::Shutdown::Write);
             }).expect("Failed to spawn thread");
 
         let (thread_sender, receiver) = mpsc::channel();
@@ -44,15 +52,33 @@ impl<S: Serialize + Send + 'static, R: for<'a> Deserialize<'a> + Send + 'static>
                 let mut receiving_nonce_counter = receiving_nonce_lsb;
                 let cipher = Aes128Gcm::new(&secret_key);
                 loop {
-                    let r = receive(&mut tcp_connection_clone, &cipher, &mut receiving_nonce_counter, receiving_nonce_lsb);
-                    //TODO: handle errors
+                    let r = receive(&mut tcp_connection_clone2, &cipher, &mut receiving_nonce_counter, receiving_nonce_lsb);
+                    if let Err(e) = r {
+                        //TODO: handle errors
+                        error!("receive() error: {}", e);
+                        break;
+                    }
                     let r = r.expect("oh dear");
-                    thread_sender.send(r).expect("Failed to send on channel");
+                    if thread_sender.send(r).is_err() {
+                        break; // The sender must have been dropped, so stop this background thread
+                    };
                 }
+                tcp_connection_clone2.shutdown(std::net::Shutdown::Read);
             }).expect("Failed to spawn thread");
 
-        AsyncEncryptedComms { sending_thread, sender, receiving_thread, receiver }
+        AsyncEncryptedComms { tcp_connection, sending_thread, sender, receiving_thread, receiver }
    }
+
+   pub fn shutdown(mut self) {
+        trace!("AsyncEncryptedComms::shutdown");
+        // Join the threads so that their profiling data is captured
+        // Drop the channels and tcp connection first so that the thread will break out of its loop
+        //self.tcp_connection.shutdown(std::net::Shutdown::Both);
+        drop(self.sender);
+        drop(self.receiver);
+        self.receiving_thread.join();
+        self.sending_thread.join();
+    }
 }
 
 fn send<T>(x: T, tcp_connection: &mut TcpStream, cipher: &Aes128Gcm,
