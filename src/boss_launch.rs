@@ -45,6 +45,8 @@ pub enum Comms {
     },
 }
 impl Comms {
+    //TODO: because this returns immediately, if the network is being slow then we will
+    // slowly take up more and more memory in the channel buffer!
     pub fn send_command(&mut self, c: Command) {
         trace!("Sending command {:?} to {}", c, &self);
         let sender = match self {

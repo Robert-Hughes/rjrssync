@@ -302,6 +302,8 @@ enum Comms {
     },
 }
 impl Comms {
+    //TODO: because this returns immediately, if the network is being slow then we will
+    // slowly take up more and more memory in the channel buffer!
     pub fn send_response(&mut self, r: Response) {
         trace!("Sending response {:?} to {}", r, &self);
         let sender = match self {
@@ -880,6 +882,7 @@ fn handle_get_file_contents(comms: &mut Comms, full_path: &Path) -> Result<(), S
     let mut prev_buf_valid = 0;
     let mut next_buf = vec![0; chunk_size];
     loop {
+        profile_this!("Read iteration");
         match f.read(&mut next_buf) {
             Ok(n) if n == 0 => {
                 // End of file - send the data that we got previously, and report that there is no more data to follow.
