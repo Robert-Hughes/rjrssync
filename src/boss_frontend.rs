@@ -1,9 +1,11 @@
 use std::path::Path;
 use std::process::ExitCode;
 use std::io::Write;
+use std::time::Duration;
 
 use clap::{Parser};
 use env_logger::{Env, fmt::Color};
+use indicatif::ProgressBar;
 use log::info;
 use log::{debug, error};
 use yaml_rust::{YamlLoader, Yaml};
@@ -306,6 +308,8 @@ pub fn boss_main() -> ExitCode {
     //           in which case we couldn't share a copy. Also might need to make it multithreaded on the other end to handle
     //           doing one command at the same time for each Source and Dest, which might be more complicated.)
 
+    let progress = ProgressBar::new_spinner().with_message("Connecting...");
+    progress.enable_steady_tick(Duration::from_millis(250));
 
     // Launch doers on remote hosts or threads on local targets and estabilish communication (check version etc.)
     let mut src_comms = match setup_comms(
@@ -328,6 +332,8 @@ pub fn boss_main() -> ExitCode {
         Some(c) => c,
         None => return ExitCode::from(11),
     };
+
+    progress.finish_and_clear();
 
     // Perform the actual file sync(s)
     for sync_spec in &spec.syncs {

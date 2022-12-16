@@ -10,6 +10,7 @@ Interface
 * --dry-run (and the same for -v) should make it clearer exactly what is being copied to where, e.g. give absolute paths. If there is a long path up to the root (or afterwards), could shorten it with ellipses, e.g. "Copying T:\work\...\bob\folder\...\thing.txt to X:\backups\...\newbackup\folder\...\thing.txt"
 * Option to override the "dest file is newer" error. Test this behaviour (not sure if it's tested atm)
 * Should filters expect to see trailing slashes on folder names or not? What about folder symlinks?
+* Ctrl-C doesn't seem to work very well at stopping rjrssync when it's running
 
 Remote launching
 ----------------
@@ -38,15 +39,10 @@ Syncing logic
 * Test for --stats (maybe just all the command-line options...)
 * Tests for when filesystem operations fail, e.g. failing to read/write a file
 * Progress bar
-  - This looks good: https://docs.rs/indicatif/latest/indicatif/
-  - can replace the "thousands" crate?
   - can format the bar with number of bytes, or number of files, and it provides e.t.a. and rate of progress
-  - separate bar for each stage? (querying, deleting, copying)
-  - Need to figure out how progress bar would work when other messages are shown too, like:
-     - errors
-     - --verbose or other log levels
-     - --dry-run
-     - --stats
+  - hide progress bar for --dry-run?
+  - hide progress bar for --quiet?
+  - hide progress bar for --no-progress?
 * What happens if src and dest both point to the same place?
    - Either directly, or via symlink(s)?
 * --no-encryption option, might be faster?

@@ -1,10 +1,10 @@
 use std::{
     cmp::Ordering,
-    fmt::{Display, Write}, time::{Instant, SystemTime}, collections::HashMap, thread,
+    fmt::{Display, Write}, time::{Instant, SystemTime, Duration}, collections::HashMap, thread,
 };
 
+use indicatif::{ProgressBar, ProgressStyle, HumanCount, HumanBytes};
 use log::{debug, info, trace};
-use thousands::Separable;
 
 use crate::*;
 
@@ -134,6 +134,9 @@ pub fn sync(
 
     // First get details of the root file/folder etc. of each side, as this might affect the sync
     // before we start it (e.g. errors, or changing the dest root)
+
+    let progress = ProgressBar::new_spinner().with_message("Querying...");
+    progress.enable_steady_tick(Duration::from_millis(250));
 
     // Source SetRoot
     let timer = start_timer("SetRoot src");
@@ -294,24 +297,25 @@ pub fn sync(
     stop_timer(timer);
 
     let query_elapsed = sync_start.elapsed().as_secs_f32();
+    progress.finish_and_clear();
 
     if show_stats {
-        info!("Source: {} file(s) totalling {} bytes, {} folder(s) and {} symlink(s)",
-            stats.num_src_files.separate_with_commas(),
-            stats.src_total_bytes.separate_with_commas(),
-            stats.num_src_folders.separate_with_commas(),
-            stats.num_src_symlinks.separate_with_commas(),
+        info!("Source: {} file(s) totalling {}, {} folder(s) and {} symlink(s)",
+            HumanCount(stats.num_src_files as u64),
+            HumanBytes(stats.src_total_bytes),
+            HumanCount(stats.num_src_folders as u64),
+            HumanCount(stats.num_src_symlinks as u64),
         );
         info!("  =>");
-        info!("Dest: {} file(s) totalling {} bytes, {} folder(s) and {} symlink(s)",
-            stats.num_dest_files.separate_with_commas(),
-            stats.dest_total_bytes.separate_with_commas(),
-            stats.num_dest_folders.separate_with_commas(),
-            stats.num_dest_symlinks.separate_with_commas()
+        info!("Dest: {} file(s) totalling {}, {} folder(s) and {} symlink(s)",
+            HumanCount(stats.num_dest_files as u64),
+            HumanBytes(stats.dest_total_bytes),
+            HumanCount(stats.num_dest_folders as u64),
+            HumanCount(stats.num_dest_symlinks as u64),
         );
         info!("Source file size distribution:");
         info!("{}", stats.src_file_size_hist);
-        info!("Queried in {} seconds", query_elapsed);
+        info!("Queried in {:.2} seconds", query_elapsed);
     }
 
     // Delete dest entries that don't exist on the source. This needs to be done first in case there
@@ -320,6 +324,9 @@ pub fn sync(
     // (otherwise deleting the parent is harder/more risky - possibly would also have problems with
     // files being filtered so the folder is needed still as there are filtered-out files in there,
     // see test_remove_dest_folder_with_excluded_files())
+    let progress = ProgressBar::new(dest_entries.len() as u64).with_message("Deleting...")
+        .with_style(ProgressStyle::with_template("[{elapsed}] {bar:40.cyan/blue} {human_pos:>7}/{human_len:7} {msg}").unwrap());
+    progress.enable_steady_tick(Duration::from_millis(250));
     let timer = start_timer("Deleting");
     let delete_start = Instant::now();
     for (dest_path, dest_details) in dest_entries.iter().rev() {
@@ -360,11 +367,16 @@ pub fn sync(
                 info!("Would delete from dest {}", format_root_relative(&dest_path, &dest_root));
             }
         }
+        progress.inc(1);
     }
     let delete_elapsed = delete_start.elapsed().as_secs_f32();
     stop_timer(timer);
+    progress.finish_and_clear();
 
     // Copy entries that don't exist, or do exist but are out-of-date.
+    let progress = ProgressBar::new(src_entries.len() as u64).with_message("Copying...")
+        .with_style(ProgressStyle::with_template("[{elapsed}] {bar:40.cyan/blue} {human_pos:>7}/{human_len:7} {msg}").unwrap());
+    progress.enable_steady_tick(Duration::from_millis(250));
     let timer = start_timer("Copying");
     let copy_start = Instant::now();
     for (path, src_details) in src_entries {
@@ -457,9 +469,11 @@ pub fn sync(
                 }
             },
         }
+        progress.inc(1);
     }
     stop_timer(timer);
     let copy_elapsed = copy_start.elapsed().as_secs_f32();
+    progress.finish_and_clear();
 
     // Note that we print all the stats at the end (even though we could print the delete stats earlier),
     // so that they are together in the output (e.g. for dry run or --verbose, they could be a lot of other
@@ -468,10 +482,10 @@ pub fn sync(
         info!(
             "{} {} file(s){}, {} folder(s) and {} symlink(s){}",
             if !dry_run { "Deleted" } else { "Would delete" },
-            stats.num_files_deleted.separate_with_commas(),
-            if show_stats { format!(" totalling {} bytes", stats.num_bytes_deleted.separate_with_commas()) } else { "".to_string() },
-            stats.num_folders_deleted.separate_with_commas(),
-            stats.num_symlinks_deleted.separate_with_commas(),
+            HumanCount(stats.num_files_deleted as u64),
+            if show_stats { format!(" totalling {}", HumanBytes(stats.num_bytes_deleted)) } else { "".to_string() },
+            HumanCount(stats.num_folders_deleted as u64),
+            HumanCount(stats.num_symlinks_deleted as u64),
             if !dry_run && show_stats {
                 format!(", in {:.1} seconds", delete_elapsed)
             } else { "".to_string() },
@@ -481,15 +495,15 @@ pub fn sync(
         info!(
             "{} {} file(s){}, {} {} folder(s) and {} {} symlink(s){}",
             if !dry_run { "Copied" } else { "Would copy" },
-            stats.num_files_copied.separate_with_commas(),
-            if show_stats { format!(" totalling {} bytes", stats.num_bytes_copied.separate_with_commas()) } else { "".to_string() },
+            HumanCount(stats.num_files_copied as u64),
+            if show_stats { format!(" totalling {}", HumanBytes(stats.num_bytes_copied)) } else { "".to_string() },
             if !dry_run { "created" } else { "would create" },
-            stats.num_folders_created.separate_with_commas(),
+            HumanCount(stats.num_folders_created as u64),
             if !dry_run { "copied" } else { "would copy" },
-            stats.num_symlinks_copied.separate_with_commas(),
+            HumanCount(stats.num_symlinks_copied as u64),
             if !dry_run && show_stats {
-                format!(", in {:.1} seconds ({} bytes/s)",
-                    copy_elapsed, (stats.num_bytes_copied as f32 / copy_elapsed as f32).round().separate_with_commas())
+                format!(", in {:.1} seconds ({}/s)",
+                    copy_elapsed, HumanBytes((stats.num_bytes_copied as f32 / copy_elapsed as f32).round() as u64))
             } else { "".to_string() },
         );
         if show_stats {
