@@ -140,9 +140,9 @@ pub fn sync(
 
     // Source SetRoot
     let timer = start_timer("SetRoot src");
-    src_comms.send_command(Command::SetRoot { root: src_root.to_string() })?;
+    src_comms.send_command(Command::SetRoot { root: src_root.to_string() });
     let src_root_details = match src_comms.receive_response() {
-        Ok(Response::RootDetails { root_details, platform_differentiates_symlinks: _ }) => {
+        /*Ok(*/Response::RootDetails { root_details, platform_differentiates_symlinks: _ }/*)*/ => {
             match &root_details {
                 None => return Err(format!("src path '{src_root}' doesn't exist!")),
                 Some(d) => if let Err(e) = validate_trailing_slash(src_root, &d) {
@@ -158,9 +158,9 @@ pub fn sync(
 
     // Dest SetRoot
     let timer = start_timer("SetRoot dest");
-    dest_comms.send_command(Command::SetRoot { root: dest_root.to_string() })?;
+    dest_comms.send_command(Command::SetRoot { root: dest_root.to_string() });
     let (mut dest_root_details, dest_platform_differentiates_symlinks) = match dest_comms.receive_response() {
-        Ok(Response::RootDetails { root_details, platform_differentiates_symlinks }) => {
+        /*Ok(*/Response::RootDetails { root_details, platform_differentiates_symlinks }/*)*/ => {
             match &root_details {
                 None => (), // Dest root doesn't exist, but that's fine (we will create it later)
                 Some(d) => if let Err(e) = validate_trailing_slash(&dest_root, &d) {
@@ -188,9 +188,9 @@ pub fn sync(
             dest_root = dest_root.to_string() + c;
             debug!("Modified dest path to {}", dest_root);
 
-            dest_comms.send_command(Command::SetRoot { root: dest_root.clone() })?;
+            dest_comms.send_command(Command::SetRoot { root: dest_root.clone() });
             dest_root_details = match dest_comms.receive_response() {
-                Ok(Response::RootDetails { root_details, platform_differentiates_symlinks: _ }) => root_details,
+                Response::RootDetails { root_details, platform_differentiates_symlinks: _ } => root_details,
                 r => return Err(format!("Unexpected response getting root details from dest: {:?}", r)),
             }
         }
@@ -199,9 +199,9 @@ pub fn sync(
     // If the dest doesn't yet exist, make sure that all its ancestors are created, so that
     // when we come to create the dest path itself, it can succeed
     if dest_root_details.is_none() {
-        dest_comms.send_command(Command::CreateRootAncestors)?;
+        dest_comms.send_command(Command::CreateRootAncestors);
         match dest_comms.receive_response() {
-            Ok(Response::Ack) => (),
+            Response::Ack => (),
             r => return Err(format!("Unexpected response from creating root ancestors on dest: {:?}", r)),
         }
     }
@@ -223,10 +223,10 @@ pub fn sync(
             src_entries_lookup.insert(RootRelativePath::root(), src_root_details.clone());
 
             if matches!(src_root_details, EntryDetails::Folder) {
-                src_comms.send_command(Command::GetEntries { filters: filters.to_vec() })?;
+                src_comms.send_command(Command::GetEntries { filters: filters.to_vec() });
                 loop {
                     match src_comms.receive_response() {
-                        Ok(Response::Entry((p, d))) => {
+                        Response::Entry((p, d)) => {
                             trace!("Source entry '{}': {:?}", p, d);
                             match d {
                                 EntryDetails::File { size, .. } => {
@@ -240,7 +240,7 @@ pub fn sync(
                             src_entries.push((p.clone(), d.clone()));
                             src_entries_lookup.insert(p, d);
                         }
-                        Ok(Response::EndOfEntries) => break,
+                        Response::EndOfEntries => break,
                         r => return Err(format!("Unexpected response getting entries from src: {:?}", r)),
                     }
                 }
@@ -263,10 +263,10 @@ pub fn sync(
             }
 
             if matches!(dest_root_details, Some(EntryDetails::Folder)) {
-                dest_comms.send_command(Command::GetEntries { filters: filters.to_vec() })?;
+                dest_comms.send_command(Command::GetEntries { filters: filters.to_vec() });
                 loop {
                     match dest_comms.receive_response() {
-                        Ok(Response::Entry((p, d))) => {
+                        Response::Entry((p, d)) => {
                             trace!("Dest entry '{}': {:?}", p, d);
                             match d {
                                 EntryDetails::File { size, .. } => {
@@ -279,7 +279,7 @@ pub fn sync(
                             dest_entries.push((p.clone(), d.clone()));
                             dest_entries_lookup.insert(p, d);
                         }
-                        Ok(Response::EndOfEntries) => break,
+                        Response::EndOfEntries => break,
                         r => return Err(format!("Unexpected response getting entries from dest: {:?}", r)),
                     }
                 }
@@ -356,9 +356,9 @@ pub fn sync(
                 }
             };
             if !dry_run {
-                dest_comms.send_command(c)?;
+                dest_comms.send_command(c);
                 match dest_comms.receive_response() {
-                    Ok(doer::Response::Ack) => (),
+                    doer::Response::Ack => (),
                     r => return Err(format!("Unexpected response from deletion of {} on dest: {:?}",
                         format_root_relative(&dest_path, &dest_root), r)),
                 };
@@ -437,10 +437,9 @@ pub fn sync(
                         dest_comms
                             .send_command(Command::CreateFolder {
                                 path: path.clone(),
-                            })
-                            ?;
+                            });
                         match dest_comms.receive_response() {
-                            Ok(doer::Response::Ack) => (),
+                            doer::Response::Ack => (),
                             x => return Err(format!("Unexpected response creating on dest {}: {:?}", format_root_relative(&path, &dest_root), x)),
                         };
                     } else {
@@ -457,9 +456,9 @@ pub fn sync(
                                 path: path.clone(),
                                 kind,
                                 target,
-                            })?;
+                            });
                         match dest_comms.receive_response() {
-                            Ok(doer::Response::Ack) => (),
+                            doer::Response::Ack => (),
                             x => return Err(format!("Unexpected response creating symlink on dest {}: {:?}", format_root_relative(&path, &dest_root), x)),
                         };
                     } else {
@@ -570,11 +569,11 @@ fn copy_file(
         src_comms
             .send_command(Command::GetFileContent {
                 path: path.clone(),
-            })?;
+            });
         // Large files are split into chunks, loop until all chunks are transferred.
         loop {
             let (data, more_to_follow) = match src_comms.receive_response() {
-                Ok(Response::FileContent { data, more_to_follow }) => (data, more_to_follow),
+                Response::FileContent { data, more_to_follow } => (data, more_to_follow),
                 x => return Err(format!("Unexpected response fetching {} from src: {:?}", format_root_relative(&path, &src_root), x)),
             };
             trace!("Create/update on dest {}", format_root_relative(&path, &dest_root));
@@ -584,9 +583,9 @@ fn copy_file(
                     data,
                     set_modified_time: if more_to_follow { None } else { Some(modified_time) }, // Only set the modified time after the final chunk
                     more_to_follow,
-                })?;
+                });
             match dest_comms.receive_response() {
-                Ok(doer::Response::Ack) => (),
+                doer::Response::Ack => (),
                 x => return Err(format!("Unexpected response response creeating/updating on dest {}: {:?}", format_root_relative(&path, &dest_root), x)),
             };
 

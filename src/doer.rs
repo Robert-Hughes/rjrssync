@@ -17,6 +17,7 @@ use std::{
 use walkdir::WalkDir;
 
 use crate::*;
+use crate::encrypted_comms::AsyncEncryptedComms;
 
 #[derive(clap::Parser)]
 struct DoerCliArgs {
@@ -295,45 +296,27 @@ enum Comms {
         receiver: Receiver<Command>,
     },
     Remote {
-        tcp_connection: TcpStream,
-        cipher: Aes128Gcm,
-        sending_nonce_counter: u64,
-        receiving_nonce_counter: u64,
+        encrypted_comms: AsyncEncryptedComms<Response, Command>,
     },
 }
 impl Comms {
-    pub fn send_response(&mut self, r: Response) -> Result<(), String> {
+    pub fn send_response(&mut self, r: Response) {
         trace!("Sending response {:?} to {}", r, &self);
-        let res =
-            match self {
-                Comms::Local { sender, .. } => {
-                    sender.send(r).map_err(|e| "Error sending on channel: ".to_string() + &e.to_string())
-                }
-                Comms::Remote { tcp_connection, cipher, sending_nonce_counter, .. } => {
-                    encrypted_comms::send(r, tcp_connection, cipher, sending_nonce_counter, 1)
-                }
-            };
-        if let Err(ref e) = &res {
-            error!("Error sending response: {:?}", e);
-        }
-        res
+        let sender = match self {
+            Comms::Local { sender, .. } => sender,
+            Comms::Remote { encrypted_comms, .. } => &mut encrypted_comms.sender,
+        };
+        sender.send(r).expect("Error sending on channel");
     }
 
-    pub fn receive_command(&mut self) -> Result<Command, String> {
+    pub fn receive_command(&mut self) -> Command {
+        profile_this!();
         trace!("Waiting for command from {}", &self);
-        let res = match self {
-            Comms::Local { receiver, .. } => {
-                receiver.recv().map_err(|e| "Error receiving from channel: ".to_string() + &e.to_string())
-            }
-            Comms::Remote { tcp_connection, cipher, receiving_nonce_counter, .. } => {
-                encrypted_comms::receive(tcp_connection, cipher, receiving_nonce_counter, 0)
-            }
+        let receiver = match self {
+            Comms::Local { receiver, .. } => receiver,
+            Comms::Remote { encrypted_comms, .. } => &mut encrypted_comms.receiver,
         };
-        match &res {
-            Err(ref e) => error!("{}", e),
-            Ok(ref r) => trace!("Received command {:?} from {}", r, &self),
-        }
-        res
+        receiver.recv().expect("Error receiving from channel")
     }
 }
 impl Display for Comms {
@@ -456,11 +439,13 @@ pub fn doer_main() -> ExitCode {
     // Start command processing loop, receiving commands and sending responses over the TCP connection, with encryption
     // so that we know it's the boss.
     let mut comms = Comms::Remote {
-        tcp_connection,
-        cipher: Aes128Gcm::new(secret_key),
-        sending_nonce_counter: 1, // Nonce counters must be different, so sender and receiver don't reuse
-        receiving_nonce_counter: 0,
-    };
+        encrypted_comms: AsyncEncryptedComms::new(
+            tcp_connection,
+            *secret_key,
+            1, // Nonce counters must be different, so sender and receiver don't reuse
+            0,
+            "<> boss",
+    )};
 
     if let Err(e) = message_loop(&mut comms) {
         debug!("doer process finished with error: {:?}", e);
@@ -471,7 +456,7 @@ pub fn doer_main() -> ExitCode {
 
     // Send our profiling data (if enabled) back to the boss process so it can combine it with its own
     #[cfg(feature="profiling")]
-    comms.send_response(Response::ProfilingData(get_local_process_profiling())).unwrap();
+    comms.send_response(Response::ProfilingData(get_local_process_profiling()));
 
     debug!("doer process finished successfully!");
     ExitCode::SUCCESS
@@ -505,7 +490,7 @@ fn message_loop(comms: &mut Comms) -> Result<(), ()> {
     let mut context : Option<DoerContext> = None;
     loop {
         match comms.receive_command() {
-            Ok(c) => {
+            c => {
                 match exec_command(c, comms, &mut context) {
                     Ok(false) => {
                         debug!("Shutdown command received - finishing message_loop");
@@ -518,10 +503,10 @@ fn message_loop(comms: &mut Comms) -> Result<(), ()> {
                     }
                 }
             }
-            Err(e) => {
-                error!("Error receiving command: {}", e);
-                return Err(());
-            }
+            // Err(e) => {
+            //     error!("Error receiving command: {}", e);
+            //     return Err(());
+            // }
         }
     }
 }
@@ -536,13 +521,13 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut Option<DoerCo
     match command {
         Command::SetRoot { root } => {
             if let Err(e) = handle_set_root(comms, context, root) {
-                comms.send_response(Response::Error(e)).unwrap();
+                comms.send_response(Response::Error(e));
             }
         }
         Command::GetEntries { filters } => {
             profile_this!("GetEntries");
             if let Err(e) = handle_get_entries(comms, context.as_mut().unwrap(), &filters) {
-                comms.send_response(Response::Error(e)).unwrap();
+                comms.send_response(Response::Error(e));
             }
         }
         Command::CreateRootAncestors => {
@@ -551,8 +536,8 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut Option<DoerCo
             if let Some(p) = path_to_create {
                 profile_this!(format!("CreateRootAncestors {}", p.to_str().unwrap().to_string()));
                 match std::fs::create_dir_all(p) {
-                    Ok(()) => comms.send_response(Response::Ack).unwrap(),
-                    Err(e) => comms.send_response(Response::Error(format!("Error creating folder and ancestors for '{}': {e}", p.display()))).unwrap(),
+                    Ok(()) => comms.send_response(Response::Ack),
+                    Err(e) => comms.send_response(Response::Error(format!("Error creating folder and ancestors for '{}': {e}", p.display()))),
                 }
             }
         }
@@ -560,7 +545,7 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut Option<DoerCo
             let full_path = path.get_full_path(&context.as_ref().unwrap().root);
             profile_this!(format!("GetFileContent {}", path.to_string()));
             if let Err(e) = handle_get_file_contents(comms, &full_path) {
-                comms.send_response(Response::Error(e)).unwrap();
+                comms.send_response(Response::Error(e));
             }
         }
         Command::CreateOrUpdateFile {
@@ -579,14 +564,14 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut Option<DoerCo
                     if in_progress_path == path {
                         f
                     } else {
-                        comms.send_response(Response::Error(format!("Unexpected continued file transfer!"))).unwrap();
+                        comms.send_response(Response::Error(format!("Unexpected continued file transfer!")));
                         return Ok(true);
                     }
                 },
                 None => match std::fs::File::create(&full_path) {
                     Ok(f) => f,
                     Err(e) => {
-                        comms.send_response(Response::Error(format!("Error writing file contents to '{}': {e}", full_path.display()))).unwrap();
+                        comms.send_response(Response::Error(format!("Error writing file contents to '{}': {e}", full_path.display())));
                         return Ok(true);
                     }
                 }
@@ -594,7 +579,7 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut Option<DoerCo
 
             let r = f.write_all(&data);
             if let Err(e) = r {
-                comms.send_response(Response::Error(format!("Error writing file contents to '{}': {e}", full_path.display()))).unwrap();
+                comms.send_response(Response::Error(format!("Error writing file contents to '{}': {e}", full_path.display())));
                 return Ok(true);
             }
 
@@ -612,26 +597,26 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut Option<DoerCo
                 let r =
                     filetime::set_file_mtime(&full_path, filetime::FileTime::from_system_time(t));
                 if let Err(e) = r {
-                    comms.send_response(Response::Error(format!("Error setting modified time of '{}': {e}", full_path.display()))).unwrap();
+                    comms.send_response(Response::Error(format!("Error setting modified time of '{}': {e}", full_path.display())));
                     return Ok(true);
                 }
             }
 
-            comms.send_response(Response::Ack).unwrap();
+            comms.send_response(Response::Ack);
         }
         Command::CreateFolder { path } => {
             let full_path =  path.get_full_path(&context.as_ref().unwrap().root);
             trace!("Creating folder '{}'", full_path.display());
             profile_this!(format!("CreateFolder {}", full_path.to_str().unwrap().to_string()));
             match std::fs::create_dir(&full_path) {
-                Ok(()) => comms.send_response(Response::Ack).unwrap(),
-                Err(e) => comms.send_response(Response::Error(format!("Error creating folder '{}': {e}", full_path.display()))).unwrap(),
+                Ok(()) => comms.send_response(Response::Ack),
+                Err(e) => comms.send_response(Response::Error(format!("Error creating folder '{}': {e}", full_path.display()))),
             }
         }
         Command::CreateSymlink { path, kind, target } => {
             match handle_create_symlink(path, context.as_mut().unwrap(), kind, target) {
-                Ok(()) => comms.send_response(Response::Ack).unwrap(),
-                Err(e) => comms.send_response(Response::Error(e)).unwrap(),
+                Ok(()) => comms.send_response(Response::Ack),
+                Err(e) => comms.send_response(Response::Error(e)),
             }
         },
         Command::DeleteFile { path } => {
@@ -639,8 +624,8 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut Option<DoerCo
             trace!("Deleting file '{}'", full_path.display());
             profile_this!(format!("DeleteFile {}", path.to_string()));
             match std::fs::remove_file(&full_path) {
-                Ok(()) => comms.send_response(Response::Ack).unwrap(),
-                Err(e) => comms.send_response(Response::Error(format!("Error deleting file '{}': {e}", full_path.display()))).unwrap(),
+                Ok(()) => comms.send_response(Response::Ack),
+                Err(e) => comms.send_response(Response::Error(format!("Error deleting file '{}': {e}", full_path.display()))),
             }
         }
         Command::DeleteFolder { path } => {
@@ -648,8 +633,8 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut Option<DoerCo
             trace!("Deleting folder '{}'", full_path.display());
             profile_this!(format!("DeleteFolder {}", path.to_string()));
             match std::fs::remove_dir(&full_path) {
-                Ok(()) => comms.send_response(Response::Ack).unwrap(),
-                Err(e) => comms.send_response(Response::Error(format!("Error deleting folder '{}': {e}", full_path.display()))).unwrap(),
+                Ok(()) => comms.send_response(Response::Ack),
+                Err(e) => comms.send_response(Response::Error(format!("Error deleting folder '{}': {e}", full_path.display()))),
             }
         }
         Command::DeleteSymlink { path, kind } => {
@@ -662,7 +647,7 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut Option<DoerCo
                     SymlinkKind::Folder => std::fs::remove_dir(&full_path),
                     // We should never be asked to delete an Unknown symlink on Windows, but just in case:
                     SymlinkKind::Unknown => {
-                        comms.send_response(Response::Error(format!("Can't delete symlink of unknown type '{}'", full_path.display()))).unwrap();
+                        comms.send_response(Response::Error(format!("Can't delete symlink of unknown type '{}'", full_path.display())));
                         return Ok(true);
                     }
                 }
@@ -671,13 +656,13 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut Option<DoerCo
                 std::fs::remove_file(&full_path)
             };
             match res {
-                Ok(()) => comms.send_response(Response::Ack).unwrap(),
-                Err(e) => comms.send_response(Response::Error(format!("Error deleting symlink '{}': {e}", full_path.display()))).unwrap(),
+                Ok(()) => comms.send_response(Response::Ack),
+                Err(e) => comms.send_response(Response::Error(format!("Error deleting symlink '{}': {e}", full_path.display()))),
             }
         },
         #[cfg(feature="profiling")]
         Command::ProfilingTimeSync => {
-            comms.send_response(Response::ProfilingTimeSync(PROFILING_START.elapsed())).unwrap();
+            comms.send_response(Response::ProfilingTimeSync(PROFILING_START.elapsed()));
         },
         Command::Shutdown => {
             return Ok(false);
@@ -703,11 +688,11 @@ fn handle_set_root(comms: &mut Comms, context: &mut Option<DoerContext>, root: S
     match metadata {
         Ok(m) => {
             let entry_details = entry_details_from_metadata(m, &context.root)?;
-            comms.send_response(Response::RootDetails { root_details: Some(entry_details), platform_differentiates_symlinks }).unwrap();
+            comms.send_response(Response::RootDetails { root_details: Some(entry_details), platform_differentiates_symlinks });
         },
         Err(e) if e.kind() == ErrorKind::NotFound => {
             // Report this as a special error, as we handle it differently on the boss side
-            comms.send_response(Response::RootDetails { root_details: None, platform_differentiates_symlinks }).unwrap();
+            comms.send_response(Response::RootDetails { root_details: None, platform_differentiates_symlinks });
         }
         Err(e) => return Err(format!(
                     "root '{}' can't be read: {}", context.root.display(), e)),
@@ -842,14 +827,14 @@ fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, filters: &[F
 
                 let d = entry_details_from_metadata(metadata, e.path())?;
 
-                comms.send_response(Response::Entry((path, d))).unwrap();
+                comms.send_response(Response::Entry((path, d)));
             }
         }
         count += 1;
     }
 
     let elapsed = start.elapsed().as_millis();
-    comms.send_response(Response::EndOfEntries).unwrap();
+    comms.send_response(Response::EndOfEntries);
     debug!(
         "Walked {} in {}ms ({}/s)",
         count,
@@ -885,14 +870,14 @@ fn handle_get_file_contents(comms: &mut Comms, full_path: &Path) -> Result<(), S
             Ok(n) if n == 0 => {
                 // End of file - send the data that we got previously, and report that there is no more data to follow.
                 prev_buf.truncate(prev_buf_valid);
-                comms.send_response(Response::FileContent { data: prev_buf, more_to_follow: false }).unwrap();
+                comms.send_response(Response::FileContent { data: prev_buf, more_to_follow: false });
                 return Ok(());
             },
             Ok(n) => {
                 // Some data read - send any previously retrieved data, and report that there is more data to follow
                 if prev_buf_valid > 0 {
                     prev_buf.truncate(prev_buf_valid);
-                    comms.send_response(Response::FileContent { data: prev_buf, more_to_follow: true }).unwrap();
+                    comms.send_response(Response::FileContent { data: prev_buf, more_to_follow: true });
                 }
 
                 // The data we just retrieved will be sent in the next iteration (once we know if there is more data to follow or not)

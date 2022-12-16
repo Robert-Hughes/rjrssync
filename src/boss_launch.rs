@@ -20,6 +20,7 @@ use std::{
 use tempdir::TempDir;
 
 use crate::*;
+use crate::encrypted_comms::AsyncEncryptedComms;
 
 /// Abstraction of two-way communication channel between this boss and a doer, which might be
 /// remote (communicating over an encrypted TCP connection) or local (communicating via a channel to a background thread).
@@ -40,46 +41,27 @@ pub enum Comms {
         stdout: BufReader<ChildStdout>,
         stderr_reading_thread: JoinHandle<()>,
 
-        tcp_connection: TcpStream,
-        cipher: Aes128Gcm,
-        sending_nonce_counter: u64,
-        receiving_nonce_counter: u64,
+        encrypted_comms: AsyncEncryptedComms<Command, Response>,
     },
 }
 impl Comms {
-    pub fn send_command(&mut self, c: Command) -> Result<(), String> {
+    pub fn send_command(&mut self, c: Command) {
         trace!("Sending command {:?} to {}", c, &self);
-        let res =
-            match self {
-                Comms::Local { sender, .. } => {
-                    sender.send(c).map_err(|e| "Error sending on channel: ".to_string() + &e.to_string())
-                }
-                Comms::Remote { tcp_connection, cipher, sending_nonce_counter, .. } => {
-                    encrypted_comms::send(c, tcp_connection, cipher, sending_nonce_counter, 0)
-                }
-            };
-        if let Err(ref e) = &res {
-            error!("Error sending command: {:?}", e);
-        }
-        res
+        let sender = match self {
+            Comms::Local { sender, .. } => sender,
+            Comms::Remote { encrypted_comms, .. } => &mut encrypted_comms.sender,
+        };
+        sender.send(c).expect("Error sending on channel");
     }
 
-    pub fn receive_response(&mut self) -> Result<Response, String> {
+    pub fn receive_response(&mut self) -> Response {
         profile_this!();
         trace!("Waiting for response from {}", &self);
-        let res = match self {
-            Comms::Local { receiver, .. } => {
-                receiver.recv().map_err(|e| "Error receiving from channel: ".to_string() + &e.to_string())
-            }
-            Comms::Remote { tcp_connection, cipher, receiving_nonce_counter, .. } => {
-                encrypted_comms::receive(tcp_connection, cipher, receiving_nonce_counter, 1)
-            }
+        let receiver = match self {
+            Comms::Local { receiver, .. } => receiver,
+            Comms::Remote { encrypted_comms, .. } => &mut encrypted_comms.receiver,
         };
-        match &res {
-            Err(ref e) => error!("{}", e),
-            Ok(ref r) => trace!("Received response {:?} from {}", r, &self),
-        }
-        res
+        receiver.recv().expect("Error receiving from channel")
     }
 }
 impl Display for Comms {
@@ -114,9 +96,9 @@ impl Drop for Comms {
                     let mut samples = vec![];
                     for i in 0..5 {
                         let start = PROFILING_START.elapsed();
-                        self.send_command(Command::ProfilingTimeSync).expect("Failed to send profiling time sync");
+                        self.send_command(Command::ProfilingTimeSync);
                         match self.receive_response() {
-                            Ok(Response::ProfilingTimeSync(remote_timestamp)) => {
+                           /* Ok(*/Response::ProfilingTimeSync(remote_timestamp)/*)*/ => {
                                 let end = PROFILING_START.elapsed();
                                 trace!("Profiling sync: start: {:?}, end: {:?}, diff: {:?}, remote: {:?}", start, end, end-start, remote_timestamp);
                                 if i >= 2 { // Skip the first two to make sure the doer is ready to go (e.g. code cached)
@@ -125,7 +107,7 @@ impl Drop for Comms {
                                     trace!("Profiling sync sample: {:?}", sample);
                                     samples.push(sample);
                                 }
-                            }
+                            },
                             x => panic!("Unexpected response for profiling time sync: {:?}", x),
                         }
                     }
@@ -140,7 +122,7 @@ impl Drop for Comms {
                 // Wait for remote doers to send back any profiling data, if enabled
                 #[cfg(feature="profiling")]
                 match self.receive_response() {
-                    Ok(Response::ProfilingData(x)) => add_remote_profiling(x, _debug_name, profiling_offset),
+                    /*Ok(*/Response::ProfilingData(x)/*)*/ => add_remote_profiling(x, _debug_name, profiling_offset),
                     _ => panic!("Unexpected response"),
                 }
             }
@@ -253,10 +235,13 @@ pub fn setup_comms(
                     stdin,
                     stdout,
                     stderr_reading_thread,
-                    tcp_connection,
-                    cipher: Aes128Gcm::new(&secret_key),
-                    sending_nonce_counter: 0, // Nonce counters must be different, so sender and receiver don't reuse
-                    receiving_nonce_counter: 1,
+                    encrypted_comms: AsyncEncryptedComms::new(
+                        tcp_connection,
+                        secret_key,
+                        0, // Nonce counters must be different, so sender and receiver don't reuse
+                        1,
+                        &("<> Remote ".to_string() + &debug_name + " at " + remote_hostname)
+                    )
                 });
             }
         };
