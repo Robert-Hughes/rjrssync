@@ -58,7 +58,6 @@ impl Comms {
     }
 
     pub fn receive_response(&mut self) -> Response {
-        profile_this!();
         trace!("Waiting for response from {}", &self);
         let receiver = match self {
             Comms::Local { receiver, .. } => receiver,
@@ -114,16 +113,15 @@ impl Comms {
                 // There's not much we can do about an error here, other than log it, which send_command already does, so we ignore any error.
                 let _ = self.send_command(Command::Shutdown);
 
-                // Wait for remote doers to send back any profiling data, if enabled
-                #[cfg(feature="profiling")]
-                match self.receive_response() {
-                    /*Ok(*/Response::ProfilingData(x)/*)*/ => add_remote_profiling(x, _debug_name, profiling_offset),
-                    _ => panic!("Unexpected response"),
-                }
-
                 // Finally get data from the encrypted comms threads
+                #[cfg(feature="profiling")]
                 if let Comms::Remote { encrypted_comms, .. } = self {
-                    encrypted_comms.shutdown();
+                    // Wait for remote doers to send back any profiling data, if enabled
+                    let r = encrypted_comms.shutdown_with_final_message_received_after_closing_send();
+                    match r {
+                        /*Ok(*/Response::ProfilingData(x)/*)*/ => add_remote_profiling(x, _debug_name, profiling_offset),
+                        _ => panic!("Unexpected response"),
+                    }
                 }
             }
         }
@@ -248,7 +246,7 @@ pub fn setup_comms(
                         secret_key,
                         0, // Nonce counters must be different, so sender and receiver don't reuse
                         1,
-                        &("<> Remote ".to_string() + &debug_name + " at " + remote_hostname)
+                        &("Remote ".to_string() + &debug_name + " at " + remote_hostname)
                     )
                 });
             }

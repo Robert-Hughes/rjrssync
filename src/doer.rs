@@ -285,8 +285,6 @@ pub enum Response {
 
     Ack,
     Error(String),
-
-    ShutdownComplete,
 }
 
 /// Abstraction of two-way communication channel between this doer and the boss, which might be
@@ -315,25 +313,12 @@ impl Comms {
     }
 
     pub fn receive_command(&mut self) -> Command {
-        profile_this!();
         trace!("Waiting for command from {}", &self);
         let receiver = match self {
             Comms::Local { receiver, .. } => receiver,
             Comms::Remote { encrypted_comms, .. } => &mut encrypted_comms.receiver,
         };
         receiver.recv().expect("Error receiving from channel")
-    }
-
-    pub fn shutdown(mut self) {
-        //TODO: the profiling entries from the doer's async comms are not collected as those 
-        // threads get joined too late
-        self.send_response(Response::ShutdownComplete);
-        match self {
-            Comms::Local{..} => (),
-            Comms::Remote{ encrypted_comms } => {
-                encrypted_comms.shutdown();
-            }
-        };
     }
 }
 impl Display for Comms {
@@ -461,7 +446,7 @@ pub fn doer_main() -> ExitCode {
             *secret_key,
             1, // Nonce counters must be different, so sender and receiver don't reuse
             0,
-            "<> boss",
+            "boss",
     )};
 
     if let Err(e) = message_loop(&mut comms) {
@@ -471,11 +456,13 @@ pub fn doer_main() -> ExitCode {
 
     stop_timer(main_timer);
 
-    // Send our profiling data (if enabled) back to the boss process so it can combine it with its own
-    #[cfg(feature="profiling")]
-    comms.send_response(Response::ProfilingData(get_local_process_profiling()));
+    
 
-    comms.shutdown();
+    #[cfg(feature="profiling")]
+    if let Comms::Remote{ encrypted_comms } = comms { // always
+        // Send our profiling data (if enabled) back to the boss process so it can combine it with its own
+        encrypted_comms.shutdown_with_final_message_sent_after_threads_joined(|| Response::ProfilingData(get_local_process_profiling()));
+    }
 
     debug!("doer process finished successfully!");
     ExitCode::SUCCESS
