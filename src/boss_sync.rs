@@ -124,41 +124,48 @@ fn validate_trailing_slash(root_path: &str, entry_details: &EntryDetails) -> Res
 }
 
 /// To increase performance, we don't wait for the dest doer to confirm that every command we sent has been
-/// successfully completed before moving on to do something else, so any errors that result won't be picked up
-/// until we explicitly check, which is what we do here. 
+/// successfully completed before moving on to do something else (like sending the next command),
+/// so any errors that result won't be picked up until we check later, which is what we do here. 
 /// This is called periodically to make sure nothing has gone wrong.
-/// It also handles progress updates, based on Markers that we add.
+/// It also handles progress bar updates, based on Marker commands that we send and the doer echoes back.
 /// If block_until_marker_value is set, then this function will keep processing messages (blocking as necessary)
-/// until it finds a response with the given marker.
-fn process_dest_responses(dest_comms: &mut Comms, progress: &ProgressBar, stats: &mut Stats, block_until_marker_value: Option<u64>) -> Result<(), Vec<String>> {
-    let mut next_fn = || {
+/// until it finds a response with the given marker. If not set, this function won't block and will return
+/// once it's processed all pending responses from the doer.
+fn process_dest_responses(dest_comms: &mut Comms, progress: &ProgressBar, stats: &mut Stats, 
+    block_until_marker_value: Option<u64>) -> Result<(), Vec<String>> 
+{
+    // To make the rest of this function consistent for both cases of block_until_marker_value,
+    // this helper function will block or not as appropriate.
+    let next_fn = || {
         match block_until_marker_value {
-            Some(m) => match dest_comms.receive_response() {
-                Response::Marker(m2) if m == m2 => None,
-                x => Some(x),
+            Some(m) => match dest_comms.receive_response() { // Blocking, as we need to wait until we find the requested marker value
+                Response::Marker(m2) if m == m2 => None, // Marker found, stop iterating and return
+                x => Some(x), // Something else - needs processing
             },
-            None => dest_comms.try_receive_response()
+            None => dest_comms.try_receive_response() // Non-blocking
         }
     };
 
-    let mut errors = vec![];
+    let mut errors = vec![]; // There might be multiple errors reported before we get round to checking for them
     while let Some(x) = next_fn() {
         match x {
             Response::Error(e) => errors.push(e),
             Response::Marker(m) => {
                 //TODO: This is a bit yucky
-                if m >= stats.num_dest_entries as u64 {
+                // Update the progress bar
+                if m < stats.num_dest_entries as u64 {
+                    progress.set_position(m);
+                } else {
                     if progress.message().contains("Deleting") {
+                        // Replace the first progress bar with the second one
                         progress.set_message("Copying...");
                         progress.set_length(stats.num_src_entries as u64);
                         stats.delete_end_time = Some(Instant::now());
                     }
                     progress.set_position(m - stats.num_dest_entries as u64);
-                } else {        
-                    progress.set_position(m);
                 }
             }
-            _ => errors.push(format!("Unexpected response: {:?}", x)),
+            _ => errors.push(format!("Unexpected response (expected Error or Marker): {:?}", x)),
         }
     }
     if errors.is_empty() {
@@ -193,7 +200,7 @@ pub fn sync(
     let timer = start_timer("SetRoot src");
     src_comms.send_command(Command::SetRoot { root: src_root.to_string() });
     let src_root_details = match src_comms.receive_response() {
-        /*Ok(*/Response::RootDetails { root_details, platform_differentiates_symlinks: _ }/*)*/ => {
+        Response::RootDetails { root_details, platform_differentiates_symlinks: _ } => {
             match &root_details {
                 None => return Err(vec![format!("src path '{src_root}' doesn't exist!")]),
                 Some(d) => if let Err(e) = validate_trailing_slash(src_root, &d) {
@@ -211,7 +218,7 @@ pub fn sync(
     let timer = start_timer("SetRoot dest");
     dest_comms.send_command(Command::SetRoot { root: dest_root.to_string() });
     let (mut dest_root_details, dest_platform_differentiates_symlinks) = match dest_comms.receive_response() {
-        /*Ok(*/Response::RootDetails { root_details, platform_differentiates_symlinks }/*)*/ => {
+        Response::RootDetails { root_details, platform_differentiates_symlinks } => {
             match &root_details {
                 None => (), // Dest root doesn't exist, but that's fine (we will create it later)
                 Some(d) => if let Err(e) = validate_trailing_slash(&dest_root, &d) {
@@ -257,12 +264,11 @@ pub fn sync(
     // Send off both GetEntries commands and wait for the results in parallel, rather than doing
     // one after the other (for performance)
     let timer = start_timer("GetEntries x 2");
-    let mut src_done = true;
-    let mut dest_done = true;
 
     // Source GetEntries
     let mut src_entries = Vec::new();
     let mut src_entries_lookup = HashMap::<RootRelativePath, EntryDetails>::new();
+    let mut src_done = true;
 
     // Add the root entry - we already got the details for this before
     src_entries.push((RootRelativePath::root(), src_root_details.clone()));
@@ -276,6 +282,7 @@ pub fn sync(
     // Dest GetEntries
     let mut dest_entries = Vec::new();
     let mut dest_entries_lookup = HashMap::<RootRelativePath, EntryDetails>::new();
+    let mut dest_done = true;
 
     // Add the root entry - we already got the details for this before
     if dest_root_details.is_some() {
@@ -290,7 +297,8 @@ pub fn sync(
 
     while !src_done || !dest_done {
         if !src_done {
-            //TODO: receive_response will block, should check it instead, so we can service the other src/dest
+            //TODO: receive_response will block, perhaps should check it instead (try_receive_response), 
+            // so we can service the other src/dest
             //TODO: if we use crossbeam, then we can select() on both channels rather than busy-waiting
             match src_comms.receive_response() {
                 Response::Entry((p, d)) => {
@@ -364,9 +372,9 @@ pub fn sync(
     // (otherwise deleting the parent is harder/more risky - possibly would also have problems with
     // files being filtered so the folder is needed still as there are filtered-out files in there,
     // see test_remove_dest_folder_with_excluded_files())
-    let progress = ProgressBar::new(dest_entries.len() as u64).with_message("Deleting...")
+    let progress_bar = ProgressBar::new(dest_entries.len() as u64).with_message("Deleting...")
         .with_style(ProgressStyle::with_template("[{elapsed}] {bar:40.green/black} {human_pos:>7}/{human_len:7} {msg}").unwrap());
-    progress.enable_steady_tick(Duration::from_millis(250));
+    progress_bar.enable_steady_tick(Duration::from_millis(250));
 
     let mut progress_count = 0;
     {
@@ -377,6 +385,7 @@ pub fn sync(
             if !s.is_some() || should_delete(s.unwrap(), dest_details, dest_platform_differentiates_symlinks) {
                 debug!("Deleting from dest {}", format_root_relative(&dest_path, &dest_root));
                 if progress_count % 100 == 0 {
+                    // Deletes are quite quick, so reduce the overhead of marking progress by only marking it occasionally
                     dest_comms.send_command(Command::Marker(progress_count));
                 }
                 let c = match dest_details {
@@ -403,7 +412,7 @@ pub fn sync(
                 };
                 if !dry_run {
                     dest_comms.send_command(c);
-                    process_dest_responses(dest_comms, &progress, &mut stats, None)?;
+                    process_dest_responses(dest_comms, &progress_bar, &mut stats, None)?;
                 } else {
                     // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be deleted
                     info!("Would delete from dest {}", format_root_relative(&dest_path, &dest_root));
@@ -411,7 +420,7 @@ pub fn sync(
             }
             progress_count += 1;
         }
-        dest_comms.send_command(Command::Marker(progress_count)); // Mark the exact end of deletion, rather then having to wait for the first file to be copy
+        dest_comms.send_command(Command::Marker(progress_count)); // Mark the exact end of deletion, rather then having to wait for the first file to be copied
     }
 
     // Copy entries that don't exist, or do exist but are out-of-date.
@@ -449,7 +458,7 @@ pub fn sync(
                                     
                                     dest_comms.send_command(Command::Marker(progress_count));
                                     copy_file(&path, size, src_modified_time, src_comms, dest_comms, &mut stats, dry_run, &src_root, &dest_root,
-                                        &progress)?
+                                        &progress_bar)?
                                 }
                             }
                         },
@@ -472,7 +481,7 @@ pub fn sync(
                         debug!("Source file {} file doesn't exist on dest - copying", format_root_relative(&path, &src_root));
                         dest_comms.send_command(Command::Marker(progress_count));
                         copy_file(&path, size, src_modified_time, src_comms, dest_comms, &mut stats, dry_run, &src_root, &dest_root,
-                            &progress)?
+                            &progress_bar)?
                     }
                     EntryDetails::Folder => {
                         debug!("Source folder {} doesn't exist on dest - creating", format_root_relative(&path, &src_root));
@@ -506,18 +515,19 @@ pub fn sync(
             }
             progress_count += 1;
 
-            process_dest_responses(dest_comms, &progress, &mut stats, None)?;
+            process_dest_responses(dest_comms, &progress_bar, &mut stats, None)?;
         }
     }
 
-    // Wait for the dest doers to finish processing all their messages
+    // Wait for the dest doer to finish processing all its Commands so that everything is finished.
+    // We don't need to wait for the src doer, because the dest doer is always last to finish.
     dest_comms.send_command(Command::Marker(u64::MAX));
     {
         profile_this!("Waiting for dest to finish");
-        process_dest_responses(dest_comms, &progress, &mut stats, Some(u64::MAX))?;
+        process_dest_responses(dest_comms, &progress_bar, &mut stats, Some(u64::MAX))?;
     }
     stats.copy_end_time = Some(Instant::now());
-    progress.finish_and_clear();
+    progress_bar.finish_and_clear();
 
     // Note that we print all the stats at the end (even though we could print the delete stats earlier),
     // so that they are together in the output (e.g. for dry run or --verbose, they could be a lot of other
@@ -622,7 +632,6 @@ fn copy_file(
         loop {
             let (data, more_to_follow) = match src_comms.receive_response() {
                 Response::FileContent { data, more_to_follow } => (data, more_to_follow),
-                Response::Error(e) => return Err(vec![format!("Error fetching {} from src: {:?}", format_root_relative(&path, &src_root), e)]),
                 x => return Err(vec![format!("Unexpected response fetching {} from src: {:?}", format_root_relative(&path, &src_root), x)]),
             };
             trace!("Create/update on dest {}", format_root_relative(&path, &dest_root));
@@ -634,6 +643,8 @@ fn copy_file(
                     more_to_follow,
                 });
 
+            // For large files, it might be a while before process_dest_responses is called in the main sync function,
+            // so check it periodically here too. 
             process_dest_responses(dest_comms, progress, stats, None)?;
 
             if !more_to_follow {

@@ -27,12 +27,12 @@ pub struct AsyncEncryptedComms<S: Serialize, R: for<'a> Deserialize<'a>> {
 }
 impl<S: Serialize + Send + 'static, R: for<'a> Deserialize<'a> + Send + 'static> AsyncEncryptedComms<S, R> {
     pub fn new(tcp_connection: TcpStream, secret_key: Key<Aes128Gcm>, sending_nonce_lsb: u64, receiving_nonce_lsb: u64,
-        debug_name: &str) -> AsyncEncryptedComms<S, R> 
+        debug_local_remote_name: (&str, &str)) -> AsyncEncryptedComms<S, R> 
     {
         let mut tcp_connection_clone1 = tcp_connection.try_clone().expect("Failed to clone TCP stream");
         let mut tcp_connection_clone2 = tcp_connection.try_clone().expect("Failed to clone TCP stream");
 
-        let sending_thread_name = format!("Sending to {debug_name}");
+        let sending_thread_name = format!("{} -> {}", debug_local_remote_name.0, debug_local_remote_name.1);
         let (sender, thread_receiver) = mpsc::channel();
         let sending_thread = thread::Builder::new()
             .name(sending_thread_name.clone())
@@ -43,13 +43,13 @@ impl<S: Serialize + Send + 'static, R: for<'a> Deserialize<'a> + Send + 'static>
                     let s = match thread_receiver.recv() {
                         Ok(s) => s,
                         Err(_) => {
-                            trace!("{sending_thread_name}: shutting down due to closed channel");
+                            trace!("Sending thread '{sending_thread_name}' shutting down due to closed channel");
                             break; // The sender must have been dropped, so stop this background thread
                         }
                     };
                     if let Err(e) = send(s, &mut tcp_connection_clone1, &cipher, &mut sending_nonce_counter, sending_nonce_lsb) {
                         //TODO: handle errors
-                        trace!("{sending_thread_name}: shutting down due to error sending on TCP: {e}");
+                        trace!("Sending thread '{sending_thread_name}' shutting down due to error sending on TCP: {e}");
                         break;
                     }                    
                 }
@@ -58,7 +58,7 @@ impl<S: Serialize + Send + 'static, R: for<'a> Deserialize<'a> + Send + 'static>
                 (cipher, sending_nonce_counter, sending_nonce_lsb)
             }).expect("Failed to spawn thread");
 
-        let receiving_thread_name = format!("Receiving from {debug_name}");
+        let receiving_thread_name = format!("{} -> {}", debug_local_remote_name.1, debug_local_remote_name.0);
         let (thread_sender, receiver) = mpsc::channel();
         let receiving_thread = thread::Builder::new()
             .name(receiving_thread_name.clone())
@@ -66,15 +66,16 @@ impl<S: Serialize + Send + 'static, R: for<'a> Deserialize<'a> + Send + 'static>
                 let mut receiving_nonce_counter = receiving_nonce_lsb;
                 let cipher = Aes128Gcm::new(&secret_key);
                 loop {
-                    let r = receive(&mut tcp_connection_clone2, &cipher, &mut receiving_nonce_counter, receiving_nonce_lsb);
-                    if let Err(e) = r {
-                        //TODO: handle errors
-                        trace!("{receiving_thread_name}: shutting down due to error receiving from TCP: {e}");
-                        break;
-                    }
-                    let r = r.expect("oh dear");
+                    let r = match receive(&mut tcp_connection_clone2, &cipher, &mut receiving_nonce_counter, receiving_nonce_lsb) {
+                        Ok(r) => r,
+                        Err(e) => {
+                            //TODO: handle errors
+                            trace!("Receiving thread '{receiving_thread_name}' shutting down due to error receiving from TCP: {e}");
+                            break;
+                        }
+                    };
                     if thread_sender.send(r).is_err() {
-                        trace!("{receiving_thread_name}: shutting down due to closed channel");
+                        trace!("Receiving thread '{receiving_thread_name}' shutting down due to closed channel");
                         break; // The sender must have been dropped, so stop this background thread
                     };
                 }
@@ -88,8 +89,8 @@ impl<S: Serialize + Send + 'static, R: for<'a> Deserialize<'a> + Send + 'static>
     #[allow(unused)]
     pub fn shutdown(self) {
         trace!("AsyncEncryptedComms::shutdown");
+        // The order here is important, so that both sides of the conenction exit cleanly and we don't deadlock.
 
-        // The order here is important
         drop(self.sender);
         trace!("Waiting for sending thread");
         self.sending_thread.join().expect("Failed to join sending thread");
@@ -109,6 +110,7 @@ impl<S: Serialize + Send + 'static, R: for<'a> Deserialize<'a> + Send + 'static>
     #[allow(unused)]
     pub fn shutdown_with_final_message_sent_after_threads_joined<F: FnOnce() -> S>(mut self, message_generating_func: F) {
         trace!("AsyncEncryptedComms::shutdown_with_send_final_message_after_threads_joined");
+        // The order here is important, so that both sides of the conenction exit cleanly and we don't deadlock.
 
         // Stop the sending thread, but don't shutdown the sending half of the TCP connection yet,
         // as we'll need that to send the final message.
@@ -139,6 +141,7 @@ impl<S: Serialize + Send + 'static, R: for<'a> Deserialize<'a> + Send + 'static>
     #[allow(unused)]
     pub fn shutdown_with_final_message_received_after_closing_send(self) -> R {
         trace!("AsyncEncryptedComms::shutdown_with_final_message_received_after_closing_send");
+        // The order here is important, so that both sides of the conenction exit cleanly and we don't deadlock.
 
         drop(self.sender);
         trace!("Waiting for sending thread");

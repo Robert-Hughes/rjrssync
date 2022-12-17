@@ -158,9 +158,9 @@ pub enum Command {
 
     /// Used to mark a position in the sequence of commands, which the doer will echo back 
     /// so that the boss knows when the doer has reached this point. 
-    /// We can't update the progress bar directly here, as the dest doer hasn't actually done 
-    /// anything yet (we just tell it to, and it might take a while), so instead we insert a marker
-    /// and when the doer echoes this marker back (meaning it got this far), we update the progress bar
+    /// The boss can't update the progress bar as soon as it sends a command, as the doer hasn't actually done 
+    /// anything yet, so instead it inserts a marker and when the doer echoes this marker back 
+    /// (meaning it got this far), the boss updates the progress bar.
     Marker(u64),
 
     Shutdown,
@@ -312,6 +312,7 @@ pub enum Response {
     #[cfg(feature = "profiling")]
     ProfilingData(ProcessProfilingData),
 
+    /// The doer echoes back Marker commands, so the boss can keep track of the doer's progress.
     Marker(u64),
 
     Error(String),
@@ -495,7 +496,7 @@ pub fn doer_main() -> ExitCode {
             *secret_key,
             1, // Nonce counters must be different, so sender and receiver don't reuse
             0,
-            "boss",
+            ("doer", "remote boss"),
     )};
 
     if let Err(e) = message_loop(&mut comms) {

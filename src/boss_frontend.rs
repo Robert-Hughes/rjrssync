@@ -369,8 +369,8 @@ pub fn boss_main() -> ExitCode {
         }
     }
 
-    // Drop the comms before dumping profiling, so that any doer threads have cleanly exited, and their profiling
-    // data is saved, and we have received profiling data from any remote doer processes.
+    // Shutdown the comms before dumping profiling, so that any doer threads and comms threads have cleanly exited, 
+    // and their profiling data is saved, and we have received profiling data from any remote doer processes.
     src_comms.shutdown();
     dest_comms.shutdown();
 

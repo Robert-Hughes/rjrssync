@@ -45,49 +45,48 @@ pub enum Comms {
     },
 }
 impl Comms {
-    //TODO: because this returns immediately, if the network is being slow then we will
-    // slowly take up more and more memory in the channel buffer!  Maybe could use a channel with
-    // a max capacity and it blocks?
-    pub fn send_command(&mut self, c: Command) {
+    pub fn get_sender(&self) -> &Sender<Command> {
+        match self {
+            Comms::Local { sender, .. } => &sender,
+            Comms::Remote { encrypted_comms, .. } => &encrypted_comms.sender,
+        }
+    }
+
+    pub fn get_receiver(&self) -> &Receiver<Response> {
+        match self {
+            Comms::Local { receiver, .. } => &receiver,
+            Comms::Remote { encrypted_comms, .. } => &encrypted_comms.receiver,
+        }
+    }
+
+    pub fn send_command(&self, c: Command) {
         trace!("Sending command {:?} to {}", c, &self);
-        let sender = match self {
-            Comms::Local { sender, .. } => sender,
-            Comms::Remote { encrypted_comms, .. } => &mut encrypted_comms.sender,
-        };
-        sender.send(c).expect("Error sending on channel");
+        self.get_sender().send(c).expect("Error sending on channel");
     }
 
     /// Blocks until a response is received, if none if buffered in the channel.
-    pub fn receive_response(&mut self) -> Response {
+    pub fn receive_response(&self) -> Response {
         trace!("Waiting for response from {}", &self);
-        let receiver = match self {
-            Comms::Local { receiver, .. } => receiver,
-            Comms::Remote { encrypted_comms, .. } => &mut encrypted_comms.receiver,
-        };
-        receiver.recv().expect("Error receiving from channel")
+        self.get_receiver().recv().expect("Error receiving from channel")
     }
 
     /// Never blocks, will return None if the channel is empty.
-    pub fn try_receive_response(&mut self) -> Option<Response> {
+    pub fn try_receive_response(&self) -> Option<Response> {
         trace!("Checking for response from {}", &self);
-        let receiver = match self {
-            Comms::Local { receiver, .. } => receiver,
-            Comms::Remote { encrypted_comms, .. } => &mut encrypted_comms.receiver,
-        };
-        receiver.try_recv().ok()
+        self.get_receiver().try_recv().ok()
     }
 
     // Tell the other end (thread or process over network) to shutdown once we're finished.
     // They should exit anyway due to a disconnection (of their channel or stdin), but this
     // gives a cleaner exit without errors.
-    pub fn shutdown(mut self) {
+    pub fn shutdown(self) {
         match self {
-            Comms::Local {..} => {
+            Comms::Local { .. } => {
                 // There's not much we can do about an error here, other than log it, which send_command already does, so we ignore any error.
                 let _ = self.send_command(Command::Shutdown);
                 // Join threads so that they're properly cleaned up including the profiling data
-                if let Comms::Local { thread, .. } = self {
-                    thread.join().unwrap();
+                if let Comms::Local { thread, .. } = self { // Always true, just need to extract the fields
+                    thread.join().expect("Failed to join local doer thread");
                 }
             }
             Comms::Remote { ref debug_name, .. } => {
@@ -103,7 +102,7 @@ impl Comms {
                         let start = PROFILING_START.elapsed();
                         self.send_command(Command::ProfilingTimeSync);
                         match self.receive_response() {
-                           /* Ok(*/Response::ProfilingTimeSync(remote_timestamp)/*)*/ => {
+                            Response::ProfilingTimeSync(remote_timestamp) => {
                                 let end = PROFILING_START.elapsed();
                                 trace!("Profiling sync: start: {:?}, end: {:?}, diff: {:?}, remote: {:?}", start, end, end-start, remote_timestamp);
                                 if i >= 2 { // Skip the first two to make sure the doer is ready to go (e.g. code cached)
@@ -113,7 +112,7 @@ impl Comms {
                                     samples.push(sample);
                                 }
                             },
-                            x => panic!("Unexpected response for profiling time sync: {:?}", x),
+                            x => panic!("Unexpected response (expected ProfilingTimeSync): {:?}", x),
                         }
                     }
                     let average = samples.iter().sum::<std::time::Duration>() / samples.len() as u32;
@@ -124,15 +123,14 @@ impl Comms {
                 // There's not much we can do about an error here, other than log it, which send_command already does, so we ignore any error.
                 let _ = self.send_command(Command::Shutdown);
 
-                // Shutdown the comms cleanly, potentially getting profiling data
+                // Shutdown the comms cleanly, potentially getting profiling data at the same time
                 if let Comms::Remote { encrypted_comms, .. } = self { // This is always true, we just need a way of getting the fields
                     #[cfg(feature="profiling")]
                     {
                         // Wait for remote doers to send back any profiling data, if enabled
-                        let r = encrypted_comms.shutdown_with_final_message_received_after_closing_send();
-                        match r {
-                            /*Ok(*/Response::ProfilingData(x)/*)*/ => add_remote_profiling(x, _debug_name, profiling_offset),
-                            _ => panic!("Unexpected response"),
+                        match encrypted_comms.shutdown_with_final_message_received_after_closing_send() {
+                            Response::ProfilingData(x) => add_remote_profiling(x, _debug_name, profiling_offset),
+                            _ => panic!("Unexpected response as final message (expected ProfilingData)"),
                         }
                     }
                     #[cfg(not(feature="profiling"))]
@@ -250,8 +248,9 @@ pub fn setup_comms(
                     }
                 };
 
+                let debug_comms_name = "Remote ".to_string() + &debug_name;
                 return Some(Comms::Remote {
-                    debug_name: "Remote ".to_string() + &debug_name + " at " + remote_hostname,
+                    debug_name: debug_comms_name.clone(),
                     ssh_process,
                     stdin,
                     stdout,
@@ -261,7 +260,7 @@ pub fn setup_comms(
                         secret_key,
                         0, // Nonce counters must be different, so sender and receiver don't reuse
                         1,
-                        &("Remote ".to_string() + &debug_name + " at " + remote_hostname)
+                        ("boss", &debug_comms_name)
                     )
                 });
             }

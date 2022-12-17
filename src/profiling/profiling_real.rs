@@ -194,7 +194,7 @@ impl GlobalProfilingData {
             let keys : Vec<String> = name_to_tid.keys().map(|t| (*t).clone()).collect();
             for thread_name in keys {
                 let idx = thread_name_to_first_event.iter().position(|x| x.0 == thread_name).unwrap();
-                let new_thread_name = format!("{idx} {thread_name}");
+                let new_thread_name = format!("{idx}) {thread_name}");
                 let v = name_to_tid.remove(&thread_name).unwrap();
                 name_to_tid.insert(new_thread_name, v);
             }
@@ -221,9 +221,9 @@ impl GlobalProfilingData {
         let keys : Vec<String> = name_to_pid.keys().map(|t| (*t).clone()).collect();
         for process_name in keys {
             let idx = process_name_to_first_event.iter().position(|x| x.0 == process_name).unwrap();
-            let mut new_process_name = format!("{idx} {process_name}");
+            let mut new_process_name = format!("{idx}) {process_name}");
             if process_name == LOCAL_PROCESS_NAME {
-                new_process_name = "0 Boss".to_string();
+                new_process_name = "0) Boss".to_string();
             }
             let v = name_to_pid.remove(&process_name).unwrap();
             name_to_pid.insert(new_process_name, v);

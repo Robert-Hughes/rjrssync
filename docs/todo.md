@@ -65,14 +65,8 @@ Performance
 ------------
 
 * Investigate if parallelising some stages would speed it up, e.g. walking the dir structure on multiple threads, or sending data across network on multiple threads
-   - Could have one thread just doing filesystem calls to fill up a queue, and another thread processing those entries.
    - Maybe check if WalkDir is slow, by comparing its performance with direct std::fs stuff or even native OS stuff?
-   - could have one thread for sending network messages, one for receiving, and sending the messages to the main thread via Channels so the main logic can do stuff asynchronously. This way the network never blocks anything
-   as it will be immediately placed into a Channel. In fact the interface we want is basically just a Channel,
-   as that has both blocking and non-blocking recvs. For the local case, this is simply the channel we already have,
-   and for the remote case this would be a channel linked to a thread doing the actual network comms (one for read,
-   one for write)
-* Investigate if pipelining some stages would speed it up, e.g. sending file list while also sending it
+* Investigate if pipelining some stages would speed it up, e.g. encrypting and serialization at same time
 * Probably better to batch together File() Responses, to avoid overhead from sending loads of messages
 * Add to benchmark some remote tests (currently just testing local ones), and to/from WSL folders
    - Perhaps a separate table for local -> local, local -> WSL, local -> remote etc. etc.
@@ -83,12 +77,14 @@ Performance
 * Waiting for an ack after each file transfer makes it slow. Instead we could "peek" for acks rather than waiting,
 and progress to the next file/chunk immediately if there's nothing waiting. Need to make sure we don't deadlock though, waiting for each other!
 * Benchmark program produces inconsistent results - maybe need to run several times and take minimum?
-* Compare profiling dumps between main and comms-threads branch, to see if the background threads are working
-like we expect.
 * Benchmarking with two remotes rather than just one
 * Benchmarking a case where a bunch of stuff needs deleting first
 * Benchmarking arguments to specify what to run, rather than all
 * Profiling events like send/receive could show the message type?
+* Because our send_command/response now returns immediately, if the network is being slow then we will
+  slowly take up more and more memory in the channel buffer (same on both sending and receiving side)! 
+  Maybe could use a channel with a max capacity and it blocks? crossbeam?
+* crossbeam channels are supposed to have better performance (and better API/features)
 
 Misc
 -----
@@ -107,4 +103,4 @@ ERROR | rjrssync::boss_frontend: Sync error: Unexpected response from dest GetEn
 * Warning if filter doesn't match anything, possibly after GetEntries but before actually doing anything (to prevent mistaken filter?)
 * Would be nice to automatically detect cases where the version number hasn't been updated, e.g. if we
 could see that the Command/Response struct layout has changed.
-* Review async comms threads and related changes
+* Async comms might not be handling errors properly - the threads can stop early due to either the tcp connection or the channel being closed, and might need propagating somehow?
