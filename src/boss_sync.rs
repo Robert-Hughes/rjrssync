@@ -562,13 +562,13 @@ fn copy_file(
                 path: path.clone(),
             });
         // Large files are split into chunks, loop until all chunks are transferred.
-        let mut n = 0;
+      //  let mut n = 0;
         loop {
             let (data, more_to_follow) = match src_comms.receive_response() {
                 Response::FileContent { data, more_to_follow } => (data, more_to_follow),
                 x => return Err(format!("Unexpected response fetching {} from src: {:?}", format_root_relative(&path, &src_root), x)),
             };
-            n += 1;
+           // n += 1;
             trace!("Create/update on dest {}", format_root_relative(&path, &dest_root));
             dest_comms
                 .send_command(Command::CreateOrUpdateFile {
@@ -577,17 +577,24 @@ fn copy_file(
                     set_modified_time: if more_to_follow { None } else { Some(modified_time) }, // Only set the modified time after the final chunk
                     more_to_follow,
                 });
+
+            match dest_comms.receive_response() {
+                doer::Response::Ack => (),
+                x => return Err(format!("Unexpected response response creeating/updating on dest {}: {:?}", format_root_relative(&path, &dest_root), x)),
+            };
+    
+
             if !more_to_follow {
                 break;
             }
         }
 
-        for _ in 0..n {
-            match dest_comms.receive_response() {
-                doer::Response::Ack => (),
-                x => return Err(format!("Unexpected response response creeating/updating on dest {}: {:?}", format_root_relative(&path, &dest_root), x)),
-            };
-        }
+        // for _ in 0..n {
+        //     match dest_comms.receive_response() {
+        //         doer::Response::Ack => (),
+        //         x => return Err(format!("Unexpected response response creeating/updating on dest {}: {:?}", format_root_relative(&path, &dest_root), x)),
+        //     };
+        // }
 
 
     } else {
