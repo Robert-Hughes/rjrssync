@@ -57,6 +57,7 @@ impl Comms {
         sender.send(c).expect("Error sending on channel");
     }
 
+    /// Blocks until a response is received, if none if buffered in the channel.
     pub fn receive_response(&mut self) -> Response {
         trace!("Waiting for response from {}", &self);
         let receiver = match self {
@@ -64,6 +65,16 @@ impl Comms {
             Comms::Remote { encrypted_comms, .. } => &mut encrypted_comms.receiver,
         };
         receiver.recv().expect("Error receiving from channel")
+    }
+
+    /// Never blocks, will return None if the channel is empty.
+    pub fn try_receive_response(&mut self) -> Option<Response> {
+        trace!("Checking for response from {}", &self);
+        let receiver = match self {
+            Comms::Local { receiver, .. } => receiver,
+            Comms::Remote { encrypted_comms, .. } => &mut encrypted_comms.receiver,
+        };
+        receiver.try_recv().ok()
     }
 
     // Tell the other end (thread or process over network) to shutdown once we're finished.

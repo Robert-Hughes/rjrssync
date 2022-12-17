@@ -361,7 +361,9 @@ pub fn boss_main() -> ExitCode {
         match sync_result {
             Ok(()) => (),
             Err(e) => {
-                error!("Sync error: {}", e);
+                for e in e {
+                    error!("Sync error: {}", e);
+                }
                 return ExitCode::from(12);
             }
         }

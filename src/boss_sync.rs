@@ -117,6 +117,43 @@ fn validate_trailing_slash(root_path: &str, entry_details: &EntryDetails) -> Res
     Ok(())
 }
 
+/// To increase performance, we don't wait for doers to confirm that every command we sent has been
+/// successfully completed before moving on to do something else, so any errors that result won't be picked up
+/// until we explicitly check, which is what we do here. This is called periodically to make sure nothing has gone
+/// wrong.
+fn check_for_errors(comms: &mut Comms) -> Result<(), Vec<String>> {
+    let mut errors = vec![];
+    while let Some(x) = comms.try_receive_response() {
+        match x {
+            Response::Error(e) => errors.push(e),
+            _ => errors.push(format!("Unexpected response: {:?}", x)),
+        }
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
+}
+
+fn wait_for_pong(comms: &mut Comms) -> Result<(), Vec<String>> {
+    let mut errors = vec![];
+    loop {
+        let x = comms.receive_response(); 
+        match x {
+            Response::Error(e) => errors.push(e),
+            Response::Pong => break,
+            _ => errors.push(format!("Unexpected response: {:?}", x)),
+        }
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
+}
+
+
 pub fn sync(
     src_root: &str,
     mut dest_root: String,
@@ -125,7 +162,7 @@ pub fn sync(
     show_stats: bool,
     src_comms: &mut Comms,
     dest_comms: &mut Comms,
-) -> Result<(), String> {
+) -> Result<(), Vec<String>> {
     profile_this!();
 
     let mut stats = Stats::default();
@@ -144,14 +181,14 @@ pub fn sync(
     let src_root_details = match src_comms.receive_response() {
         /*Ok(*/Response::RootDetails { root_details, platform_differentiates_symlinks: _ }/*)*/ => {
             match &root_details {
-                None => return Err(format!("src path '{src_root}' doesn't exist!")),
+                None => return Err(vec![format!("src path '{src_root}' doesn't exist!")]),
                 Some(d) => if let Err(e) = validate_trailing_slash(src_root, &d) {
-                    return Err(format!("src path {}", e));
+                    return Err(vec![format!("src path {}", e)]);
                 }
             };
             root_details
         }
-        r => return Err(format!("Unexpected response getting root details from src: {:?}", r)),
+        r => return Err(vec![format!("Unexpected response getting root details from src: {:?}", r)]),
     };
     let src_root_details = src_root_details.unwrap();
     stop_timer(timer);
@@ -164,12 +201,12 @@ pub fn sync(
             match &root_details {
                 None => (), // Dest root doesn't exist, but that's fine (we will create it later)
                 Some(d) => if let Err(e) = validate_trailing_slash(&dest_root, &d) {
-                    return Err(format!("dest path {}", e));
+                    return Err(vec![format!("dest path {}", e)]);
                 }
             }
             (root_details, platform_differentiates_symlinks)
         }
-        r => return Err(format!("Unexpected response getting root details from dest: {:?}", r)),
+        r => return Err(vec![format!("Unexpected response getting root details from dest: {:?}", r)]),
     };
     stop_timer(timer);
 
@@ -191,7 +228,7 @@ pub fn sync(
             dest_comms.send_command(Command::SetRoot { root: dest_root.clone() });
             dest_root_details = match dest_comms.receive_response() {
                 Response::RootDetails { root_details, platform_differentiates_symlinks: _ } => root_details,
-                r => return Err(format!("Unexpected response getting root details from dest: {:?}", r)),
+                r => return Err(vec![format!("Unexpected response getting root details from dest: {:?}", r)]),
             }
         }
     }
@@ -200,10 +237,6 @@ pub fn sync(
     // when we come to create the dest path itself, it can succeed
     if dest_root_details.is_none() {
         dest_comms.send_command(Command::CreateRootAncestors);
-        match dest_comms.receive_response() {
-            Response::Ack => (),
-            r => return Err(format!("Unexpected response from creating root ancestors on dest: {:?}", r)),
-        }
     }
 
     // Fetch all the entries for the source path and the dest path, if they are folders
@@ -261,7 +294,7 @@ pub fn sync(
                     src_entries_lookup.insert(p, d);
                 }
                 Response::EndOfEntries => src_done = true,
-                r => return Err(format!("Unexpected response getting entries from src: {:?}", r)),
+                r => return Err(vec![format!("Unexpected response getting entries from src: {:?}", r)]),
             }    
         }
         if !dest_done {
@@ -280,7 +313,7 @@ pub fn sync(
                     dest_entries_lookup.insert(p, d);
                 }
                 Response::EndOfEntries => dest_done = true,
-                r => return Err(format!("Unexpected response getting entries from dest: {:?}", r)),
+                r => return Err(vec![format!("Unexpected response getting entries from dest: {:?}", r)]),
             }    
         }
     }
@@ -348,11 +381,7 @@ pub fn sync(
             };
             if !dry_run {
                 dest_comms.send_command(c);
-                match dest_comms.receive_response() {
-                    doer::Response::Ack => (),
-                    r => return Err(format!("Unexpected response from deletion of {} on dest: {:?}",
-                        format_root_relative(&dest_path, &dest_root), r)),
-                };
+                check_for_errors(dest_comms)?;
             } else {
                 // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be deleted
                 info!("Would delete from dest {}", format_root_relative(&dest_path, &dest_root));
@@ -383,11 +412,11 @@ pub fn sync(
                         };
                         match src_modified_time.cmp(&dest_modified_time) {
                             Ordering::Less => {
-                                return Err(format!(
+                                return Err(vec![format!(
                                     "Dest file {} is newer than src file {}. Will not overwrite.",
                                     format_root_relative(&path, &dest_root),
                                     format_root_relative(&path, src_root)
-                                ));
+                                )]);
                             }
                             Ordering::Equal => {
                                 trace!("Dest file {} has same modified time as src file {}. Will not update.",
@@ -429,10 +458,6 @@ pub fn sync(
                             .send_command(Command::CreateFolder {
                                 path: path.clone(),
                             });
-                        match dest_comms.receive_response() {
-                            doer::Response::Ack => (),
-                            x => return Err(format!("Unexpected response creating on dest {}: {:?}", format_root_relative(&path, &dest_root), x)),
-                        };
                     } else {
                         // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be copied
                         info!("Would create dest folder {}", format_root_relative(&path, &dest_root));
@@ -448,10 +473,6 @@ pub fn sync(
                                 kind,
                                 target,
                             });
-                        match dest_comms.receive_response() {
-                            doer::Response::Ack => (),
-                            x => return Err(format!("Unexpected response creating symlink on dest {}: {:?}", format_root_relative(&path, &dest_root), x)),
-                        };
                     } else {
                         // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be copied
                         info!("Would create dest symlink {}", format_root_relative(&path, &dest_root));
@@ -460,10 +481,27 @@ pub fn sync(
             },
         }
         progress.inc(1);
+
+        check_for_errors(dest_comms)?;
+        check_for_errors(src_comms)?;
     }
+
+    // Wait for the doers to process all their messages
+    src_comms.send_command(Command::Ping);
+    dest_comms.send_command(Command::Ping);
+    //TODO: this is where a lot of the time will go, and we're assuming it's all in the copying, but actually
+    // it might be in the deleting!.
+    //TODO: progress bar isn't correct any more :(
+    // could send "fence" point where the doer will pong back (e.g. after all deleting) and when we receive
+    // this message back that's when we split the time
+    wait_for_pong(src_comms)?;
+    wait_for_pong(dest_comms)?;
+
+
     stop_timer(timer);
     let copy_elapsed = copy_start.elapsed().as_secs_f32();
     progress.finish_and_clear();
+
 
     // Note that we print all the stats at the end (even though we could print the delete stats earlier),
     // so that they are together in the output (e.g. for dry run or --verbose, they could be a lot of other
@@ -554,7 +592,7 @@ fn copy_file(
     dry_run: bool,
     src_root: &str,
     dest_root: &str,
-) -> Result<(), String> {
+) -> Result<(), Vec<String>> {
     if !dry_run {
         trace!("Fetching from src {}", format_root_relative(&path, &src_root));
         src_comms
@@ -562,13 +600,12 @@ fn copy_file(
                 path: path.clone(),
             });
         // Large files are split into chunks, loop until all chunks are transferred.
-      //  let mut n = 0;
         loop {
             let (data, more_to_follow) = match src_comms.receive_response() {
                 Response::FileContent { data, more_to_follow } => (data, more_to_follow),
-                x => return Err(format!("Unexpected response fetching {} from src: {:?}", format_root_relative(&path, &src_root), x)),
+                Response::Error(e) => return Err(vec![format!("Error fetching {} from src: {:?}", format_root_relative(&path, &src_root), e)]),
+                x => return Err(vec![format!("Unexpected response fetching {} from src: {:?}", format_root_relative(&path, &src_root), x)]),
             };
-           // n += 1;
             trace!("Create/update on dest {}", format_root_relative(&path, &dest_root));
             dest_comms
                 .send_command(Command::CreateOrUpdateFile {
@@ -578,25 +615,12 @@ fn copy_file(
                     more_to_follow,
                 });
 
-            match dest_comms.receive_response() {
-                doer::Response::Ack => (),
-                x => return Err(format!("Unexpected response response creeating/updating on dest {}: {:?}", format_root_relative(&path, &dest_root), x)),
-            };
-    
+            check_for_errors(dest_comms)?;
 
             if !more_to_follow {
                 break;
             }
         }
-
-        // for _ in 0..n {
-        //     match dest_comms.receive_response() {
-        //         doer::Response::Ack => (),
-        //         x => return Err(format!("Unexpected response response creeating/updating on dest {}: {:?}", format_root_relative(&path, &dest_root), x)),
-        //     };
-        // }
-
-
     } else {
         // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be copied
         info!("Would copy {} => {}",

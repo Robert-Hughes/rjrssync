@@ -156,6 +156,8 @@ pub enum Command {
     #[cfg(feature = "profiling")]
     ProfilingTimeSync,
 
+    Ping,
+
     Shutdown,
 }
 
@@ -282,7 +284,8 @@ pub enum Response {
     #[cfg(feature = "profiling")]
     ProfilingData(ProcessProfilingData),
 
-    Ack,
+    Pong,
+
     Error(String),
 }
 
@@ -540,9 +543,8 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut Option<DoerCo
             trace!("Creating {:?} and all its ancestors", path_to_create);
             if let Some(p) = path_to_create {
                 profile_this!(format!("CreateRootAncestors {}", p.to_str().unwrap().to_string()));
-                match std::fs::create_dir_all(p) {
-                    Ok(()) => comms.send_response(Response::Ack),
-                    Err(e) => comms.send_response(Response::Error(format!("Error creating folder and ancestors for '{}': {e}", p.display()))),
+                if let Err(e) = std::fs::create_dir_all(p) {
+                    comms.send_response(Response::Error(format!("Error creating folder and ancestors for '{}': {e}", p.display())));
                 }
             }
         }
@@ -606,40 +608,34 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut Option<DoerCo
                     return Ok(true);
                 }
             }
-
-            comms.send_response(Response::Ack);
         }
         Command::CreateFolder { path } => {
             let full_path =  path.get_full_path(&context.as_ref().unwrap().root);
             trace!("Creating folder '{}'", full_path.display());
             profile_this!(format!("CreateFolder {}", full_path.to_str().unwrap().to_string()));
-            match std::fs::create_dir(&full_path) {
-                Ok(()) => comms.send_response(Response::Ack),
-                Err(e) => comms.send_response(Response::Error(format!("Error creating folder '{}': {e}", full_path.display()))),
+            if let Err(e) = std::fs::create_dir(&full_path) {
+                comms.send_response(Response::Error(format!("Error creating folder '{}': {e}", full_path.display())));
             }
         }
         Command::CreateSymlink { path, kind, target } => {
-            match handle_create_symlink(path, context.as_mut().unwrap(), kind, target) {
-                Ok(()) => comms.send_response(Response::Ack),
-                Err(e) => comms.send_response(Response::Error(e)),
+            if let Err(e) = handle_create_symlink(path, context.as_mut().unwrap(), kind, target) {
+                comms.send_response(Response::Error(e));
             }
         },
         Command::DeleteFile { path } => {
             let full_path =  path.get_full_path(&context.as_ref().unwrap().root);
             trace!("Deleting file '{}'", full_path.display());
             profile_this!(format!("DeleteFile {}", path.to_string()));
-            match std::fs::remove_file(&full_path) {
-                Ok(()) => comms.send_response(Response::Ack),
-                Err(e) => comms.send_response(Response::Error(format!("Error deleting file '{}': {e}", full_path.display()))),
+            if let Err(e) = std::fs::remove_file(&full_path) {
+                comms.send_response(Response::Error(format!("Error deleting file '{}': {e}", full_path.display())));
             }
         }
         Command::DeleteFolder { path } => {
             let full_path =  path.get_full_path(&context.as_ref().unwrap().root);
             trace!("Deleting folder '{}'", full_path.display());
             profile_this!(format!("DeleteFolder {}", path.to_string()));
-            match std::fs::remove_dir(&full_path) {
-                Ok(()) => comms.send_response(Response::Ack),
-                Err(e) => comms.send_response(Response::Error(format!("Error deleting folder '{}': {e}", full_path.display()))),
+            if let Err(e) = std::fs::remove_dir(&full_path) {
+                comms.send_response(Response::Error(format!("Error deleting folder '{}': {e}", full_path.display())));
             }
         }
         Command::DeleteSymlink { path, kind } => {
@@ -660,15 +656,17 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut Option<DoerCo
                 // On Linux, any kind of symlink is removed with remove_file
                 std::fs::remove_file(&full_path)
             };
-            match res {
-                Ok(()) => comms.send_response(Response::Ack),
-                Err(e) => comms.send_response(Response::Error(format!("Error deleting symlink '{}': {e}", full_path.display()))),
+            if let Err(e) = res {
+                comms.send_response(Response::Error(format!("Error deleting symlink '{}': {e}", full_path.display())));
             }
         },
         #[cfg(feature="profiling")]
         Command::ProfilingTimeSync => {
             comms.send_response(Response::ProfilingTimeSync(PROFILING_START.elapsed()));
         },
+        Command::Ping => {
+            comms.send_response(Response::Pong);
+        }
         Command::Shutdown => {
             return Ok(false);
         },
