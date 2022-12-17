@@ -5,7 +5,7 @@ use std::{
     collections::HashMap,
     fs::File,
     sync::Mutex,
-    time::{Duration, Instant}, ops::DerefMut, io::Write,
+    time::{Duration, Instant}, ops::DerefMut, io::{Write},
 };
 
 use lazy_static::{lazy_static};
@@ -124,7 +124,7 @@ struct ChromeTracing {
     ts: u128,
     pid: usize,
     tid: usize,
-    args: HashMap<String, serde_json::Value>,
+    args: String,
 }
 
 impl GlobalProfilingData {
@@ -171,7 +171,7 @@ impl GlobalProfilingData {
                         ts,
                         pid,
                         tid,
-                        args: HashMap::new(),
+                        args: "{}".to_string(),
                     };
                     json_entries.push(beginning);
                     let end_ts = (entry.end + process_profiling_data.timestamp_offset).as_nanos();
@@ -183,7 +183,7 @@ impl GlobalProfilingData {
                         ts: end_ts,
                         pid,
                         tid,
-                        args: HashMap::new(),
+                        args: "{}".to_string(),
                     };
                     json_entries.push(end);
                 }
@@ -210,7 +210,7 @@ impl GlobalProfilingData {
                     ts: 0,
                     pid,
                     tid: *tid,
-                    args: HashMap::from([("name".to_string(), serde_json::Value::String(thread_name.to_string()))]),
+                    args: format!("{{\"name\":\"{}\"}}", thread_name),
                 };
                 json_entries.push(entry);
             }
@@ -238,7 +238,7 @@ impl GlobalProfilingData {
                 ts: 0,
                 pid: *pid,
                 tid: 0,
-                args: HashMap::from([("name".to_string(), serde_json::Value::String(process_name.to_string()))]),
+                args: format!("{{\"name\":\"{}\"}}", process_name),
             };
             json_entries.push(entry);
         }
@@ -246,12 +246,13 @@ impl GlobalProfilingData {
         // Manual string formatting is a lot quicker than using serde_json.
         //      serde_json::to_writer(&file, &json_entries)
         //          .expect(&format!("Failed to save end converted profiling data"));
-        //TODO: .args values aren't saved here though - they're ignored!
+        write!(file, "[").expect("Failed to write profiling data");
         for e in json_entries {
-            write!(file, r#"{{"name":"{}","cat":"{}","ph":"{}","ts":{},"pid":{},"tid":{},"args":{{}}}}"#,
-                e.name, e.cat, e.ph, e.ts, e.pid, e.tid
+            write!(file, r#"{{"name":"{}","cat":"{}","ph":"{}","ts":{},"pid":{},"tid":{},"args":{}}},"#,
+                e.name, e.cat, e.ph, e.ts, e.pid, e.tid, e.args,
             ).expect("Failed to write profiling data");
         }
+        write!(file, "\"dummy\" ]").expect("Failed to write profiling data");
     }
 }
 
