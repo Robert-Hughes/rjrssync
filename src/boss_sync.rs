@@ -61,27 +61,33 @@ impl Display for FileSizeHistogram {
 
 #[derive(Default)]
 struct Stats {
+    pub num_src_entries: u32,
     pub num_src_files: u32,
     pub num_src_folders: u32,
     pub num_src_symlinks: u32,
     pub src_total_bytes: u64,
     pub src_file_size_hist: FileSizeHistogram,
 
+    pub num_dest_entries: u32,
     pub num_dest_files: u32,
     pub num_dest_folders: u32,
     pub num_dest_symlinks: u32,
     pub dest_total_bytes: u64,
 
+    pub delete_start_time: Option<Instant>,
     pub num_files_deleted: u32,
     pub num_bytes_deleted: u64,
     pub num_folders_deleted: u32,
     pub num_symlinks_deleted: u32,
+    pub delete_end_time: Option<Instant>,
 
+    pub copy_start_time: Option<Instant>,
     pub num_files_copied: u32,
     pub num_bytes_copied: u64,
     pub num_folders_created: u32,
     pub num_symlinks_copied: u32,
     pub copied_file_size_hist: FileSizeHistogram,
+    pub copy_end_time: Option<Instant>,
 }
 
 /// Formats a path which is relative to the root, so that it is easier to understand for the user.
@@ -117,15 +123,40 @@ fn validate_trailing_slash(root_path: &str, entry_details: &EntryDetails) -> Res
     Ok(())
 }
 
-/// To increase performance, we don't wait for doers to confirm that every command we sent has been
+/// To increase performance, we don't wait for the dest doer to confirm that every command we sent has been
 /// successfully completed before moving on to do something else, so any errors that result won't be picked up
-/// until we explicitly check, which is what we do here. This is called periodically to make sure nothing has gone
-/// wrong.
-fn check_for_errors(comms: &mut Comms) -> Result<(), Vec<String>> {
+/// until we explicitly check, which is what we do here. 
+/// This is called periodically to make sure nothing has gone wrong.
+/// It also handles progress updates, based on Markers that we add.
+/// If block_until_marker_value is set, then this function will keep processing messages (blocking as necessary)
+/// until it finds a response with the given marker.
+fn process_dest_responses(dest_comms: &mut Comms, progress: &ProgressBar, stats: &mut Stats, block_until_marker_value: Option<u64>) -> Result<(), Vec<String>> {
+    let mut next_fn = || {
+        match block_until_marker_value {
+            Some(m) => match dest_comms.receive_response() {
+                Response::Marker(m2) if m == m2 => None,
+                x => Some(x),
+            },
+            None => dest_comms.try_receive_response()
+        }
+    };
+
     let mut errors = vec![];
-    while let Some(x) = comms.try_receive_response() {
+    while let Some(x) = next_fn() {
         match x {
             Response::Error(e) => errors.push(e),
+            Response::Marker(m) => {
+                if m >= stats.num_dest_entries as u64 {
+                    if progress.message().contains("Deleting") {
+                        progress.set_message("Copying...");
+                        progress.set_length(stats.num_src_entries as u64);
+                        stats.delete_end_time = Some(Instant::now());
+                    }
+                    progress.set_position(m - stats.num_src_entries as u64);
+                } else {        
+                    progress.set_position(m);
+                }
+            }
             _ => errors.push(format!("Unexpected response: {:?}", x)),
         }
     }
@@ -135,24 +166,6 @@ fn check_for_errors(comms: &mut Comms) -> Result<(), Vec<String>> {
         Err(errors)
     }
 }
-
-fn wait_for_pong(comms: &mut Comms) -> Result<(), Vec<String>> {
-    let mut errors = vec![];
-    loop {
-        let x = comms.receive_response(); 
-        match x {
-            Response::Error(e) => errors.push(e),
-            Response::Pong => break,
-            _ => errors.push(format!("Unexpected response: {:?}", x)),
-        }
-    }
-    if errors.is_empty() {
-        Ok(())
-    } else {
-        Err(errors)
-    }
-}
-
 
 pub fn sync(
     src_root: &str,
@@ -317,6 +330,8 @@ pub fn sync(
             }    
         }
     }
+    stats.num_src_entries = src_entries.len() as u32;
+    stats.num_dest_entries = dest_entries.len() as u32;
 
     stop_timer(timer);
 
@@ -351,12 +366,17 @@ pub fn sync(
     let progress = ProgressBar::new(dest_entries.len() as u64).with_message("Deleting...")
         .with_style(ProgressStyle::with_template("[{elapsed}] {bar:40.green/black} {human_pos:>7}/{human_len:7} {msg}").unwrap());
     progress.enable_steady_tick(Duration::from_millis(250));
+
     let timer = start_timer("Deleting");
-    let delete_start = Instant::now();
+    stats.delete_start_time = Some(Instant::now());
+    let mut progress_count = 0;
     for (dest_path, dest_details) in dest_entries.iter().rev() {
         let s = src_entries_lookup.get(dest_path);
         if !s.is_some() || should_delete(s.unwrap(), dest_details, dest_platform_differentiates_symlinks) {
             debug!("Deleting from dest {}", format_root_relative(&dest_path, &dest_root));
+            if progress_count % 100 == 0 {
+                dest_comms.send_command(Command::Marker(progress_count));
+            }
             let c = match dest_details {
                 EntryDetails::File { size, .. } => {
                     stats.num_files_deleted += 1;
@@ -381,24 +401,20 @@ pub fn sync(
             };
             if !dry_run {
                 dest_comms.send_command(c);
-                check_for_errors(dest_comms)?;
+                process_dest_responses(dest_comms, &progress, &mut stats, None)?;
             } else {
                 // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be deleted
                 info!("Would delete from dest {}", format_root_relative(&dest_path, &dest_root));
             }
         }
-        progress.inc(1);
+        progress_count += 1;
     }
-    let delete_elapsed = delete_start.elapsed().as_secs_f32();
+    dest_comms.send_command(Command::Marker(progress_count)); // Mark the exact end of deletion, rather then having to wait for the first file to be copy
     stop_timer(timer);
-    progress.finish_and_clear();
 
     // Copy entries that don't exist, or do exist but are out-of-date.
-    let progress = ProgressBar::new(src_entries.len() as u64).with_message("Copying...")
-        .with_style(ProgressStyle::with_template("[{elapsed}] {bar:40.green/black} {human_pos:>7}/{human_len:7} {msg}").unwrap());
-    progress.enable_steady_tick(Duration::from_millis(250));
     let timer = start_timer("Copying");
-    let copy_start = Instant::now();
+    stats.copy_start_time = Some(Instant::now());
     for (path, src_details) in src_entries {
         let dest_details = dest_entries_lookup.get(&path);
         match dest_details {
@@ -427,7 +443,10 @@ pub fn sync(
                                 debug!("Source file {} is newer than dest file {}. Will copy.",
                                     format_root_relative(&path, &src_root),
                                     format_root_relative(&path, &dest_root));
-                                copy_file(&path, size, src_modified_time, src_comms, dest_comms, &mut stats, dry_run, &src_root, &dest_root)?
+                                
+                                dest_comms.send_command(Command::Marker(progress_count));
+                                copy_file(&path, size, src_modified_time, src_comms, dest_comms, &mut stats, dry_run, &src_root, &dest_root,
+                                    &progress)?
                             }
                         }
                     },
@@ -448,7 +467,9 @@ pub fn sync(
             _ => match src_details {
                 EntryDetails::File { size, modified_time: src_modified_time } => {
                     debug!("Source file {} file doesn't exist on dest - copying", format_root_relative(&path, &src_root));
-                    copy_file(&path, size, src_modified_time, src_comms, dest_comms, &mut stats, dry_run, &src_root, &dest_root)?
+                    dest_comms.send_command(Command::Marker(progress_count));
+                    copy_file(&path, size, src_modified_time, src_comms, dest_comms, &mut stats, dry_run, &src_root, &dest_root,
+                        &progress)?
                 }
                 EntryDetails::Folder => {
                     debug!("Source folder {} doesn't exist on dest - creating", format_root_relative(&path, &src_root));
@@ -480,26 +501,22 @@ pub fn sync(
                 }
             },
         }
-        progress.inc(1);
+        progress_count += 1;
 
-        check_for_errors(dest_comms)?;
-        check_for_errors(src_comms)?;
+        process_dest_responses(dest_comms, &progress, &mut stats, None)?;
     }
 
-    // Wait for the doers to process all their messages
-    src_comms.send_command(Command::Ping);
-    dest_comms.send_command(Command::Ping);
+    // Wait for the dest doers to finish processing all their messages
+    dest_comms.send_command(Command::Marker(u64::MAX));
     //TODO: this is where a lot of the time will go, and we're assuming it's all in the copying, but actually
     // it might be in the deleting!.
     //TODO: progress bar isn't correct any more :(
     // could send "fence" point where the doer will pong back (e.g. after all deleting) and when we receive
     // this message back that's when we split the time
-    wait_for_pong(src_comms)?;
-    wait_for_pong(dest_comms)?;
-
+    process_dest_responses(dest_comms, &progress, &mut stats, Some(u64::MAX))?;
+    stats.copy_end_time = Some(Instant::now());
 
     stop_timer(timer);
-    let copy_elapsed = copy_start.elapsed().as_secs_f32();
     progress.finish_and_clear();
 
 
@@ -507,6 +524,7 @@ pub fn sync(
     // so that they are together in the output (e.g. for dry run or --verbose, they could be a lot of other
     // messages between them)
     if (stats.num_files_deleted + stats.num_folders_deleted + stats.num_symlinks_deleted > 0) || show_stats {
+        let delete_elapsed = stats.delete_end_time.unwrap() - stats.delete_start_time.unwrap();
         info!(
             "{} {} file(s){}, {} folder(s) and {} symlink(s){}",
             if !dry_run { "Deleted" } else { "Would delete" },
@@ -515,11 +533,12 @@ pub fn sync(
             HumanCount(stats.num_folders_deleted as u64),
             HumanCount(stats.num_symlinks_deleted as u64),
             if !dry_run && show_stats {
-                format!(", in {:.1} seconds", delete_elapsed)
+                format!(", in {:.1} seconds", delete_elapsed.as_secs_f32())
             } else { "".to_string() },
         );
     }
     if (stats.num_files_copied + stats.num_folders_created + stats.num_symlinks_copied > 0) || show_stats {
+        let copy_elapsed = stats.copy_end_time.unwrap() - stats.copy_start_time.unwrap();
         info!(
             "{} {} file(s){}, {} {} folder(s) and {} {} symlink(s){}",
             if !dry_run { "Copied" } else { "Would copy" },
@@ -531,7 +550,7 @@ pub fn sync(
             HumanCount(stats.num_symlinks_copied as u64),
             if !dry_run && show_stats {
                 format!(", in {:.1} seconds ({}/s)",
-                    copy_elapsed, HumanBytes((stats.num_bytes_copied as f32 / copy_elapsed as f32).round() as u64))
+                    copy_elapsed.as_secs_f32(), HumanBytes((stats.num_bytes_copied as f32 / copy_elapsed.as_secs_f32()).round() as u64))
             } else { "".to_string() },
         );
         if show_stats {
@@ -592,6 +611,7 @@ fn copy_file(
     dry_run: bool,
     src_root: &str,
     dest_root: &str,
+    progress: &ProgressBar,
 ) -> Result<(), Vec<String>> {
     if !dry_run {
         trace!("Fetching from src {}", format_root_relative(&path, &src_root));
@@ -615,7 +635,7 @@ fn copy_file(
                     more_to_follow,
                 });
 
-            check_for_errors(dest_comms)?;
+            process_dest_responses(dest_comms, progress, stats, None)?;
 
             if !more_to_follow {
                 break;

@@ -156,7 +156,12 @@ pub enum Command {
     #[cfg(feature = "profiling")]
     ProfilingTimeSync,
 
-    Ping,
+    /// Used to mark a position in the sequence of commands, which the doer will echo back 
+    /// so that the boss knows when the doer has reached this point. 
+    /// We can't update the progress bar directly here, as the dest doer hasn't actually done 
+    /// anything yet (we just tell it to, and it might take a while), so instead we insert a marker
+    /// and when the doer echoes this marker back (meaning it got this far), we update the progress bar
+    Marker(u64),
 
     Shutdown,
 }
@@ -284,7 +289,7 @@ pub enum Response {
     #[cfg(feature = "profiling")]
     ProfilingData(ProcessProfilingData),
 
-    Pong,
+    Marker(u64),
 
     Error(String),
 }
@@ -664,8 +669,8 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut Option<DoerCo
         Command::ProfilingTimeSync => {
             comms.send_response(Response::ProfilingTimeSync(PROFILING_START.elapsed()));
         },
-        Command::Ping => {
-            comms.send_response(Response::Pong);
+        Command::Marker(x) => {
+            comms.send_response(Response::Marker(x));
         }
         Command::Shutdown => {
             return Ok(false);
