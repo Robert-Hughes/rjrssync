@@ -5,7 +5,7 @@ use std::{
     collections::HashMap,
     fs::File,
     sync::Mutex,
-    time::{Duration, Instant}, ops::DerefMut,
+    time::{Duration, Instant}, ops::DerefMut, io::Write,
 };
 
 use lazy_static::{lazy_static};
@@ -129,7 +129,7 @@ struct ChromeTracing {
 
 impl GlobalProfilingData {
     fn dump_profiling_to_chrome(&self, file_name: String) {
-        let file = File::create(&file_name).unwrap();
+        let mut file = File::create(&file_name).unwrap();
 
         let mut json_entries = vec![];
 
@@ -242,8 +242,16 @@ impl GlobalProfilingData {
             };
             json_entries.push(entry);
         }
-        serde_json::to_writer(&file, &json_entries)
-            .expect(&format!("Failed to save end converted profiling data"));
+        
+        // Manual string formatting is a lot quicker than using serde_json.
+        //      serde_json::to_writer(&file, &json_entries)
+        //          .expect(&format!("Failed to save end converted profiling data"));
+        //TODO: .args values aren't saved here though - they're ignored!
+        for e in json_entries {
+            write!(file, r#"{{"name":"{}","cat":"{}","ph":"{}","ts":{},"pid":{},"tid":{},"args":{{}}}}"#,
+                e.name, e.cat, e.ph, e.ts, e.pid, e.tid
+            ).expect("Failed to write profiling data");
+        }
     }
 }
 
@@ -255,8 +263,11 @@ pub fn dump_all_profiling() {
     std::fs::create_dir_all("profiling_data").expect("Failed to create profiling data directory");
     let profiling_data = get_all_profiling();
     let output_path = "profiling_data/".to_string() + "all_trace.json";
-    info!("Dumping profiling data to {}", output_path);
-    //TODO: can we make this faster?
+    info!("Dumping profiling data ({} processes, {} threads, {} entries) to {}",
+        profiling_data.processes.len(),
+        profiling_data.processes.values().map(|p| p.threads.len()).sum::<usize>(),
+        profiling_data.processes.values().map(|p| p.threads.values().map(|t| t.entries.len()).sum::<usize>()).sum::<usize>(),
+        output_path);
     profiling_data.dump_profiling_to_chrome(output_path);
 }
 
