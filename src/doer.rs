@@ -1,5 +1,4 @@
 use aes_gcm::aead::generic_array::GenericArray;
-use aes_gcm::{Aes128Gcm, KeyInit};
 use clap::Parser;
 use env_logger::Env;
 use log::{debug, error, trace};
@@ -12,7 +11,7 @@ use std::{
     io::{Write},
     path::{Path, PathBuf},
     sync::mpsc::{Receiver, Sender},
-    time::{Instant, SystemTime}, net::{TcpListener, TcpStream},
+    time::{Instant, SystemTime}, net::{TcpListener},
 };
 use walkdir::WalkDir;
 
@@ -456,14 +455,14 @@ pub fn doer_main() -> ExitCode {
 
     stop_timer(main_timer);
 
-    
-
-    #[cfg(feature="profiling")]
-    if let Comms::Remote{ encrypted_comms } = comms { // always
+    if let Comms::Remote{ encrypted_comms } = comms { // This is always true, we just need a way of getting the fields
+        #[cfg(feature="profiling")]
         // Send our profiling data (if enabled) back to the boss process so it can combine it with its own
         encrypted_comms.shutdown_with_final_message_sent_after_threads_joined(|| Response::ProfilingData(get_local_process_profiling()));
+        #[cfg(not(feature="profiling"))]
+        encrypted_comms.shutdown(); // Simple clean shutdown
     }
-
+   
     debug!("doer process finished successfully!");
     ExitCode::SUCCESS
 }

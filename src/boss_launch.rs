@@ -113,15 +113,19 @@ impl Comms {
                 // There's not much we can do about an error here, other than log it, which send_command already does, so we ignore any error.
                 let _ = self.send_command(Command::Shutdown);
 
-                // Finally get data from the encrypted comms threads
-                #[cfg(feature="profiling")]
-                if let Comms::Remote { encrypted_comms, .. } = self {
-                    // Wait for remote doers to send back any profiling data, if enabled
-                    let r = encrypted_comms.shutdown_with_final_message_received_after_closing_send();
-                    match r {
-                        /*Ok(*/Response::ProfilingData(x)/*)*/ => add_remote_profiling(x, _debug_name, profiling_offset),
-                        _ => panic!("Unexpected response"),
+                // Shutdown the comms cleanly, potentially getting profiling data
+                if let Comms::Remote { encrypted_comms, .. } = self { // This is always true, we just need a way of getting the fields
+                    #[cfg(feature="profiling")]
+                    {
+                        // Wait for remote doers to send back any profiling data, if enabled
+                        let r = encrypted_comms.shutdown_with_final_message_received_after_closing_send();
+                        match r {
+                            /*Ok(*/Response::ProfilingData(x)/*)*/ => add_remote_profiling(x, _debug_name, profiling_offset),
+                            _ => panic!("Unexpected response"),
+                        }
                     }
+                    #[cfg(not(feature="profiling"))]
+                    encrypted_comms.shutdown(); // Simple clean shutdown
                 }
             }
         }

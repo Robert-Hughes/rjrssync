@@ -1,6 +1,6 @@
 use std::{
     cmp::Ordering,
-    fmt::{Display, Write}, time::{Instant, SystemTime, Duration}, collections::HashMap, thread,
+    fmt::{Display, Write}, time::{Instant, SystemTime, Duration}, collections::HashMap,
 };
 
 use indicatif::{ProgressBar, ProgressStyle, HumanCount, HumanBytes};
@@ -241,7 +241,7 @@ pub fn sync(
         dest_done = false;
     }
 
-    while !src_done && !dest_done {
+    while !src_done || !dest_done {
         if !src_done {
             //TODO: receive_response will block, should check it instead, so we can service the other src/dest
             //TODO: if we use crossbeam, then we can select() on both channels rather than busy-waiting
@@ -582,7 +582,7 @@ fn copy_file(
             }
         }
 
-        for i in 0..n {
+        for _ in 0..n {
             match dest_comms.receive_response() {
                 doer::Response::Ack => (),
                 x => return Err(format!("Unexpected response response creeating/updating on dest {}: {:?}", format_root_relative(&path, &dest_root), x)),
