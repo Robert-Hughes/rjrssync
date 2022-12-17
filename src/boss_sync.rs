@@ -161,6 +161,7 @@ fn process_dest_responses(dest_comms: &mut Comms, progress: &ProgressBar, stats:
                         progress.set_message("Copying...");
                         progress.set_length(stats.num_src_entries as u64);
                         stats.delete_end_time = Some(Instant::now());
+                        stats.copy_start_time = Some(Instant::now());
                     }
                     progress.set_position(m - stats.num_dest_entries as u64);
                 }
@@ -426,7 +427,6 @@ pub fn sync(
     // Copy entries that don't exist, or do exist but are out-of-date.
     {
         profile_this!("Sending copy commands");
-        stats.copy_start_time = Some(Instant::now());
         for (path, src_details) in src_entries {
             let dest_details = dest_entries_lookup.get(&path);
             match dest_details {
