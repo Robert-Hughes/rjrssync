@@ -125,38 +125,38 @@ fn run_benchmarks_for_target(target: Target) -> Vec<Vec<String>> {
     let rjrssync_path = env!("CARGO_BIN_EXE_rjrssync");
     run_benchmarks_using_program(rjrssync_path, &["$SRC", "$DEST"], target.clone(), &mut result_table);
    
-    // if !matches!(target, Target::Remote{ is_windows, .. } if is_windows) { // rsync is Linux -> Linux only
-    //     #[cfg(unix)]
-    //     // Note trailing slash on the src is important for rsync!
-    //     run_benchmarks_using_program("rsync", &["--archive", "--delete", "$SRC/", "$DEST"], target.clone(), &mut result_table);
-    // }
+    if !matches!(target, Target::Remote{ is_windows, .. } if is_windows) { // rsync is Linux -> Linux only
+        #[cfg(unix)]
+        // Note trailing slash on the src is important for rsync!
+        run_benchmarks_using_program("rsync", &["--archive", "--delete", "$SRC/", "$DEST"], target.clone(), &mut result_table);
+    }
 
-    // run_benchmarks_using_program("scp", &["-r", "-q", "$SRC", "$DEST"], target.clone(), &mut result_table);
+    run_benchmarks_using_program("scp", &["-r", "-q", "$SRC", "$DEST"], target.clone(), &mut result_table);
    
-    // if matches!(target, Target::Local(..)) { // cp is local only
-    //     #[cfg(unix)]
-    //     run_benchmarks_using_program("cp", &["-r", "$SRC", "$DEST"], target.clone(), &mut result_table);
-    // }
+    if matches!(target, Target::Local(..)) { // cp is local only
+        #[cfg(unix)]
+        run_benchmarks_using_program("cp", &["-r", "$SRC", "$DEST"], target.clone(), &mut result_table);
+    }
 
-    // if matches!(target, Target::Local(..)) { // xcopy is local only
-    //     #[cfg(windows)]
-    //     run_benchmarks_using_program("xcopy", &["/i", "/s", "/q", "/y", "$SRC", "$DEST"], target.clone(), &mut result_table);
-    // }
+    if matches!(target, Target::Local(..)) { // xcopy is local only
+        #[cfg(windows)]
+        run_benchmarks_using_program("xcopy", &["/i", "/s", "/q", "/y", "$SRC", "$DEST"], target.clone(), &mut result_table);
+    }
    
-    // if matches!(target, Target::Local(..)) { // robocopy is local only
-    //     #[cfg(windows)]
-    //     run_benchmarks_using_program("robocopy", &["/MIR", "/nfl", "/NJH", "/NJS", "/nc", "/ns", "/np", "/ndl", "$SRC", "$DEST"], target.clone(), &mut result_table);
-    // }
+    if matches!(target, Target::Local(..)) { // robocopy is local only
+        #[cfg(windows)]
+        run_benchmarks_using_program("robocopy", &["/MIR", "/nfl", "/NJH", "/NJS", "/nc", "/ns", "/np", "/ndl", "$SRC", "$DEST"], target.clone(), &mut result_table);
+    }
 
-    // if matches!(target, Target::Local(..)) { // APIs are local only
-    //         run_benchmarks("APIs", |src, dest| {
-    //         if !Path::new(&dest).exists() {
-    //             std::fs::create_dir_all(&dest).expect("Failed to create dest folder");
-    //         }
-    //         fs_extra::dir::copy(src, dest, &CopyOptions { content_only: true, overwrite: true, ..Default::default() })
-    //             .expect("Copy failed");
-    //     }, target.clone(), &mut result_table);
-    // }
+    if matches!(target, Target::Local(..)) { // APIs are local only
+            run_benchmarks("APIs", |src, dest| {
+            if !Path::new(&dest).exists() {
+                std::fs::create_dir_all(&dest).expect("Failed to create dest folder");
+            }
+            fs_extra::dir::copy(src, dest, &CopyOptions { content_only: true, overwrite: true, ..Default::default() })
+                .expect("Copy failed");
+        }, target.clone(), &mut result_table);
+    }
 
     result_table
 }
