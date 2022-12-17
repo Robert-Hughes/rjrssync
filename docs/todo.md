@@ -106,4 +106,4 @@ ERROR | rjrssync::boss_frontend: Sync error: Unexpected response from dest GetEn
 * Warning if filter doesn't match anything, possibly after GetEntries but before actually doing anything (to prevent mistaken filter?)
 * Would be nice to automatically detect cases where the version number hasn't been updated, e.g. if we
 could see that the Command/Response struct layout has changed.
-* trace log level prints out the full file contents - too much spam!!
+* Review async comms threads and related changes

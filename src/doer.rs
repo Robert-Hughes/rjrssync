@@ -110,7 +110,7 @@ pub enum Filter {
 }
 
 /// Commands are sent from the boss to the doer, to request something to be done.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize)]
 pub enum Command {
     // Checks the root file/folder and send back information about it,
     // as the boss may need to do something before we send it all the rest of the entries
@@ -164,6 +164,29 @@ pub enum Command {
     Marker(u64),
 
     Shutdown,
+}
+// The default Debug implementation prints all the file data, which is way too much, so we have to override this :(
+impl std::fmt::Debug for Command {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Note that rust-analyzer can auto-generate the complete version of this for us (delete the function, then Ctrl+Space),
+        // then we can make the tweaks that we need.
+        match self {
+            Self::SetRoot { root } => f.debug_struct("SetRoot").field("root", root).finish(),
+            Self::GetEntries { filters } => f.debug_struct("GetEntries").field("filters", filters).finish(),
+            Self::CreateRootAncestors => write!(f, "CreateRootAncestors"),
+            Self::GetFileContent { path } => f.debug_struct("GetFileContent").field("path", path).finish(),
+            Self::CreateOrUpdateFile { path, data: _, set_modified_time, more_to_follow } => f.debug_struct("CreateOrUpdateFile").field("path", path).field("data", &"...").field("set_modified_time", set_modified_time).field("more_to_follow", more_to_follow).finish(),
+            Self::CreateSymlink { path, kind, target } => f.debug_struct("CreateSymlink").field("path", path).field("kind", kind).field("target", target).finish(),
+            Self::CreateFolder { path } => f.debug_struct("CreateFolder").field("path", path).finish(),
+            Self::DeleteFile { path } => f.debug_struct("DeleteFile").field("path", path).finish(),
+            Self::DeleteFolder { path } => f.debug_struct("DeleteFolder").field("path", path).finish(),
+            Self::DeleteSymlink { path, kind } => f.debug_struct("DeleteSymlink").field("path", path).field("kind", kind).finish(),
+            #[cfg(feature = "profiling")]
+            Self::ProfilingTimeSync => write!(f, "ProfilingTimeSync"),
+            Self::Marker(arg0) => f.debug_tuple("Marker").field(arg0).finish(),
+            Self::Shutdown => write!(f, "Shutdown"),
+        }
+    }
 }
 
 /// We need to distinguish what a symlink points to, as Windows filesystems
@@ -259,7 +282,7 @@ fn entry_details_from_metadata(m: std::fs::Metadata, path: &Path) -> Result<Entr
 
 /// Responses are sent back from the doer to the boss to report on something, usually
 /// the result of a Command.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize)]
 pub enum Response {
     RootDetails {
         root_details: Option<EntryDetails>, // Option<> because the root might not exist at all
@@ -292,6 +315,25 @@ pub enum Response {
     Marker(u64),
 
     Error(String),
+}
+// The default Debug implementation prints all the file data, which is way too much, so we have to override this :(
+impl std::fmt::Debug for Response {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Note that rust-analyzer can auto-generate the complete version of this for us (delete the function, then Ctrl+Space),
+        // then we can make the tweaks that we need.
+        match self {
+            Self::RootDetails { root_details, platform_differentiates_symlinks } => f.debug_struct("RootDetails").field("root_details", root_details).field("platform_differentiates_symlinks", platform_differentiates_symlinks).finish(),
+            Self::Entry(arg0) => f.debug_tuple("Entry").field(arg0).finish(),
+            Self::EndOfEntries => write!(f, "EndOfEntries"),
+            Self::FileContent { data: _, more_to_follow } => f.debug_struct("FileContent").field("data", &"...").field("more_to_follow", more_to_follow).finish(),
+            #[cfg(feature = "profiling")]
+            Self::ProfilingTimeSync(arg0) => f.debug_tuple("ProfilingTimeSync").field(arg0).finish(),
+            #[cfg(feature = "profiling")]
+            Self::ProfilingData(_) => f.debug_tuple("ProfilingData").finish(),
+            Self::Marker(arg0) => f.debug_tuple("Marker").field(arg0).finish(),
+            Self::Error(arg0) => f.debug_tuple("Error").field(arg0).finish(),
+        }
+    }
 }
 
 /// Abstraction of two-way communication channel between this doer and the boss, which might be
