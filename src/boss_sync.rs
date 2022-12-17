@@ -207,94 +207,84 @@ pub fn sync(
     }
 
     // Fetch all the entries for the source path and the dest path, if they are folders
-    // Do these each on a separate thread so they can be done in parallel with each other
-    //TODO: maybe don't need to have threads here now that we have the async comms?
+    // Send off both GetEntries commands and wait for the results in parallel, rather than doing
+    // one after the other (for performance)
     let timer = start_timer("GetEntries x 2");
-    let thread_result : Result<_, String> = thread::scope(|scope| {
-        // Source GetEntries
-        let src_thread = thread::Builder::new()
-            .name("src_entries_fetching_thread".to_string())
-            .spawn_scoped(scope, ||
-        {
-            let mut src_entries = Vec::new();
-            let mut src_entries_lookup = HashMap::<RootRelativePath, EntryDetails>::new();
+    let mut src_done = true;
+    let mut dest_done = true;
 
-            // Add the root entry - we already got the details for this before
-            src_entries.push((RootRelativePath::root(), src_root_details.clone()));
-            src_entries_lookup.insert(RootRelativePath::root(), src_root_details.clone());
+    // Source GetEntries
+    let mut src_entries = Vec::new();
+    let mut src_entries_lookup = HashMap::<RootRelativePath, EntryDetails>::new();
 
-            if matches!(src_root_details, EntryDetails::Folder) {
-                src_comms.send_command(Command::GetEntries { filters: filters.to_vec() });
-                loop {
-                    match src_comms.receive_response() {
-                        Response::Entry((p, d)) => {
-                            trace!("Source entry '{}': {:?}", p, d);
-                            match d {
-                                EntryDetails::File { size, .. } => {
-                                    stats.num_src_files += 1;
-                                    stats.src_total_bytes += size;
-                                    stats.src_file_size_hist.add(size);
-                                }
-                                EntryDetails::Folder => stats.num_src_folders += 1,
-                                EntryDetails::Symlink { .. } => stats.num_src_symlinks += 1,
-                            }
-                            src_entries.push((p.clone(), d.clone()));
-                            src_entries_lookup.insert(p, d);
+    // Add the root entry - we already got the details for this before
+    src_entries.push((RootRelativePath::root(), src_root_details.clone()));
+    src_entries_lookup.insert(RootRelativePath::root(), src_root_details.clone());
+
+    if matches!(src_root_details, EntryDetails::Folder) {
+        src_comms.send_command(Command::GetEntries { filters: filters.to_vec() });
+        src_done = false;
+    }
+
+    // Dest GetEntries
+    let mut dest_entries = Vec::new();
+    let mut dest_entries_lookup = HashMap::<RootRelativePath, EntryDetails>::new();
+
+    // Add the root entry - we already got the details for this before
+    if dest_root_details.is_some() {
+        dest_entries.push((RootRelativePath::root(), dest_root_details.clone().unwrap()));
+        dest_entries_lookup.insert(RootRelativePath::root(), dest_root_details.clone().unwrap());
+    }
+
+    if matches!(dest_root_details, Some(EntryDetails::Folder)) {
+        dest_comms.send_command(Command::GetEntries { filters: filters.to_vec() });
+        dest_done = false;
+    }
+
+    while !src_done && !dest_done {
+        if !src_done {
+            //TODO: receive_response will block, should check it instead, so we can service the other src/dest
+            //TODO: if we use crossbeam, then we can select() on both channels rather than busy-waiting
+            match src_comms.receive_response() {
+                Response::Entry((p, d)) => {
+                    trace!("Source entry '{}': {:?}", p, d);
+                    match d {
+                        EntryDetails::File { size, .. } => {
+                            stats.num_src_files += 1;
+                            stats.src_total_bytes += size;
+                            stats.src_file_size_hist.add(size);
                         }
-                        Response::EndOfEntries => break,
-                        r => return Err(format!("Unexpected response getting entries from src: {:?}", r)),
+                        EntryDetails::Folder => stats.num_src_folders += 1,
+                        EntryDetails::Symlink { .. } => stats.num_src_symlinks += 1,
                     }
+                    src_entries.push((p.clone(), d.clone()));
+                    src_entries_lookup.insert(p, d);
                 }
-            }
-            Ok((src_entries, src_entries_lookup, src_comms))
-        }).expect("OS error spawning a thread");
-
-        // Dest GetEntries
-        let dest_thread = thread::Builder::new()
-            .name("dest_entries_fetching_thread".to_string())
-            .spawn_scoped(scope, ||
-        {
-            let mut dest_entries = Vec::new();
-            let mut dest_entries_lookup = HashMap::<RootRelativePath, EntryDetails>::new();
-
-            // Add the root entry - we already got the details for this before
-            if dest_root_details.is_some() {
-                dest_entries.push((RootRelativePath::root(), dest_root_details.clone().unwrap()));
-                dest_entries_lookup.insert(RootRelativePath::root(), dest_root_details.clone().unwrap());
-            }
-
-            if matches!(dest_root_details, Some(EntryDetails::Folder)) {
-                dest_comms.send_command(Command::GetEntries { filters: filters.to_vec() });
-                loop {
-                    match dest_comms.receive_response() {
-                        Response::Entry((p, d)) => {
-                            trace!("Dest entry '{}': {:?}", p, d);
-                            match d {
-                                EntryDetails::File { size, .. } => {
-                                    stats.num_dest_files += 1;
-                                    stats.dest_total_bytes += size;
-                                }
-                                EntryDetails::Folder => stats.num_dest_folders += 1,
-                                EntryDetails::Symlink { .. } => stats.num_dest_symlinks += 1,
-                            }
-                            dest_entries.push((p.clone(), d.clone()));
-                            dest_entries_lookup.insert(p, d);
+                Response::EndOfEntries => src_done = true,
+                r => return Err(format!("Unexpected response getting entries from src: {:?}", r)),
+            }    
+        }
+        if !dest_done {
+            match dest_comms.receive_response() {
+                Response::Entry((p, d)) => {
+                    trace!("Dest entry '{}': {:?}", p, d);
+                    match d {
+                        EntryDetails::File { size, .. } => {
+                            stats.num_dest_files += 1;
+                            stats.dest_total_bytes += size;
                         }
-                        Response::EndOfEntries => break,
-                        r => return Err(format!("Unexpected response getting entries from dest: {:?}", r)),
+                        EntryDetails::Folder => stats.num_dest_folders += 1,
+                        EntryDetails::Symlink { .. } => stats.num_dest_symlinks += 1,
                     }
+                    dest_entries.push((p.clone(), d.clone()));
+                    dest_entries_lookup.insert(p, d);
                 }
-            }
-            Ok((dest_entries, dest_entries_lookup, dest_comms))
-        }).expect("OS error spawning a thread");
+                Response::EndOfEntries => dest_done = true,
+                r => return Err(format!("Unexpected response getting entries from dest: {:?}", r)),
+            }    
+        }
+    }
 
-        // Wait for both threads to finish, and pass the results back to the main thread.
-        let (src_entries, src_entries_lookup, src_comms) = src_thread.join().expect("Thread panicked")?;
-        let (dest_entries, dest_entries_lookup, dest_comms) = dest_thread.join().expect("Thread panicked")?;
-
-        Ok((src_entries, src_entries_lookup, src_comms, dest_entries, dest_entries_lookup, dest_comms))
-    });
-    let (src_entries, src_entries_lookup, src_comms, dest_entries, dest_entries_lookup, dest_comms) = thread_result?;
     stop_timer(timer);
 
     let query_elapsed = sync_start.elapsed().as_secs_f32();
