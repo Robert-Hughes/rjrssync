@@ -10,6 +10,12 @@ use crate::profile_this;
 
 /// Provides asynchronous, encrypted communication over a TcpStream, sending messages of type S
 /// and receiving messages of type R.
+/// A background thread is spawned for each sending and receiving, and a cross-thread channel is used
+/// for communication with these threads. These channels are the public interface to this object.
+/// The channels are buffered and so new messages can be queued
+/// up for sending instantly, even if a previous message is still being encrypted or the network
+/// is blocking. Similary, received messages don't need to be retrieved immediately as the background
+/// thread will keep receiving and decrypting messages and storing them in the channel for later processing.
 pub struct AsyncEncryptedComms<S: Serialize, R: for<'a> Deserialize<'a>> {
     tcp_connection: TcpStream,
 
