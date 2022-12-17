@@ -100,7 +100,7 @@ impl<S: Serialize + Send + 'static, R: for<'a> Deserialize<'a> + Send + 'static>
         trace!("Waiting for receiving thread");
         self.receiving_thread.join().expect("Failed to join receiving thread");
         trace!("Closing TCP read");
-        self.tcp_connection.shutdown(std::net::Shutdown::Read).expect("Failed to shutdown TCP read");
+        self.tcp_connection.shutdown(std::net::Shutdown::Read);//.expect("Failed to shutdown TCP read"); //TODO: fails on Linux
     }
 
     /// Alternative clean shutdown, which provides an opportunity for the caller to generate and send

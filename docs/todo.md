@@ -86,6 +86,7 @@ and progress to the next file/chunk immediately if there's nothing waiting. Need
 * Compare profiling dumps between main and comms-threads branch, to see if the background threads are working
 like we expect.
 * Benchmarking with two remotes rather than just one
+* Benchmarking arguments to specify what to run, rather than all
 
 Misc
 -----

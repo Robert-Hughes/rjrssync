@@ -208,7 +208,9 @@ fn test_remove_dest_folder_with_excluded_files() {
         ],
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&src_folder)), // Source should always be unchanged
-            ("$TEMP/dest", Some(&dest_folder)), // Dest should be unchanged too as it failed
+           // ("$TEMP/dest", Some(&dest_folder)), // Dest should be unchanged too as it failed.
+            // Now that we run stuff asynchronously, the c1 file may actually have been copied anyway, before we see
+            // the error and stop           
         ],
         ..Default::default()
     });
