@@ -635,6 +635,7 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> 
     // We're about to show a bunch of output from scp/ssh, so this log message may as well be the same severity,
     // so the user knows what's happening.
     info!("Deploying onto '{}'", &remote_hostname); 
+    profile_this!();
 
     let user_prefix = if remote_user.is_empty() {
         "".to_string()

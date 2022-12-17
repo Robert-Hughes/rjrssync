@@ -368,153 +368,156 @@ pub fn sync(
         .with_style(ProgressStyle::with_template("[{elapsed}] {bar:40.green/black} {human_pos:>7}/{human_len:7} {msg}").unwrap());
     progress.enable_steady_tick(Duration::from_millis(250));
 
-    let timer = start_timer("Deleting");
-    stats.delete_start_time = Some(Instant::now());
     let mut progress_count = 0;
-    for (dest_path, dest_details) in dest_entries.iter().rev() {
-        let s = src_entries_lookup.get(dest_path);
-        if !s.is_some() || should_delete(s.unwrap(), dest_details, dest_platform_differentiates_symlinks) {
-            debug!("Deleting from dest {}", format_root_relative(&dest_path, &dest_root));
-            if progress_count % 100 == 0 {
-                dest_comms.send_command(Command::Marker(progress_count));
+    {
+        profile_this!("Sending delete commands");
+        stats.delete_start_time = Some(Instant::now());
+        for (dest_path, dest_details) in dest_entries.iter().rev() {
+            let s = src_entries_lookup.get(dest_path);
+            if !s.is_some() || should_delete(s.unwrap(), dest_details, dest_platform_differentiates_symlinks) {
+                debug!("Deleting from dest {}", format_root_relative(&dest_path, &dest_root));
+                if progress_count % 100 == 0 {
+                    dest_comms.send_command(Command::Marker(progress_count));
+                }
+                let c = match dest_details {
+                    EntryDetails::File { size, .. } => {
+                        stats.num_files_deleted += 1;
+                        stats.num_bytes_deleted += size;
+                        Command::DeleteFile {
+                            path: dest_path.clone(),
+                        }
+                    }
+                    EntryDetails::Folder => {
+                        stats.num_folders_deleted += 1;
+                        Command::DeleteFolder {
+                            path: dest_path.clone(),
+                        }
+                    }
+                    EntryDetails::Symlink { kind, .. } => {
+                        stats.num_symlinks_deleted += 1;
+                        Command::DeleteSymlink {
+                            path: dest_path.clone(),
+                            kind: *kind,
+                        }
+                    }
+                };
+                if !dry_run {
+                    dest_comms.send_command(c);
+                    process_dest_responses(dest_comms, &progress, &mut stats, None)?;
+                } else {
+                    // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be deleted
+                    info!("Would delete from dest {}", format_root_relative(&dest_path, &dest_root));
+                }
             }
-            let c = match dest_details {
-                EntryDetails::File { size, .. } => {
-                    stats.num_files_deleted += 1;
-                    stats.num_bytes_deleted += size;
-                    Command::DeleteFile {
-                        path: dest_path.clone(),
-                    }
-                }
-                EntryDetails::Folder => {
-                    stats.num_folders_deleted += 1;
-                    Command::DeleteFolder {
-                        path: dest_path.clone(),
-                    }
-                }
-                EntryDetails::Symlink { kind, .. } => {
-                    stats.num_symlinks_deleted += 1;
-                    Command::DeleteSymlink {
-                        path: dest_path.clone(),
-                        kind: *kind,
-                    }
-                }
-            };
-            if !dry_run {
-                dest_comms.send_command(c);
-                process_dest_responses(dest_comms, &progress, &mut stats, None)?;
-            } else {
-                // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be deleted
-                info!("Would delete from dest {}", format_root_relative(&dest_path, &dest_root));
-            }
+            progress_count += 1;
         }
-        progress_count += 1;
+        dest_comms.send_command(Command::Marker(progress_count)); // Mark the exact end of deletion, rather then having to wait for the first file to be copy
     }
-    dest_comms.send_command(Command::Marker(progress_count)); // Mark the exact end of deletion, rather then having to wait for the first file to be copy
-    stop_timer(timer);
 
     // Copy entries that don't exist, or do exist but are out-of-date.
-    let timer = start_timer("Copying");
-    stats.copy_start_time = Some(Instant::now());
-    for (path, src_details) in src_entries {
-        let dest_details = dest_entries_lookup.get(&path);
-        match dest_details {
-            Some(dest_details) if !should_delete (&src_details, dest_details, dest_platform_differentiates_symlinks) => {
-                // Dest already has this entry - check if it is up-to-date
-                match src_details {
-                    EntryDetails::File { size, modified_time: src_modified_time } => {
-                        let dest_modified_time = match dest_details {
-                            EntryDetails::File { modified_time, .. } => modified_time,
-                            _ => panic!("Wrong entry type"), // This should never happen as we check the type in the .find() above
-                        };
-                        match src_modified_time.cmp(&dest_modified_time) {
-                            Ordering::Less => {
-                                return Err(vec![format!(
-                                    "Dest file {} is newer than src file {}. Will not overwrite.",
-                                    format_root_relative(&path, &dest_root),
-                                    format_root_relative(&path, src_root)
-                                )]);
+    {
+        profile_this!("Sending copy commands");
+        stats.copy_start_time = Some(Instant::now());
+        for (path, src_details) in src_entries {
+            let dest_details = dest_entries_lookup.get(&path);
+            match dest_details {
+                Some(dest_details) if !should_delete (&src_details, dest_details, dest_platform_differentiates_symlinks) => {
+                    // Dest already has this entry - check if it is up-to-date
+                    match src_details {
+                        EntryDetails::File { size, modified_time: src_modified_time } => {
+                            let dest_modified_time = match dest_details {
+                                EntryDetails::File { modified_time, .. } => modified_time,
+                                _ => panic!("Wrong entry type"), // This should never happen as we check the type in the .find() above
+                            };
+                            match src_modified_time.cmp(&dest_modified_time) {
+                                Ordering::Less => {
+                                    return Err(vec![format!(
+                                        "Dest file {} is newer than src file {}. Will not overwrite.",
+                                        format_root_relative(&path, &dest_root),
+                                        format_root_relative(&path, src_root)
+                                    )]);
+                                }
+                                Ordering::Equal => {
+                                    trace!("Dest file {} has same modified time as src file {}. Will not update.",
+                                        format_root_relative(&path, &dest_root),
+                                        format_root_relative(&path, src_root));
+                                }
+                                Ordering::Greater => {
+                                    debug!("Source file {} is newer than dest file {}. Will copy.",
+                                        format_root_relative(&path, &src_root),
+                                        format_root_relative(&path, &dest_root));
+                                    
+                                    dest_comms.send_command(Command::Marker(progress_count));
+                                    copy_file(&path, size, src_modified_time, src_comms, dest_comms, &mut stats, dry_run, &src_root, &dest_root,
+                                        &progress)?
+                                }
                             }
-                            Ordering::Equal => {
-                                trace!("Dest file {} has same modified time as src file {}. Will not update.",
-                                    format_root_relative(&path, &dest_root),
-                                    format_root_relative(&path, src_root));
-                            }
-                            Ordering::Greater => {
-                                debug!("Source file {} is newer than dest file {}. Will copy.",
-                                    format_root_relative(&path, &src_root),
-                                    format_root_relative(&path, &dest_root));
-                                
-                                dest_comms.send_command(Command::Marker(progress_count));
-                                copy_file(&path, size, src_modified_time, src_comms, dest_comms, &mut stats, dry_run, &src_root, &dest_root,
-                                    &progress)?
-                            }
-                        }
-                    },
-                    EntryDetails::Folder => {
-                        // Folders are always up-to-date
-                        trace!("Source folder {} already exists on dest {} - nothing to do",
-                            format_root_relative(&path, &src_root),
-                            format_root_relative(&path, &dest_root))
-                    },
-                    EntryDetails::Symlink { .. } => {
-                        // Symlinks are always up-to-date, if should_delete indicated that we shouldn't delete it
-                        trace!("Source symlink {} already exists on dest {} - nothing to do",
-                            format_root_relative(&path, &src_root),
-                            format_root_relative(&path, &dest_root))
-                    },
-                }
-            },
-            _ => match src_details {
-                EntryDetails::File { size, modified_time: src_modified_time } => {
-                    debug!("Source file {} file doesn't exist on dest - copying", format_root_relative(&path, &src_root));
-                    dest_comms.send_command(Command::Marker(progress_count));
-                    copy_file(&path, size, src_modified_time, src_comms, dest_comms, &mut stats, dry_run, &src_root, &dest_root,
-                        &progress)?
-                }
-                EntryDetails::Folder => {
-                    debug!("Source folder {} doesn't exist on dest - creating", format_root_relative(&path, &src_root));
-                    stats.num_folders_created += 1;
-                    if !dry_run {
-                        dest_comms
-                            .send_command(Command::CreateFolder {
-                                path: path.clone(),
-                            });
-                    } else {
-                        // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be copied
-                        info!("Would create dest folder {}", format_root_relative(&path, &dest_root));
+                        },
+                        EntryDetails::Folder => {
+                            // Folders are always up-to-date
+                            trace!("Source folder {} already exists on dest {} - nothing to do",
+                                format_root_relative(&path, &src_root),
+                                format_root_relative(&path, &dest_root))
+                        },
+                        EntryDetails::Symlink { .. } => {
+                            // Symlinks are always up-to-date, if should_delete indicated that we shouldn't delete it
+                            trace!("Source symlink {} already exists on dest {} - nothing to do",
+                                format_root_relative(&path, &src_root),
+                                format_root_relative(&path, &dest_root))
+                        },
                     }
                 },
-                EntryDetails::Symlink { kind, target } => {
-                    debug!("Source {} symlink doesn't exist on dest - copying", format_root_relative(&path, &src_root));
-                    stats.num_symlinks_copied += 1;
-                    if !dry_run {
-                        dest_comms
-                            .send_command(Command::CreateSymlink {
-                                path: path.clone(),
-                                kind,
-                                target,
-                            });
-                    } else {
-                        // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be copied
-                        info!("Would create dest symlink {}", format_root_relative(&path, &dest_root));
+                _ => match src_details {
+                    EntryDetails::File { size, modified_time: src_modified_time } => {
+                        debug!("Source file {} file doesn't exist on dest - copying", format_root_relative(&path, &src_root));
+                        dest_comms.send_command(Command::Marker(progress_count));
+                        copy_file(&path, size, src_modified_time, src_comms, dest_comms, &mut stats, dry_run, &src_root, &dest_root,
+                            &progress)?
                     }
-                }
-            },
-        }
-        progress_count += 1;
+                    EntryDetails::Folder => {
+                        debug!("Source folder {} doesn't exist on dest - creating", format_root_relative(&path, &src_root));
+                        stats.num_folders_created += 1;
+                        if !dry_run {
+                            dest_comms
+                                .send_command(Command::CreateFolder {
+                                    path: path.clone(),
+                                });
+                        } else {
+                            // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be copied
+                            info!("Would create dest folder {}", format_root_relative(&path, &dest_root));
+                        }
+                    },
+                    EntryDetails::Symlink { kind, target } => {
+                        debug!("Source {} symlink doesn't exist on dest - copying", format_root_relative(&path, &src_root));
+                        stats.num_symlinks_copied += 1;
+                        if !dry_run {
+                            dest_comms
+                                .send_command(Command::CreateSymlink {
+                                    path: path.clone(),
+                                    kind,
+                                    target,
+                                });
+                        } else {
+                            // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be copied
+                            info!("Would create dest symlink {}", format_root_relative(&path, &dest_root));
+                        }
+                    }
+                },
+            }
+            progress_count += 1;
 
-        process_dest_responses(dest_comms, &progress, &mut stats, None)?;
+            process_dest_responses(dest_comms, &progress, &mut stats, None)?;
+        }
     }
 
     // Wait for the dest doers to finish processing all their messages
     dest_comms.send_command(Command::Marker(u64::MAX));
-    process_dest_responses(dest_comms, &progress, &mut stats, Some(u64::MAX))?;
+    {
+        profile_this!("Waiting for dest to finish");
+        process_dest_responses(dest_comms, &progress, &mut stats, Some(u64::MAX))?;
+    }
     stats.copy_end_time = Some(Instant::now());
-
-    stop_timer(timer);
     progress.finish_and_clear();
-
 
     // Note that we print all the stats at the end (even though we could print the delete stats earlier),
     // so that they are together in the output (e.g. for dry run or --verbose, they could be a lot of other
