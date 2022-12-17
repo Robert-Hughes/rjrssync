@@ -256,6 +256,7 @@ pub fn dump_all_profiling() {
     let profiling_data = get_all_profiling();
     let output_path = "profiling_data/".to_string() + "all_trace.json";
     info!("Dumping profiling data to {}", output_path);
+    //TODO: can we make this faster?
     profiling_data.dump_profiling_to_chrome(output_path);
 }
 

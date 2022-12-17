@@ -146,13 +146,14 @@ fn process_dest_responses(dest_comms: &mut Comms, progress: &ProgressBar, stats:
         match x {
             Response::Error(e) => errors.push(e),
             Response::Marker(m) => {
+                //TODO: This is a bit yucky
                 if m >= stats.num_dest_entries as u64 {
                     if progress.message().contains("Deleting") {
                         progress.set_message("Copying...");
                         progress.set_length(stats.num_src_entries as u64);
                         stats.delete_end_time = Some(Instant::now());
                     }
-                    progress.set_position(m - stats.num_src_entries as u64);
+                    progress.set_position(m - stats.num_dest_entries as u64);
                 } else {        
                     progress.set_position(m);
                 }
@@ -508,11 +509,6 @@ pub fn sync(
 
     // Wait for the dest doers to finish processing all their messages
     dest_comms.send_command(Command::Marker(u64::MAX));
-    //TODO: this is where a lot of the time will go, and we're assuming it's all in the copying, but actually
-    // it might be in the deleting!.
-    //TODO: progress bar isn't correct any more :(
-    // could send "fence" point where the doer will pong back (e.g. after all deleting) and when we receive
-    // this message back that's when we split the time
     process_dest_responses(dest_comms, &progress, &mut stats, Some(u64::MAX))?;
     stats.copy_end_time = Some(Instant::now());
 

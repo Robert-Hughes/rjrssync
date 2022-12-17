@@ -87,6 +87,7 @@ and progress to the next file/chunk immediately if there's nothing waiting. Need
 like we expect.
 * Benchmarking with two remotes rather than just one
 * Benchmarking arguments to specify what to run, rather than all
+* Profiling events like send/receive could show the message type?
 
 Misc
 -----
