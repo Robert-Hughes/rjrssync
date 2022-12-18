@@ -3,7 +3,7 @@ use std::process::ExitCode;
 use std::io::Write;
 use std::time::Duration;
 
-use clap::{Parser};
+use clap::{Parser, ValueEnum};
 use env_logger::{Env, fmt::Color};
 use indicatif::ProgressBar;
 use log::info;
@@ -59,6 +59,14 @@ pub struct BossCliArgs {
 
     #[arg(long)]
     pub dry_run: bool,
+
+    /// Specifies behaviour when a file exists on both source and destination sides, but the 
+    /// destination file has a newer modified timestamp. This might indicate that data is about
+    /// to be unintentionally lost.
+    #[arg(long, default_value="prompt")]
+    pub dest_file_newer: DestFileNewerBehaviour,
+    //TODO: equivalent for symlinks?
+    //TODO: include in spec file?
 
     /// Outputs some additional statistics about the data copied.
     #[arg(long)]
@@ -128,6 +136,18 @@ impl std::str::FromStr for RemotePathDesc {
 
         Ok(r)
     }
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug)]
+pub enum DestFileNewerBehaviour {
+    /// The user will be asked what to do. (In a non-interactive environment, this is equivalent to 'error')
+    Prompt,
+    /// An error will be raised, the sync will stop and the destination file will not be overwritten.
+    Error,
+    /// The destination file will not be modified and the rest of the sync will continue.
+    Skip,
+    /// The destination file will be overwritten and the rest of the sync will continue.
+    Overwrite,
 }
 
 #[derive(Default, Debug, PartialEq)]
@@ -356,7 +376,7 @@ pub fn boss_main() -> ExitCode {
         }
 
         let sync_result = sync(&sync_spec.src, sync_spec.dest.clone(), &filters,
-            args.dry_run, args.stats, &mut src_comms, &mut dest_comms);
+            args.dry_run, args.dest_file_newer, args.stats, &mut src_comms, &mut dest_comms);
 
         match sync_result {
             Ok(()) => (),

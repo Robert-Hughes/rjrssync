@@ -181,6 +181,7 @@ pub fn sync(
     mut dest_root: String,
     filters: &[Filter],
     dry_run: bool,
+    mut dest_file_newer_behaviour: DestFileNewerBehaviour,
     show_stats: bool,
     src_comms: &mut Comms,
     dest_comms: &mut Comms,
@@ -438,29 +439,9 @@ pub fn sync(
                                 EntryDetails::File { modified_time, .. } => modified_time,
                                 _ => panic!("Wrong entry type"), // This should never happen as we check the type in the .find() above
                             };
-                            match src_modified_time.cmp(&dest_modified_time) {
-                                Ordering::Less => {
-                                    return Err(vec![format!(
-                                        "Dest file {} is newer than src file {}. Will not overwrite.",
-                                        format_root_relative(&path, &dest_root),
-                                        format_root_relative(&path, src_root)
-                                    )]);
-                                }
-                                Ordering::Equal => {
-                                    trace!("Dest file {} has same modified time as src file {}. Will not update.",
-                                        format_root_relative(&path, &dest_root),
-                                        format_root_relative(&path, src_root));
-                                }
-                                Ordering::Greater => {
-                                    debug!("Source file {} is newer than dest file {}. Will copy.",
-                                        format_root_relative(&path, &src_root),
-                                        format_root_relative(&path, &dest_root));
-                                    
-                                    dest_comms.send_command(Command::Marker(progress_count));
-                                    copy_file(&path, size, src_modified_time, src_comms, dest_comms, &mut stats, dry_run, &src_root, &dest_root,
-                                        &progress_bar)?
-                                }
-                            }
+                            handle_existing_file(&path, size, src_comms, dest_comms, src_modified_time,
+                                *dest_modified_time, &mut stats, dry_run, &mut dest_file_newer_behaviour, src_root, &dest_root, &progress_bar,
+                                progress_count)?;
                         },
                         EntryDetails::Folder => {
                             // Folders are always up-to-date
@@ -608,6 +589,110 @@ pub fn should_delete(src: &EntryDetails, dest: &EntryDetails, dest_platform_diff
             _ => true,
         }
     }
+}
+
+fn handle_existing_file(
+    path: &RootRelativePath,
+    size: u64,
+    src_comms: &mut Comms,
+    dest_comms: &mut Comms,
+    src_modified_time: SystemTime, dest_modified_time: SystemTime,
+    stats: &mut Stats,
+    dry_run: bool,
+    dest_file_newer_behaviour: &mut DestFileNewerBehaviour,
+    src_root: &str,
+    dest_root: &str,
+    progress_bar: &ProgressBar,
+    progress_count: u64,
+) -> Result<(), Vec<String>> {
+    let copy = match src_modified_time.cmp(&dest_modified_time) {
+        Ordering::Less => {
+            // Resolve any behaviour resulting from a prompt first
+            let resolved_behaviour = match *dest_file_newer_behaviour {
+                DestFileNewerBehaviour::Prompt => {
+                    resolve_prompt(format!(
+                        "Dest file {} is newer than src file {}. What do?",
+                        format_root_relative(&path, &dest_root),
+                        format_root_relative(&path, src_root)),
+                        progress_bar, dest_file_newer_behaviour)
+                },
+                x => x,
+            };
+            match resolved_behaviour {
+                DestFileNewerBehaviour::Prompt => panic!("Should have already been resolved!"),
+                DestFileNewerBehaviour::Error => return Err(vec![format!(
+                    "Dest file {} is newer than src file {}. Will not overwrite. See --dest-file-newer.",
+                    format_root_relative(&path, &dest_root),
+                    format_root_relative(&path, src_root)
+                )]),
+                DestFileNewerBehaviour::Skip => {
+                    trace!("Dest file {} is newer than src file {}. Skipping.",
+                    format_root_relative(&path, &dest_root),
+                    format_root_relative(&path, src_root));
+                    false
+                }
+                DestFileNewerBehaviour::Overwrite => {
+                    trace!("Dest file {} is newer than src file {}. Overwriting anyway.",
+                        format_root_relative(&path, &dest_root),
+                        format_root_relative(&path, src_root));
+                    true
+                }
+            }
+        }
+        Ordering::Equal => {
+            trace!("Dest file {} has same modified time as src file {}. Will not update.",
+                format_root_relative(&path, &dest_root),
+                format_root_relative(&path, src_root));
+            false
+        }
+        Ordering::Greater => {
+            debug!("Source file {} is newer than dest file {}. Will copy.",
+                format_root_relative(&path, &src_root),
+                format_root_relative(&path, &dest_root));
+            true
+        }
+    };
+    if copy {                    
+        dest_comms.send_command(Command::Marker(progress_count));
+        copy_file(&path, size, src_modified_time, src_comms, dest_comms, stats, dry_run, &src_root, &dest_root,
+            &progress_bar)?
+    }
+    Ok(())
+}
+
+//TODO: rather than taking mutable ref, can we return something, e.g. Option<Behaviour> to specify new default behaviour?
+fn resolve_prompt(prompt: String, progress_bar: &ProgressBar, dest_file_newer_behaviour: &mut DestFileNewerBehaviour) 
+    -> DestFileNewerBehaviour {
+    if !dialoguer::console::user_attended() {
+        debug!("Unattended terminal, acting as if error");
+        return DestFileNewerBehaviour::Error;
+    }
+    progress_bar.disable_steady_tick();
+    //TODO: check this works properly, with suspending the progress bar temporarily and then putting it back. Perhaps use .suspend instead?
+    let items = ["Skip (just this occurence)", "Skip (all occurences)", "Overwrite (just this occurence)", "Overwrite (all occurences)"];
+    let r = dialoguer::Select::with_theme(&dialoguer::theme::ColorfulTheme::default())
+        .with_prompt(prompt)
+        .items(&items).default(0).interact();
+    let result = match r {
+        Ok(i) if i < items.len() => {
+            match items[i] {
+                "Skip (just this occurence)" => DestFileNewerBehaviour::Skip,
+                "Skip (all occurences)" => {
+                    *dest_file_newer_behaviour = DestFileNewerBehaviour::Skip;
+                    DestFileNewerBehaviour::Skip
+                },
+                "Overwrite (just this occurence)" => DestFileNewerBehaviour::Overwrite,
+                "Overwrite (all occurences)" => {
+                    *dest_file_newer_behaviour = DestFileNewerBehaviour::Overwrite;
+                    DestFileNewerBehaviour::Overwrite
+                },
+                _ => panic!("Impossible!"),
+            }
+        }
+        _ => panic!("Unexpected response!"), //TODO: when can this happen?
+    };
+    progress_bar.enable_steady_tick(Duration::from_millis(250)); //TODO: this duplicates the duration, can we use .suspend instead?
+    result
 }
 
 fn copy_file(

@@ -59,7 +59,8 @@ Syncing logic
 Right now I just picked an arbitrary value which could possibly be improved a lot!
 Also the same buffer size this is used for both the filesystem read() buffer size, _and_ the size of data we send to the boss, _and_
 // the size of data written on the other doer. The same size might not be optimal for all of these!
-
+* Use new prompting and behaviour logic for other cases, e.g. to allow preventing file deletion,
+which we can default to the current destructive behaviour.
 
 Performance
 ------------
@@ -69,7 +70,8 @@ Performance
 * Investigate if pipelining some stages would speed it up, e.g. encrypting and serialization at same time
 * Probably better to batch together File() Responses, to avoid overhead from sending loads of messages
 * Run benchmark tests on GitHub actions?
-* If launching two remote doers, then it would be quicker to run the two setup_comms in parallel
+* If launching two remote doers, then it would be quicker to run the two setup_comms in paśallel
+   - need to watch out for ssh prompts though - what if we get two of these in parallel!
 * Could investigate using UDP or something else to reduce TCP overhead, possibly this could speed up the TCP connection time?
 * Benchmarking with two remotes rather than just one
 * Measure peak memory usage in benchmark?
