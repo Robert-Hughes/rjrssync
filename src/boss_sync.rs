@@ -661,6 +661,7 @@ fn handle_existing_file(
 }
 
 //TODO: rather than taking mutable ref, can we return something, e.g. Option<Behaviour> to specify new default behaviour?
+//TODO: make this generic, so can use for other behaviours too
 fn resolve_prompt(prompt: String, progress_bar: &ProgressBar, dest_file_newer_behaviour: &mut DestFileNewerBehaviour) 
     -> DestFileNewerBehaviour {
     if !dialoguer::console::user_attended() {
@@ -673,6 +674,7 @@ fn resolve_prompt(prompt: String, progress_bar: &ProgressBar, dest_file_newer_be
     let r = dialoguer::Select::with_theme(&dialoguer::theme::ColorfulTheme::default())
         .with_prompt(prompt)
         .items(&items).default(0).interact();
+    //TODO: allow the user cancelling? Use interact_opt? Need to test this case too!
     let result = match r {
         Ok(i) if i < items.len() => {
             match items[i] {
@@ -691,7 +693,7 @@ fn resolve_prompt(prompt: String, progress_bar: &ProgressBar, dest_file_newer_be
         }
         _ => panic!("Unexpected response!"), //TODO: when can this happen?
     };
-    progress_bar.enable_steady_tick(Duration::from_millis(250)); //TODO: this duplicates the duration, can we use .suspend instead?
+    progress_bar.enable_steady_tick(Duration::from_millis(250)); //TODO: this duplicates the duration, can we use .suspend instead? Would it handle Ctrl-C to cancel?
     result
 }
 

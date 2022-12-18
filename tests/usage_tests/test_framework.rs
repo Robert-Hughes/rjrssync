@@ -187,6 +187,8 @@ pub struct TestDesc<'a> {
     /// Arguments provided to rjrssync, most likely the source and dest paths.
     /// (probably the same as paths in setup_filesystem_nodes, but may have different trailing slash for example).
     pub args: Vec<String>,
+    /// List of responses to prompts that rjrssync asks (e.g. whether to overwrite files)
+    pub prompt_responses: Vec<String>,
     /// The expected exit code of rjrssync (e.g. 0 for success).
     pub expected_exit_code: i32,
     /// Messages that are expected to be present in rjrssync's stdout/stderr

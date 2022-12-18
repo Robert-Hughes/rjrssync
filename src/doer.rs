@@ -363,7 +363,9 @@ impl Comms {
     }
 
     /// Blocks until a command is received. If the channel is closed (i.e. the boss has disconnected),
-    /// then returns None.
+    /// then returns None. Note that normally the boss should send us a Shutdown command rather than
+    /// just disconnecting, but in the case of errors, this may not happen so we want to deal with this 
+    /// cleanly too.
     pub fn receive_command(&mut self) -> Option<Command> {
         trace!("Waiting for command from {}", &self);
         let receiver = match self {

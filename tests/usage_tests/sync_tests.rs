@@ -292,7 +292,7 @@ fn test_large_file() {
 /// dates. The expected behaviour is controlled by a command-line argument, which in this case
 /// we set to "prompt", and choose "skip" and then "overwrite".
 #[test]
-fn test_dest_file_newer_prompt_skip_then_overwrite() { //TODO: finish this test -make it do two syncs (skip then overwrite as in the test name)
+fn test_dest_file_newer_prompt_skip_then_overwrite() {
     let src = folder! {
         "c1" => file_with_modified("contents1", SystemTime::UNIX_EPOCH),
         "c2" => file_with_modified("contents2", SystemTime::UNIX_EPOCH),
@@ -312,20 +312,28 @@ fn test_dest_file_newer_prompt_skip_then_overwrite() { //TODO: finish this test 
             "--dest-file-newer".to_string(),
             "prompt".to_string(),
         ],
-        //TODO: update this, test different prompts etc.
-        //TODO: how do we test the prompt, when this is a non-interactive test? Maybe we could have a way to mock
-        //  user inputs to rjrssync for testing? E.g. an env var, or a special test build?
-        expected_exit_code: 12345,
+        prompt_responses: vec![
+            String::from("Skip"),
+            String::from("Overwrite"),
+        ],
+        expected_exit_code: 0,
         expected_output_messages: vec![
-            Regex::new(&regex::escape("PROMPT!")).unwrap(),
-            Regex::new(&regex::escape("Copied 1 file(s)")).unwrap(),
+            Regex::new(&regex::escape("PROMPT1!")).unwrap(),
+            Regex::new(&regex::escape("PROMPT2!")).unwrap(),
+            Regex::new(&regex::escape("Copied 1 file(s)")).unwrap(), // 1 file copied the other skipped
         ],
         expected_filesystem_nodes: vec![
-            ("$TEMP/src", Some(&src)),
-            ("$TEMP/dest", Some(&dest)),
+            ("$TEMP/src", Some(&src)), // Unchanged
+            ("$TEMP/dest", Some(&folder! { // First file skipped, the other overwritten
+                "c1" => file_with_modified("contents3", SystemTime::UNIX_EPOCH + Duration::from_secs(1)),
+                "c2" => file_with_modified("contents2", SystemTime::UNIX_EPOCH),
+            })),
         ],
         ..Default::default()
     });
+    //TODO: how do we test the prompt, when this is a non-interactive test? Maybe we could have a way to mock
+    //  user inputs to rjrssync for testing? E.g. an env var, or a special test build?
+    //TODO: ideally we also confirm that all the prompt responses were "consumed" by rjrssync somehow.
 }
 
 //TODO: test for prompt with skip all
