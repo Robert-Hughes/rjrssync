@@ -68,16 +68,10 @@ Performance
    - Maybe check if WalkDir is slow, by comparing its performance with direct std::fs stuff or even native OS stuff?
 * Investigate if pipelining some stages would speed it up, e.g. encrypting and serialization at same time
 * Probably better to batch together File() Responses, to avoid overhead from sending loads of messages
-* Add to benchmark some remote tests (currently just testing local ones), and to/from WSL folders
-   - Perhaps a separate table for local -> local, local -> WSL, local -> remote etc. etc.
-   - Copy results into here (or similar), so can look at them without waiting for them to run
 * Run benchmark tests on GitHub actions?
 * If launching two remote doers, then it would be quicker to run the two setup_comms in parallel
 * Could investigate using UDP or something else to reduce TCP overhead, possibly this could speed up the TCP connection time?
-* Waiting for an ack after each file transfer makes it slow. Instead we could "peek" for acks rather than waiting,
-and progress to the next file/chunk immediately if there's nothing waiting. Need to make sure we don't deadlock though, waiting for each other!
 * Benchmarking with two remotes rather than just one
-* Benchmarking a case where a bunch of stuff needs deleting first
 * Measure peak memory usage in benchmark?
 * Profiling events like send/receive could show the message type?
 * Because our send_command/response now returns immediately, if the network is being slow then we will
@@ -90,7 +84,7 @@ Misc
 
 * Make GitHub actions run on both Windows and Linux.
 * Configure GitHub actions to run with remote hosts somehow
-* piper and tcper maybe shouldn't be in the `bin/` folder, as then they count as part of the proper program,
+* piper and tcper maybe shouldn't be in the `bin/` folder, as then they count as part of the proper program (and then get installed with cargo install, or with crate publish?),
 but they should just be for testing/investigation. Maybe should be a separate crate?
 * On work PC this fails:
 `cargo run D:\TempSource\ robhug01@localhost:/home/robhug01/TempDest -v`

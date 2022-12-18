@@ -90,6 +90,13 @@ fn set_up_src_folders(args: &CliArgs) {
     std::fs::remove_dir_all("src/example-repo-slight-change/src/modules/previewpane/MonacoPreviewHandler/monacoSRC/min/vs").expect("Failed to delete nested folders");
     std::fs::remove_dir_all("src/example-repo-slight-change/src/settings-ui/Settings.UI.UnitTests/BackwardsCompatibility/TestFiles/").expect("Failed to delete nested folders");
 
+    // Copy the repo again and make a more significant change (rename src folder), so that many files will need
+    // deleting and copying.
+    std::fs::create_dir("src/example-repo-large-change").expect("Failed to create folder");
+    fs_extra::dir::copy("src/example-repo-slight-change", "src/example-repo-large-change", &CopyOptions { content_only: true, ..Default::default() })
+        .expect("Failed to copy dir");
+    std::fs::rename("src/example-repo-large-change/src", "src/example-repo-large-change/src2").expect("Failed to rename");
+
     // Single large file
     std::fs::create_dir_all("src/large-file").expect("Failed to create dir");
     let mut f = std::fs::File::create("src/large-file/large.bin").expect("Failed to create file");
@@ -120,7 +127,9 @@ fn main () {
     
     if !args.only_remote {
         results.push((format!("{local_name} -> {local_name}"), run_benchmarks_for_target(&args, Target::Local(temp_dir.join("dest")))));
+    }
         
+    if !args.only_remote && !args.only_local {
         #[cfg(windows)]
         results.push((format!(r"{local_name} -> \\wsl$\..."), run_benchmarks_for_target(&args, Target::Local(PathBuf::from(r"\\wsl$\\Ubuntu\\tmp\\rjrssync-benchmark-dest\\")))));
 
@@ -142,7 +151,8 @@ fn main () {
     ascii_table.column(1).set_header("Everything copied");
     ascii_table.column(2).set_header("Nothing copied");
     ascii_table.column(3).set_header("Some copied");
-    ascii_table.column(4).set_header("Single large file");
+    ascii_table.column(4).set_header("Delete and copy");
+    ascii_table.column(5).set_header("Single large file");
 
     for (table_name, table_data) in results {
         println!();
@@ -281,6 +291,16 @@ fn run_benchmarks<F>(cli_args: &CliArgs, id: &str, sync_fn: F, target: Target, r
             println!("      {id} example-repo some copied...");
             let elapsed = run(Path::new("src").join("example-repo-slight-change").to_string_lossy().to_string(), dest_prefix.clone() + "example-repo");
             println!("      {id} example-repo some copied: {:?}", elapsed);
+            sample.push(Some(elapsed));
+        } else {
+            sample.push(None); // Programs like scp will always copy everything, so there's no point running this part of the test
+        }
+
+        // Make some large changes, (a big folder was renamed, so many things need deleting and then copying)
+        if id.contains("rjrssync") || id.contains("robocopy") || id.contains("rsync") {
+            println!("      {id} example-repo delete and copy...");
+            let elapsed = run(Path::new("src").join("example-repo-large-change").to_string_lossy().to_string(), dest_prefix.clone() + "example-repo");
+            println!("      {id} example-repo delete and copy: {:?}", elapsed);
             sample.push(Some(elapsed));
         } else {
             sample.push(None); // Programs like scp will always copy everything, so there's no point running this part of the test
