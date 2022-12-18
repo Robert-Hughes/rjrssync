@@ -1,4 +1,4 @@
-use std::{time::Instant, path::{Path, PathBuf}, io::Write};
+use std::{time::{Instant, Duration}, path::{Path, PathBuf}, io::Write};
 
 use ascii_table::AsciiTable;
 use clap::Parser;
@@ -137,6 +137,7 @@ fn main () {
     }
 
     let mut ascii_table = AsciiTable::default();
+    ascii_table.set_max_width(200);
     ascii_table.column(0).set_header("Method");
     ascii_table.column(1).set_header("Everything copied");
     ascii_table.column(2).set_header("Nothing copied");
@@ -220,6 +221,7 @@ fn run_benchmarks_using_program(cli_args: &CliArgs, program: &str, program_args:
 
 fn run_benchmarks<F>(cli_args: &CliArgs, id: &str, sync_fn: F, target: Target, result_table: &mut Vec<Vec<String>>) where F : Fn(String, String) {
     println!("  Subject: {id}");
+    let mut samples : Vec<Vec<Option<Duration>>> = vec![];
     for sample_idx in 0..cli_args.num_samples {
         println!("    Sample {sample_idx}");
 
@@ -256,22 +258,22 @@ fn run_benchmarks<F>(cli_args: &CliArgs, id: &str, sync_fn: F, target: Target, r
             elapsed    
         };
 
-        let mut results = vec![format!("{id} ({sample_idx})")];
+        let mut sample = vec![];
 
         // Sync example-repo to an empty folder, so this means everything is copied
         println!("      {id} example-repo everything copied...");
         let elapsed = run(Path::new("src").join("example-repo").to_string_lossy().to_string(), dest_prefix.clone() + "example-repo");
         println!("      {id} example-repo everything copied: {:?}", elapsed);
-        results.push(format!("{:?}", elapsed));
-        
+        sample.push(Some(elapsed));
+
         // Sync again - this should be a no-op, but still needs to check that everything is up-to-date
         if id.contains("rjrssync") || id.contains("robocopy") || id.contains("rsync") {
             println!("      {id} example-repo nothing copied...");
             let elapsed = run(Path::new("src").join("example-repo").to_string_lossy().to_string(), dest_prefix.clone() + "example-repo");
             println!("      {id} example-repo nothing copied: {:?}", elapsed);
-            results.push(format!("{:?}", elapsed));
+            sample.push(Some(elapsed));
         } else {
-            results.push(format!("Skipped")); // Programs like scp will always copy everything, so there's no point running this part of the test
+            sample.push(None); // Programs like scp will always copy everything, so there's no point running this part of the test
         }
 
         // Make some small changes, e.g. check out a new version
@@ -279,17 +281,39 @@ fn run_benchmarks<F>(cli_args: &CliArgs, id: &str, sync_fn: F, target: Target, r
             println!("      {id} example-repo some copied...");
             let elapsed = run(Path::new("src").join("example-repo-slight-change").to_string_lossy().to_string(), dest_prefix.clone() + "example-repo");
             println!("      {id} example-repo some copied: {:?}", elapsed);
-            results.push(format!("{:?}", elapsed));
+            sample.push(Some(elapsed));
         } else {
-            results.push(format!("Skipped")); // Programs like scp will always copy everything, so there's no point running this part of the test
+            sample.push(None); // Programs like scp will always copy everything, so there's no point running this part of the test
         }
 
         // Sync a single large file
         println!("    {id} example-repo single large file...");
         let elapsed = run(Path::new("src").join("large-file").to_string_lossy().to_string(), dest_prefix.clone() + "large-file");
         println!("    {id} example-repo single large file: {:?}", elapsed);
-        results.push(format!("{:?}", elapsed));
+        sample.push(Some(elapsed));
 
-        result_table.push(results);
+        samples.push(sample);
+    }
+
+    // Make statistics and add to results table
+    let mut results = vec![format!("{id} (x{})", samples.len())];
+    for c in 0..samples[0].len() {
+        let min = samples.iter().filter_map(|s| s[c]).min();
+        let max = samples.iter().filter_map(|s| s[c]).max();
+        if let (Some(min), Some(max)) = (min, max) {
+            let percent = 100.0 * (max - min).as_secs_f32() / min.as_secs_f32();
+            results.push(format!("{} (+{:.0}%)", format_duration(min), percent));
+        } else {
+            results.push(format!("Skipped")); 
+        }
+    }
+    result_table.push(results);
+}
+
+fn format_duration(d: Duration) -> String {
+    if d.as_secs_f32() < 1.0 {
+        format!("{}ms", d.as_millis())
+    } else {
+        format!("{:.2}s", d.as_secs_f32())
     }
 }
