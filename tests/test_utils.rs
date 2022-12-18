@@ -22,7 +22,7 @@ pub struct ProcessOutput {
 /// This is mostly a copy-paste of the same function from boss_launch.rs, but we don't have a good way to share the code
 /// and this version is slightly different, more suitable for tests (e.g. simpler error checking, logging printed with println).
 pub fn run_process_with_live_output(c: &mut std::process::Command) -> ProcessOutput {
-    run_process_with_live_output_impl(c, false, false)
+    run_process_with_live_output_impl(c, false, false, false)
 }
 
 /// Runs a child processes and waits for it to exit. The stdout and stderr of the child process
@@ -31,19 +31,22 @@ pub fn run_process_with_live_output(c: &mut std::process::Command) -> ProcessOut
 /// up and losing output, and unwanted clearing of the screen.
 /// This is mostly a copy-paste of the same function from boss_launch.rs, but we don't have a good way to share the code
 /// and this version is slightly different, more suitable for tests (e.g. simpler error checking, logging printed with println).
-pub fn run_process_with_live_output_impl(c: &mut std::process::Command, hide_stdout: bool, hide_stderr: bool) -> ProcessOutput {
-    println!("Running {:?} {:?}...", c.get_program(), c.get_args());
+pub fn run_process_with_live_output_impl(c: &mut std::process::Command, 
+    no_stdout: bool, no_stderr: bool, quiet: bool) -> ProcessOutput {
+    if !quiet {
+        println!("Running {:?} {:?}...", c.get_program(), c.get_args());
+    }
 
     // Setting stdin to null seems to fix issues with running all the tests in parallel (cargo test),
     // where some ssh processes get stuck waiting for input (pressing Enter in the command prompt a few times
     // seems to unstick it). It only seems to happen when running in parallel though strangely.
     let mut child = c.stdin(Stdio::null()); 
-    if hide_stdout {
+    if no_stdout {
         child = child.stdout(Stdio::null())
     } else {
         child = child.stdout(Stdio::piped())
     }
-    if hide_stderr {
+    if no_stderr {
         child = child.stderr(Stdio::null())
     } else {
         child = child.stderr(Stdio::piped())
@@ -62,7 +65,7 @@ pub fn run_process_with_live_output_impl(c: &mut std::process::Command, hide_std
     ) = mpsc::channel();
     let sender2 = sender1.clone();
 
-    if !hide_stdout {
+    if !no_stdout {
         let child_stdout = child.stdout.take().unwrap();
         let thread_builder = thread::Builder::new().name("child_stdout_reader".to_string());
         thread_builder.spawn(move || {
@@ -72,7 +75,7 @@ pub fn run_process_with_live_output_impl(c: &mut std::process::Command, hide_std
         drop(sender1);
     }
 
-    if !hide_stderr {
+    if !no_stderr {
         let thread_builder = thread::Builder::new().name("child_stderr_reader".to_string());
         let child_stderr = child.stderr.take().unwrap();
         thread_builder.spawn(move || {
@@ -91,11 +94,15 @@ pub fn run_process_with_live_output_impl(c: &mut std::process::Command, hide_std
                 // cargo's testing framework captures the output correctly.
                 match stream_type {
                     OutputReaderStreamType::Stdout => {
-                        println!("{}", l);
+                        if !quiet {
+                            println!("{}", l);
+                        }
                         captured_stdout += &(l + "\n");
                     }
                     OutputReaderStreamType::Stderr => {
-                        eprintln!("{}", l);
+                        if !quiet {
+                            eprintln!("{}", l);
+                        }
                         captured_stderr += &(l + "\n");
                     }
                 }
@@ -104,17 +111,23 @@ pub fn run_process_with_live_output_impl(c: &mut std::process::Command, hide_std
                 panic!("Error reading from {}: {}", stream_type, e);
             }
             Ok(OutputReaderThreadMsg2::StreamClosed(stream_type)) => {
-                println!("Child process {} closed", stream_type);
+                if !quiet {
+                    println!("Child process {} closed", stream_type);
+                }
             }
             Err(_) => {
                 // Both senders have been dropped, i.e. both background threads exited
-                println!("Both reader threads done, child process must have exited. Waiting for process.");
+                if !quiet {
+                    println!("Both reader threads done, child process must have exited. Waiting for process.");
+                }
                 // Wait for the process to exit, to get the exit code
                 let result = match child.wait() {
                     Ok(r) => r,
                     Err(e) => panic!("Error waiting for child process: {}", e),
                 };
-                println!("Exit status: {:?}", result);
+                if !quiet {
+                    println!("Exit status: {:?}", result);
+                }
                 return ProcessOutput { exit_status: result, stdout: captured_stdout, stderr: captured_stderr };
             }
         }

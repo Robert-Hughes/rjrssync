@@ -206,7 +206,7 @@ fn run_benchmarks_using_program(cli_args: &CliArgs, program: &str, program_args:
         let result = cmd
             .args(program_args.iter().map(|a| substitute(a)));
         let hide_stdout = program == "scp"; // scp spams its stdout, and we can't turn this off, so we hide it.
-        let result = test_utils::run_process_with_live_output_impl(result, hide_stdout, false);
+        let result = test_utils::run_process_with_live_output_impl(result, hide_stdout, false, true);
         if program == "robocopy" {
             // robocopy has different exit codes (0 isn't what we want)
             let code = result.exit_status.code().unwrap();
@@ -237,13 +237,13 @@ fn run_benchmarks<F>(cli_args: &CliArgs, id: &str, sync_fn: F, target: Target, r
             Target::Remote { is_windows, user_and_host, folder } => {
                 if *is_windows {
                     // Use run_process_with_live_output to avoid messing up terminal line endings
-                    let _ = test_utils::run_process_with_live_output(std::process::Command::new("ssh").arg(&user_and_host).arg(format!("rmdir /Q /S {folder}")));
+                    let _ = test_utils::run_process_with_live_output_impl(std::process::Command::new("ssh").arg(&user_and_host).arg(format!("rmdir /Q /S {folder}")), false, false, true);
                     // This one can fail, if the folder doesn't exist
 
-                    let result = test_utils::run_process_with_live_output(std::process::Command::new("ssh").arg(&user_and_host).arg(format!("mkdir {folder}")));
+                    let result = test_utils::run_process_with_live_output_impl(std::process::Command::new("ssh").arg(&user_and_host).arg(format!("mkdir {folder}")), false, false, true);
                     assert!(result.exit_status.success());
                 } else {
-                    let result = test_utils::run_process_with_live_output(std::process::Command::new("ssh").arg(&user_and_host).arg(format!("rm -rf '{folder}' && mkdir -p '{folder}'")));
+                    let result = test_utils::run_process_with_live_output_impl(std::process::Command::new("ssh").arg(&user_and_host).arg(format!("rm -rf '{folder}' && mkdir -p '{folder}'")), false, false, true);
                     assert!(result.exit_status.success());
                 }
                 let remote_sep = if *is_windows { "\\" } else { "/" };
@@ -287,9 +287,9 @@ fn run_benchmarks<F>(cli_args: &CliArgs, id: &str, sync_fn: F, target: Target, r
         }
 
         // Sync a single large file
-        println!("    {id} example-repo single large file...");
+        println!("      {id} example-repo single large file...");
         let elapsed = run(Path::new("src").join("large-file").to_string_lossy().to_string(), dest_prefix.clone() + "large-file");
-        println!("    {id} example-repo single large file: {:?}", elapsed);
+        println!("      {id} example-repo single large file: {:?}", elapsed);
         sample.push(Some(elapsed));
 
         samples.push(sample);
@@ -301,8 +301,7 @@ fn run_benchmarks<F>(cli_args: &CliArgs, id: &str, sync_fn: F, target: Target, r
         let min = samples.iter().filter_map(|s| s[c]).min();
         let max = samples.iter().filter_map(|s| s[c]).max();
         if let (Some(min), Some(max)) = (min, max) {
-            let percent = 100.0 * (max - min).as_secs_f32() / min.as_secs_f32();
-            results.push(format!("{} (+{:.0}%)", format_duration(min), percent));
+            results.push(format!("{} - {}", format_duration(min), format_duration(max)));
         } else {
             results.push(format!("Skipped")); 
         }

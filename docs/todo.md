@@ -76,11 +76,9 @@ Performance
 * Could investigate using UDP or something else to reduce TCP overhead, possibly this could speed up the TCP connection time?
 * Waiting for an ack after each file transfer makes it slow. Instead we could "peek" for acks rather than waiting,
 and progress to the next file/chunk immediately if there's nothing waiting. Need to make sure we don't deadlock though, waiting for each other!
-* Benchmark program produces inconsistent results - maybe need to run several times and take minimum?
 * Benchmarking with two remotes rather than just one
 * Benchmarking a case where a bunch of stuff needs deleting first
-* Benchmarking arguments to specify what to run, rather than all
-* Measure peak memory usage?
+* Measure peak memory usage in benchmark?
 * Profiling events like send/receive could show the message type?
 * Because our send_command/response now returns immediately, if the network is being slow then we will
   slowly take up more and more memory in the channel buffer (same on both sending and receiving side)! 
