@@ -362,13 +362,15 @@ impl Comms {
         sender.send(r).expect("Error sending on channel");
     }
 
-    pub fn receive_command(&mut self) -> Command {
+    /// Blocks until a command is received. If the channel is closed (i.e. the boss has disconnected),
+    /// then returns None.
+    pub fn receive_command(&mut self) -> Option<Command> {
         trace!("Waiting for command from {}", &self);
         let receiver = match self {
             Comms::Local { receiver, .. } => receiver,
             Comms::Remote { encrypted_comms, .. } => &mut encrypted_comms.receiver,
         };
-        receiver.recv().expect("Error receiving from channel")
+        receiver.recv().ok()
     }
 }
 impl Display for Comms {
@@ -546,7 +548,7 @@ fn message_loop(comms: &mut Comms) -> Result<(), ()> {
     let mut context : Option<DoerContext> = None;
     loop {
         match comms.receive_command() {
-            c => {
+            Some(c) => {
                 match exec_command(c, comms, &mut context) {
                     Ok(false) => {
                         debug!("Shutdown command received - finishing message_loop");
@@ -559,10 +561,11 @@ fn message_loop(comms: &mut Comms) -> Result<(), ()> {
                     }
                 }
             }
-            // Err(e) => {
-            //     error!("Error receiving command: {}", e);
-            //     return Err(());
-            // }
+            None => {
+                // Boss has disconnected
+                debug!("Boss disconnected - finishing message loop");
+                return Ok(());
+            }
         }
     }
 }
