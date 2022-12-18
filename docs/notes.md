@@ -221,6 +221,10 @@ Benchmarking results
 
 `cargo bench`, see benchmarks.rs. Run on both Windows and Linux.
 
+Some more advanced options:
+
+`cargo bench -- --skip-setup --only-remote --programs rjrssync,scp -n 3`
+
 From Windows
 ------------
 
