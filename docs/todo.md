@@ -80,6 +80,8 @@ and progress to the next file/chunk immediately if there's nothing waiting. Need
 * Benchmarking with two remotes rather than just one
 * Benchmarking a case where a bunch of stuff needs deleting first
 * Benchmarking arguments to specify what to run, rather than all
+* No point running things like scp for the "nothing copied" test case 
+* Measure peak memory usage?
 * Profiling events like send/receive could show the message type?
 * Because our send_command/response now returns immediately, if the network is being slow then we will
   slowly take up more and more memory in the channel buffer (same on both sending and receiving side)! 
