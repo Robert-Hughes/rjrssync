@@ -16,51 +16,6 @@ enum Target {
     }
 }
 
-fn main () {
-    // Change working directory to a temporary folder which we will run all our benchmarks in
-    let temp_dir = std::env::temp_dir().join("rjrssync-benchmarks");
-    std::fs::create_dir_all(&temp_dir).expect("Failed to create temp dir");
-    std::env::set_current_dir(&temp_dir).expect("Failed to set working directory");
-
-    set_up_src_folders();
-
-    
-    let mut results = vec![];
-    
-    let local_name = if cfg!(windows) {
-        "Windows"
-    } else {
-        "Linux"
-    };
-    
-    results.push((format!("{local_name} -> {local_name}"), run_benchmarks_for_target(Target::Local(temp_dir.join("dest")))));
-    
-    #[cfg(windows)]
-    results.push((format!(r"{local_name} -> \\wsl$\..."), run_benchmarks_for_target(Target::Local(PathBuf::from(r"\\wsl$\\Ubuntu\\tmp\\rjrssync-benchmark-dest\\")))));
-    
-    #[cfg(unix)]
-    results.push((format!("{local_name} -> /mnt/..."), run_benchmarks_for_target(Target::Local(PathBuf::from("/mnt/t/Temp/rjrssync-benchmarks/dest")))));
-    
-    results.push((format!("{local_name} -> Remote Windows"), run_benchmarks_for_target(
-        Target::Remote { is_windows: true, user_and_host: test_utils::REMOTE_WINDOWS_CONFIG.0.clone(), folder: test_utils::REMOTE_WINDOWS_CONFIG.1.clone() + "\\benchmark-dest" })));
-    
-    results.push((format!("{local_name} -> Remote Linux"), run_benchmarks_for_target(
-        Target::Remote { is_windows: false, user_and_host: test_utils::REMOTE_LINUX_CONFIG.0.clone(), folder: test_utils::REMOTE_LINUX_CONFIG.1.clone() + "/benchmark-dest" })));
-
-    let mut ascii_table = AsciiTable::default();
-    ascii_table.column(0).set_header("Method");
-    ascii_table.column(1).set_header("Everything copied");
-    ascii_table.column(2).set_header("Nothing copied");
-    ascii_table.column(3).set_header("Some copied");
-    ascii_table.column(4).set_header("Single large file");
-
-    for (table_name, table_data) in results {
-        println!();
-        println!("{}", table_name);
-        ascii_table.print(table_data);    
-    }
-}
-
 fn set_up_src_folders() {
     if Path::new("src").exists() && std::env::var("RJRSSYNC_BENCHMARKS_SKIP_SETUP").is_ok() {
         println!("Skipping setup. Beware this may be stale!");
@@ -115,6 +70,51 @@ fn set_up_src_folders() {
     for i in 0..1000_000 as i32 {
         let buf = [(i % 256) as u8; 1024];
         f.write_all(&buf).expect("Failed to write to file");
+    }
+}
+
+fn main () {
+    // Change working directory to a temporary folder which we will run all our benchmarks in
+    let temp_dir = std::env::temp_dir().join("rjrssync-benchmarks");
+    std::fs::create_dir_all(&temp_dir).expect("Failed to create temp dir");
+    std::env::set_current_dir(&temp_dir).expect("Failed to set working directory");
+
+    set_up_src_folders();
+
+    
+    let mut results = vec![];
+    
+    let local_name = if cfg!(windows) {
+        "Windows"
+    } else {
+        "Linux"
+    };
+    
+    results.push((format!("{local_name} -> {local_name}"), run_benchmarks_for_target(Target::Local(temp_dir.join("dest")))));
+    
+    #[cfg(windows)]
+    results.push((format!(r"{local_name} -> \\wsl$\..."), run_benchmarks_for_target(Target::Local(PathBuf::from(r"\\wsl$\\Ubuntu\\tmp\\rjrssync-benchmark-dest\\")))));
+    
+    #[cfg(unix)]
+    results.push((format!("{local_name} -> /mnt/..."), run_benchmarks_for_target(Target::Local(PathBuf::from("/mnt/t/Temp/rjrssync-benchmarks/dest")))));
+    
+    results.push((format!("{local_name} -> Remote Windows"), run_benchmarks_for_target(
+        Target::Remote { is_windows: true, user_and_host: test_utils::REMOTE_WINDOWS_CONFIG.0.clone(), folder: test_utils::REMOTE_WINDOWS_CONFIG.1.clone() + "\\benchmark-dest" })));
+    
+    results.push((format!("{local_name} -> Remote Linux"), run_benchmarks_for_target(
+        Target::Remote { is_windows: false, user_and_host: test_utils::REMOTE_LINUX_CONFIG.0.clone(), folder: test_utils::REMOTE_LINUX_CONFIG.1.clone() + "/benchmark-dest" })));
+
+    let mut ascii_table = AsciiTable::default();
+    ascii_table.column(0).set_header("Method");
+    ascii_table.column(1).set_header("Everything copied");
+    ascii_table.column(2).set_header("Nothing copied");
+    ascii_table.column(3).set_header("Some copied");
+    ascii_table.column(4).set_header("Single large file");
+
+    for (table_name, table_data) in results {
+        println!();
+        println!("{}", table_name);
+        ascii_table.print(table_data);    
     }
 }
 
@@ -227,22 +227,30 @@ fn run_benchmarks<F>(id: &str, sync_fn: F, target: Target, result_table: &mut Ve
     results.push(format!("{:?}", elapsed));
     
     // Sync again - this should be a no-op, but still needs to check that everything is up-to-date
-    println!("    {id} example-repo nothing copied...");
-    let elapsed = run(Path::new("src").join("example-repo").to_string_lossy().to_string(), dest_prefix.clone() + "example-repo");
-    println!("    {id} example-repo nothing copied: {:?}", elapsed);
-    results.push(format!("{:?}", elapsed));
+    if id.contains("rjrssync") || id.contains("robocopy") || id.contains("rsync") {
+        println!("    {id} example-repo nothing copied...");
+        let elapsed = run(Path::new("src").join("example-repo").to_string_lossy().to_string(), dest_prefix.clone() + "example-repo");
+        println!("    {id} example-repo nothing copied: {:?}", elapsed);
+        results.push(format!("{:?}", elapsed));
+    } else {
+        results.push(format!("Skipped")); // Programs like scp will always copy everything, so there's no point running this part of the test
+    }
 
     // Make some small changes, e.g. check out a new version
-    println!("    {id} example-repo some copied...");
-    let elapsed = run(Path::new("src").join("example-repo-slight-change").to_string_lossy().to_string(), dest_prefix.clone() + "example-repo");
-    println!("    {id} example-repo some copied: {:?}", elapsed);
-    results.push(format!("{:?}", elapsed));
+    if id.contains("rjrssync") || id.contains("robocopy") || id.contains("rsync") {
+        println!("    {id} example-repo some copied...");
+        let elapsed = run(Path::new("src").join("example-repo-slight-change").to_string_lossy().to_string(), dest_prefix.clone() + "example-repo");
+        println!("    {id} example-repo some copied: {:?}", elapsed);
+        results.push(format!("{:?}", elapsed));
+    } else {
+        results.push(format!("Skipped")); // Programs like scp will always copy everything, so there's no point running this part of the test
+    }
 
     // Sync a single large file
-        println!("    {id} example-repo single large file...");
-        let elapsed = run(Path::new("src").join("large-file").to_string_lossy().to_string(), dest_prefix.clone() + "large-file");
-        println!("    {id} example-repo single large file: {:?}", elapsed);
-        results.push(format!("{:?}", elapsed));
+    println!("    {id} example-repo single large file...");
+    let elapsed = run(Path::new("src").join("large-file").to_string_lossy().to_string(), dest_prefix.clone() + "large-file");
+    println!("    {id} example-repo single large file: {:?}", elapsed);
+    results.push(format!("{:?}", elapsed));
 
     result_table.push(results);
 }
