@@ -1,6 +1,7 @@
 use std::{time::Instant, path::{Path, PathBuf}, io::Write};
 
 use ascii_table::AsciiTable;
+use clap::Parser;
 use fs_extra::dir::CopyOptions;
 
 #[path = "../tests/test_utils.rs"]
@@ -16,8 +17,30 @@ enum Target {
     }
 }
 
-fn set_up_src_folders() {
-    if Path::new("src").exists() && std::env::var("RJRSSYNC_BENCHMARKS_SKIP_SETUP").is_ok() {
+#[derive(clap::Parser)]
+struct CliArgs {
+    /// This is passed to us by "cargo bench", so we need to declare it, but we simply ignore it.
+    #[arg(long)]
+    bench: bool,
+
+    /// Skips the setup of the files that will be copied in the tests (i.e. cloning stuff from GitHub)
+    /// if the file already exist. This speeds up running the benchmark if the files are up to date, but
+    /// if they're out of date, this might give misleading results.
+    #[arg(long)]
+    skip_setup: bool,
+    /// Only runs tests for local filesystem destinations, skipping the remote ones.
+    #[arg(long)]
+    only_local: bool,
+    /// Only runs tests for remote filesystem destinations, skipping the local ones.
+    #[arg(long)]
+    only_remote: bool,
+    /// Only runs tests for the given programs (comma-separated list).
+    #[arg(long, value_delimiter=',', default_value="rjrssync,rsync,scp,cp,xcopy,robocopy,apis")]
+    programs: Vec<String>,
+}
+
+fn set_up_src_folders(args: &CliArgs) {
+    if Path::new("src").exists() && args.skip_setup {
         println!("Skipping setup. Beware this may be stale!");
         return;
     }
@@ -74,12 +97,14 @@ fn set_up_src_folders() {
 }
 
 fn main () {
+    let args = CliArgs::parse();
+
     // Change working directory to a temporary folder which we will run all our benchmarks in
     let temp_dir = std::env::temp_dir().join("rjrssync-benchmarks");
     std::fs::create_dir_all(&temp_dir).expect("Failed to create temp dir");
     std::env::set_current_dir(&temp_dir).expect("Failed to set working directory");
 
-    set_up_src_folders();
+    set_up_src_folders(&args);
 
     
     let mut results = vec![];
@@ -90,19 +115,23 @@ fn main () {
         "Linux"
     };
     
-    results.push((format!("{local_name} -> {local_name}"), run_benchmarks_for_target(Target::Local(temp_dir.join("dest")))));
+    if !args.only_remote {
+        results.push((format!("{local_name} -> {local_name}"), run_benchmarks_for_target(&args, Target::Local(temp_dir.join("dest")))));
+        
+        #[cfg(windows)]
+        results.push((format!(r"{local_name} -> \\wsl$\..."), run_benchmarks_for_target(&args, Target::Local(PathBuf::from(r"\\wsl$\\Ubuntu\\tmp\\rjrssync-benchmark-dest\\")))));
+
+        #[cfg(unix)]
+        results.push((format!("{local_name} -> /mnt/..."), run_benchmarks_for_target(&args, Target::Local(PathBuf::from("/mnt/t/Temp/rjrssync-benchmarks/dest")))));
+    }
     
-    #[cfg(windows)]
-    results.push((format!(r"{local_name} -> \\wsl$\..."), run_benchmarks_for_target(Target::Local(PathBuf::from(r"\\wsl$\\Ubuntu\\tmp\\rjrssync-benchmark-dest\\")))));
-    
-    #[cfg(unix)]
-    results.push((format!("{local_name} -> /mnt/..."), run_benchmarks_for_target(Target::Local(PathBuf::from("/mnt/t/Temp/rjrssync-benchmarks/dest")))));
-    
-    results.push((format!("{local_name} -> Remote Windows"), run_benchmarks_for_target(
-        Target::Remote { is_windows: true, user_and_host: test_utils::REMOTE_WINDOWS_CONFIG.0.clone(), folder: test_utils::REMOTE_WINDOWS_CONFIG.1.clone() + "\\benchmark-dest" })));
-    
-    results.push((format!("{local_name} -> Remote Linux"), run_benchmarks_for_target(
-        Target::Remote { is_windows: false, user_and_host: test_utils::REMOTE_LINUX_CONFIG.0.clone(), folder: test_utils::REMOTE_LINUX_CONFIG.1.clone() + "/benchmark-dest" })));
+    if !args.only_local {
+        results.push((format!("{local_name} -> Remote Windows"), run_benchmarks_for_target(&args, 
+            Target::Remote { is_windows: true, user_and_host: test_utils::REMOTE_WINDOWS_CONFIG.0.clone(), folder: test_utils::REMOTE_WINDOWS_CONFIG.1.clone() + "\\benchmark-dest" })));
+        
+        results.push((format!("{local_name} -> Remote Linux"), run_benchmarks_for_target(&args, 
+            Target::Remote { is_windows: false, user_and_host: test_utils::REMOTE_LINUX_CONFIG.0.clone(), folder: test_utils::REMOTE_LINUX_CONFIG.1.clone() + "/benchmark-dest" })));
+    }
 
     let mut ascii_table = AsciiTable::default();
     ascii_table.column(0).set_header("Method");
@@ -118,37 +147,41 @@ fn main () {
     }
 }
 
-fn run_benchmarks_for_target(target: Target) -> Vec<Vec<String>> {
+fn run_benchmarks_for_target(args: &CliArgs, target: Target) -> Vec<Vec<String>> {
     println!("Target: {:?}", target);
     let mut result_table = vec![];
 
-    let rjrssync_path = env!("CARGO_BIN_EXE_rjrssync");
-    run_benchmarks_using_program(rjrssync_path, &["$SRC", "$DEST"], target.clone(), &mut result_table);
+    if args.programs.contains(&String::from("rjrssync")) {
+        let rjrssync_path = env!("CARGO_BIN_EXE_rjrssync");
+        run_benchmarks_using_program(rjrssync_path, &["$SRC", "$DEST"], target.clone(), &mut result_table);
+    }
    
-    if !matches!(target, Target::Remote{ is_windows, .. } if is_windows) { // rsync is Linux -> Linux only
+    if args.programs.contains(&String::from("rsync")) && !matches!(target, Target::Remote{ is_windows, .. } if is_windows) { // rsync is Linux -> Linux only
         #[cfg(unix)]
         // Note trailing slash on the src is important for rsync!
         run_benchmarks_using_program("rsync", &["--archive", "--delete", "$SRC/", "$DEST"], target.clone(), &mut result_table);
     }
 
-    run_benchmarks_using_program("scp", &["-r", "-q", "$SRC", "$DEST"], target.clone(), &mut result_table);
+    if args.programs.contains(&String::from("scp")) {
+        run_benchmarks_using_program("scp", &["-r", "-q", "$SRC", "$DEST"], target.clone(), &mut result_table);
+    }
    
-    if matches!(target, Target::Local(..)) { // cp is local only
+    if args.programs.contains(&String::from("cp")) && matches!(target, Target::Local(..)) { // cp is local only
         #[cfg(unix)]
         run_benchmarks_using_program("cp", &["-r", "$SRC", "$DEST"], target.clone(), &mut result_table);
     }
 
-    if matches!(target, Target::Local(..)) { // xcopy is local only
+    if args.programs.contains(&String::from("xcopy")) && matches!(target, Target::Local(..)) { // xcopy is local only
         #[cfg(windows)]
         run_benchmarks_using_program("xcopy", &["/i", "/s", "/q", "/y", "$SRC", "$DEST"], target.clone(), &mut result_table);
     }
    
-    if matches!(target, Target::Local(..)) { // robocopy is local only
+    if args.programs.contains(&String::from("robocopy")) && matches!(target, Target::Local(..)) { // robocopy is local only
         #[cfg(windows)]
         run_benchmarks_using_program("robocopy", &["/MIR", "/nfl", "/NJH", "/NJS", "/nc", "/ns", "/np", "/ndl", "$SRC", "$DEST"], target.clone(), &mut result_table);
     }
 
-    if matches!(target, Target::Local(..)) { // APIs are local only
+    if args.programs.contains(&String::from("apis")) && matches!(target, Target::Local(..)) { // APIs are local only
             run_benchmarks("APIs", |src, dest| {
             if !Path::new(&dest).exists() {
                 std::fs::create_dir_all(&dest).expect("Failed to create dest folder");

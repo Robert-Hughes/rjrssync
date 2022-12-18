@@ -46,8 +46,21 @@ profiling=["dep:json"]
 inherits = "release"
 debug = 1
 
+[[bin]]
+name = "rjrssync"
+bench = false # Prevent from being run as a benchmark when running "cargo bench"
+
 #if NonRemote
 [[bench]]
 name = "benchmarks"
 harness = false
+
+[[bin]]
+name = "piper"
+bench = false # Prevent from being run as a benchmark when running "cargo bench"
+
+[[bin]]
+name = "tcper"
+bench = false # Prevent from being run as a benchmark when running "cargo bench"
+
 #end
