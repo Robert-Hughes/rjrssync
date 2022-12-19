@@ -196,7 +196,7 @@ pub fn sync(
     // before we start it (e.g. errors, or changing the dest root)
 
     let progress = ProgressBar::new_spinner().with_message("Querying...");
-    progress.enable_steady_tick(Duration::from_millis(250));
+    progress.enable_steady_tick(Duration::from_millis(250)); // So that the progress bar gets redrawn after any log messages, even if no progress has been made in the meantime
 
     // Source SetRoot
     let timer = start_timer("SetRoot src");
@@ -610,11 +610,15 @@ fn handle_existing_file(
             // Resolve any behaviour resulting from a prompt first
             let resolved_behaviour = match *dest_file_newer_behaviour {
                 DestFileNewerBehaviour::Prompt => {
-                    resolve_prompt(format!(
+                    let prompt_result = resolve_prompt(format!(
                         "Dest file {} is newer than src file {}. What do?",
                         format_root_relative(&path, &dest_root),
                         format_root_relative(&path, src_root)),
-                        progress_bar, dest_file_newer_behaviour)
+                        progress_bar);
+                    if let Some(b) = prompt_result.remembered_behaviour {
+                        *dest_file_newer_behaviour = b;
+                    }
+                    prompt_result.immediate_behaviour
                 },
                 x => x,
             };
@@ -665,10 +669,23 @@ fn handle_existing_file(
 /// to respond.
 const TEST_PROMPT_RESPONSE_ENV_VAR: &str = "RJRSSYNC_TEST_PROMPT_RESPONSE";
 
-//TODO: rather than taking mutable ref, can we return something, e.g. Option<Behaviour> to specify new default behaviour?
+struct ResolvePromptResult {
+    /// The decision that was made for this occurence.
+    immediate_behaviour: DestFileNewerBehaviour,
+    /// The decision that was made to be remembered for future occurences (if any)
+    remembered_behaviour: Option<DestFileNewerBehaviour>,
+}
+impl ResolvePromptResult {
+    fn once(b: DestFileNewerBehaviour) -> ResolvePromptResult {
+        ResolvePromptResult { immediate_behaviour: b, remembered_behaviour: None }
+    }
+    fn always(b: DestFileNewerBehaviour) -> ResolvePromptResult {
+        ResolvePromptResult { immediate_behaviour: b, remembered_behaviour: Some(b) }
+    }
+}
+
 //TODO: make this generic, so can use for other behaviours too
-fn resolve_prompt(prompt: String, progress_bar: &ProgressBar, dest_file_newer_behaviour: &mut DestFileNewerBehaviour) 
-    -> DestFileNewerBehaviour {
+fn resolve_prompt(prompt: String, progress_bar: &ProgressBar) -> ResolvePromptResult {
     // Allow overriding the prompt response for testing
     let mut overriden_response = None;
     if let Ok(all_responses) = std::env::var(TEST_PROMPT_RESPONSE_ENV_VAR) {
@@ -686,35 +703,29 @@ fn resolve_prompt(prompt: String, progress_bar: &ProgressBar, dest_file_newer_be
         None => {
             if !dialoguer::console::user_attended() {
                 debug!("Unattended terminal, acting as if error");
-                return DestFileNewerBehaviour::Error;
+                String::from("<CANCEL>")
+            } else {
+                progress_bar.suspend(|| { // Hide the progress bar while showing this message, otherwise the background tick will redraw it over our prompt!
+                    let items = ["Skip (just this occurence)", "Skip (all occurences)", "Overwrite (just this occurence)", "Overwrite (all occurences)"];
+                    let r = dialoguer::Select::with_theme(&dialoguer::theme::ColorfulTheme::default())
+                        .with_prompt(prompt)
+                        .items(&items).default(0).interact_opt();
+                    let response = match r {
+                        Ok(Some(i)) if i < items.len() => items[i],
+                        _ => "<CANCEL>", // e.g. if user presses q or Esc
+                    };
+                    response.to_string()
+                })
             }
-            progress_bar.disable_steady_tick();
-            //TODO: check this works properly, with suspending the progress bar temporarily and then putting it back. Perhaps use .suspend instead?
-            let items = ["Skip (just this occurence)", "Skip (all occurences)", "Overwrite (just this occurence)", "Overwrite (all occurences)"];
-            let r = dialoguer::Select::with_theme(&dialoguer::theme::ColorfulTheme::default())
-                .with_prompt(prompt)
-                .items(&items).default(0).interact_opt();
-            let response = match r {
-                Ok(Some(i)) if i < items.len() => items[i],
-                _ => "<CANCEL>", // e.g. if user presses q or Esc
-            };
-            progress_bar.enable_steady_tick(Duration::from_millis(250)); //TODO: this duplicates the duration, can we use .suspend instead? Would it handle Ctrl-C to cancel?    
-            response.to_string()
         }
     };
 
     match &response[..] {
-        "<CANCEL>" => DestFileNewerBehaviour::Error,
-        "Skip (just this occurence)" => DestFileNewerBehaviour::Skip,
-        "Skip (all occurences)" => {
-            *dest_file_newer_behaviour = DestFileNewerBehaviour::Skip;
-            DestFileNewerBehaviour::Skip
-        },
-        "Overwrite (just this occurence)" => DestFileNewerBehaviour::Overwrite,
-        "Overwrite (all occurences)" => {
-            *dest_file_newer_behaviour = DestFileNewerBehaviour::Overwrite;
-            DestFileNewerBehaviour::Overwrite
-        },
+        "<CANCEL>" => ResolvePromptResult::once(DestFileNewerBehaviour::Error),
+        "Skip (just this occurence)" => ResolvePromptResult::once(DestFileNewerBehaviour::Skip),
+        "Skip (all occurences)" => ResolvePromptResult::always(DestFileNewerBehaviour::Skip),
+        "Overwrite (just this occurence)" => ResolvePromptResult::once(DestFileNewerBehaviour::Overwrite),
+        "Overwrite (all occurences)" => ResolvePromptResult::always(DestFileNewerBehaviour::Overwrite),
         _ => panic!("Impossible!"),
     }
 }
