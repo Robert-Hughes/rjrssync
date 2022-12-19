@@ -186,6 +186,7 @@ struct SyncContext<'a> {
     dry_run: bool,
     dest_file_newer_behaviour: DestFileNewerBehaviour,
     dest_entry_needs_deleting_behaviour: DestEntryNeedsDeletingBehaviour,
+    dest_root_needs_deleting_behaviour: DestRootNeedsDeletingBehaviour,
     show_stats: bool,
     src_root: String,
     dest_root: String,
@@ -201,6 +202,7 @@ pub fn sync(
     dry_run: bool,
     dest_file_newer_behaviour: DestFileNewerBehaviour,
     dest_entry_needs_deleting_behaviour: DestEntryNeedsDeletingBehaviour,
+    dest_root_needs_deleting_behaviour: DestRootNeedsDeletingBehaviour,
     show_stats: bool,
     src_comms: &mut Comms,
     dest_comms: &mut Comms,
@@ -215,6 +217,7 @@ pub fn sync(
         show_stats,
         dest_file_newer_behaviour,
         dest_entry_needs_deleting_behaviour,
+        dest_root_needs_deleting_behaviour,
         src_root: String::from(src_root),
         dest_root: String::from(dest_root),
         progress_bar: ProgressBar::new_spinner().with_message("Querying..."),
@@ -292,6 +295,35 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), Vec<String>> {
             }
         }
     }
+
+    // Check if the dest root will need deleting, and potentially prompt the user.
+    // We need to do this explicitly before starting to delete anything 
+    // because we delete in reverse order, and we would end up deleting everything inside the 
+    // dest root folder before getting to the root itself, so the prompt/error would be too late!
+    if let Some(d) = &dest_root_details {
+        if should_delete(&src_root_details, d, dest_platform_differentiates_symlinks) {
+            let resolved_behaviour = match ctx.dest_root_needs_deleting_behaviour {
+                DestRootNeedsDeletingBehaviour::Prompt => {
+                    let prompt_result = resolve_prompt(format!(
+                        "Dest root {} needs deleting as it is incompatible with the source. What do?",
+                        format_root_relative(&RootRelativePath::root(), &ctx.dest_root)),
+                        &ctx.progress_bar, 
+                        &[
+                            ("Delete", DestRootNeedsDeletingBehaviour::Delete),
+                        ], false, DestRootNeedsDeletingBehaviour::Error);
+                    prompt_result.immediate_behaviour
+                },
+                x => x,
+            };
+            match resolved_behaviour {
+                DestRootNeedsDeletingBehaviour::Prompt => panic!("Should have been alredy resolved!"),
+                DestRootNeedsDeletingBehaviour::Error => return Err(vec![format!("Dest root {} needs deleting as it is incompatible with the source. Will not delete. See --dest-root-needs-deleting",
+                    format_root_relative(&RootRelativePath::root(), &ctx.dest_root))]),
+                DestRootNeedsDeletingBehaviour::Delete => (), // We will delete it anyway later on
+            }
+        }
+    }
+
 
     // If the dest doesn't yet exist, make sure that all its ancestors are created, so that
     // when we come to create the dest path itself, it can succeed
@@ -406,7 +438,7 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), Vec<String>> {
     }
 
     // Delete dest entries that don't exist on the source. This needs to be done first in case there
-    // are entries with the same name but different type (files vs folders).
+    // are entries with the same name but incompatible (e.g. files vs folders).
     // We do this in reverse to make sure that files are deleted before their parent folder
     // (otherwise deleting the parent is harder/more risky - possibly would also have problems with
     // files being filtered so the folder is needed still as there are filtered-out files in there,
@@ -608,7 +640,7 @@ fn delete_dest_entry(ctx: &mut SyncContext, dest_details: &EntryDetails, dest_pa
                 &[
                     ("Skip", DestEntryNeedsDeletingBehaviour::Skip),
                     ("Delete", DestEntryNeedsDeletingBehaviour::Delete),
-                ], DestEntryNeedsDeletingBehaviour::Error);
+                ], true, DestEntryNeedsDeletingBehaviour::Error);
             if let Some(b) = prompt_result.remembered_behaviour {
                 ctx.dest_entry_needs_deleting_behaviour = b;
             }
@@ -619,16 +651,16 @@ fn delete_dest_entry(ctx: &mut SyncContext, dest_details: &EntryDetails, dest_pa
     match resolved_behaviour {
         DestEntryNeedsDeletingBehaviour::Prompt => panic!("Should have already been resolved!"),
         DestEntryNeedsDeletingBehaviour::Error => return Err(vec![format!(
-            "Dest entry {} needs deleting as it doesn't exist on the src (or has a different type). Will not delete. See --dest-entry-needs-deleting.",
+            "Dest entry {} needs deleting as it doesn't exist on the src (or is incompatible). Will not delete. See --dest-entry-needs-deleting.",
             format_root_relative(&dest_path, &ctx.dest_root),
         )]),
         DestEntryNeedsDeletingBehaviour::Skip => {
-            trace!("Dest entry {} needs deleting as it doesn't exist on the src (or has a different type). Skipping.",
+            trace!("Dest entry {} needs deleting as it doesn't exist on the src (or is incompatible). Skipping.",
                 format_root_relative(&dest_path, &ctx.dest_root));
             Ok(())
         }
         DestEntryNeedsDeletingBehaviour::Delete => {
-            trace!("Dest entry {} needs deleting as it doesn't exist on the src (or has a different type). Deleting.",
+            trace!("Dest entry {} needs deleting as it doesn't exist on the src (or is incompatible). Deleting.",
             format_root_relative(&dest_path, &ctx.dest_root));
             let c = match dest_details {
                 EntryDetails::File { size, .. } => {
@@ -682,7 +714,7 @@ fn handle_existing_file(
                         &[
                             ("Skip", DestFileNewerBehaviour::Skip),
                             ("Overwrite", DestFileNewerBehaviour::Overwrite),
-                        ], DestFileNewerBehaviour::Error);
+                        ], true, DestFileNewerBehaviour::Error);
                     if let Some(b) = prompt_result.remembered_behaviour {
                         ctx.dest_file_newer_behaviour = b;
                     }
@@ -753,12 +785,16 @@ impl<B: Copy> ResolvePromptResult<B> {
 }
 
 fn resolve_prompt<B: Copy>(prompt: String, progress_bar: &ProgressBar,
-    options: &[(&str, B)], cancel_behaviour: B) -> ResolvePromptResult<B> {
+    options: &[(&str, B)], include_always_versions: bool, cancel_behaviour: B) -> ResolvePromptResult<B> {
 
     let mut items = vec![];
     for o in options {
-        items.push((format!("{} (just this occurence)", o.0), ResolvePromptResult::once(o.1)));
-        items.push((format!("{} (all occurences)", o.0), ResolvePromptResult::always(o.1)));
+        if include_always_versions {
+            items.push((format!("{} (just this occurence)", o.0), ResolvePromptResult::once(o.1)));
+            items.push((format!("{} (all occurences)", o.0), ResolvePromptResult::always(o.1)));
+        } else {
+            items.push((String::from(o.0), ResolvePromptResult::once(o.1)));
+        }
     }
     items.push((String::from("Cancel sync"), ResolvePromptResult::once(cancel_behaviour)));
 

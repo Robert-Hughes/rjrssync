@@ -331,7 +331,11 @@ pub fn run_expect_success(src_node: &FilesystemNode, dest_node: &FilesystemNode,
         ],
         args: vec![
             "$TEMP/src".to_string(),
-            "$TEMP/dest".to_string()
+            "$TEMP/dest".to_string(),
+            // Some tests require deleting the dest root, which we allow here. The default is to prompt
+            // the user, which is covered by other tests (dest_root_needs_deleting_tests.rs)
+            String::from("--dest-root-needs-deleting"), 
+            String::from("delete"),
         ],
         expected_exit_code: 0,
         expected_filesystem_nodes: vec![

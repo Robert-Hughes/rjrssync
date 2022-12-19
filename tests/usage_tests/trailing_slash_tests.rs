@@ -33,6 +33,10 @@ fn run_trailing_slashes_test_expect_success_override_dest(src_node: Option<&File
         args: vec![
             "$TEMP/src".to_string() + src_trailing_slash,
             "$TEMP/dest".to_string() + dest_trailing_slash,
+            // Some tests require deleting the dest root, which we allow here. The default is to prompt
+            // the user, which is covered by other tests (dest_root_needs_deleting_tests.rs)
+            String::from("--dest-root-needs-deleting"), 
+            String::from("delete"),
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![

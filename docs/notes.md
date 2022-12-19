@@ -95,7 +95,7 @@ The cell contents describe the behaviour given those inputs:
    - 'b' means that the source is copied over to the path b, creating, updating or replacing whatever might be there.
    - 'b/a' means that the source is copied over to the path b/a, creating, updating or replacing whatever might be there.
    - '!' indicates that the behaviour might be surprising/destructive because it deletes an existing file or folder and replaces it
-        with a folder/file. We should probably warn for this.
+        with a folder/file. We prompt the user for this.
 
 |---------------------------------------------------------------------|
 |          Dest ->    |  Non-existent |File or symlink|    Folder     |

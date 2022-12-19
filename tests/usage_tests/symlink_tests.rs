@@ -272,6 +272,10 @@ fn test_file_to_symlink_file_dest_root() {
         args: vec![
             "$TEMP/src".to_string(),
             "$TEMP/dest".to_string(),
+            // This test requires deleting the dest root, which we allow here. The default is to prompt
+            // the user, which is covered by other tests (dest_root_needs_deleting_tests.rs)
+            String::from("--dest-root-needs-deleting"), 
+            String::from("delete"),
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
@@ -306,6 +310,10 @@ fn test_file_to_symlink_folder_dest_root() {
         args: vec![
             "$TEMP/src".to_string(),
             "$TEMP/dest".to_string(),
+            // This test requires deleting the dest root, which we allow here. The default is to prompt
+            // the user, which is covered by other tests (dest_root_needs_deleting_tests.rs)
+            String::from("--dest-root-needs-deleting"), 
+            String::from("delete"),
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![

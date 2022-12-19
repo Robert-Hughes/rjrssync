@@ -75,6 +75,16 @@ pub struct BossCliArgs {
     //TODO: name too long!
     //TODO: include in spec file?
 
+    /// Specifies behaviour when the entire root on the destination side needs deleting.
+    /// This might indicate that data is about to be unintentionally lost.
+    /// This is separate to --dest-entry-needs-deleting, because there is some potentially
+    /// surprising behaviour with regards to replacing the destination root that warrants
+    /// special warning.
+    #[arg(long, default_value="prompt")]
+    pub dest_root_needs_deleting: DestRootNeedsDeletingBehaviour,
+    //TODO: name too long?
+    //TODO: include in spec file?
+
     /// Outputs some additional statistics about the data copied.
     #[arg(long)]
     pub stats: bool, // This is a separate flag to --verbose, because that is more for debugging, but this is useful for normal users
@@ -168,6 +178,16 @@ pub enum DestEntryNeedsDeletingBehaviour {
     /// something else from being placed there.
     Skip,
     /// The destination entry will be deleted and the rest of the sync will continue.
+    Delete,
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug)]
+pub enum DestRootNeedsDeletingBehaviour {
+    /// The user will be asked what to do. (In a non-interactive environment, this is equivalent to 'error')
+    Prompt,
+    /// An error will be raised, the sync will stop and the destination will not be changed.
+    Error,
+    /// The destination root will be deleted and the rest of the sync will continue.
     Delete,
 }
 
@@ -398,6 +418,7 @@ pub fn boss_main() -> ExitCode {
 
         let sync_result = sync(&sync_spec.src, &sync_spec.dest, &filters,
             args.dry_run, args.dest_file_newer, args.dest_entry_needs_deleting,
+            args.dest_root_needs_deleting,
             args.stats, &mut src_comms, &mut dest_comms);
 
         match sync_result {
