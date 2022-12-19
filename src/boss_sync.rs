@@ -411,51 +411,17 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), Vec<String>> {
         .with_style(ProgressStyle::with_template("[{elapsed}] {bar:40.green/black} {human_pos:>7}/{human_len:7} {msg}").unwrap());
         ctx.progress_bar.enable_steady_tick(Duration::from_millis(250));
 
-    let mut progress_count = 0;
     {
         profile_this!("Sending delete commands");
         ctx.stats.delete_start_time = Some(Instant::now());
         for (dest_path, dest_details) in dest_entries.iter().rev() {
             let s = src_entries_lookup.get(dest_path);
             if !s.is_some() || should_delete(s.unwrap(), dest_details, dest_platform_differentiates_symlinks) {
-                debug!("Deleting from dest {}", format_root_relative(&dest_path, &ctx.dest_root));
-                if progress_count % 100 == 0 {
-                    // Deletes are quite quick, so reduce the overhead of marking progress by only marking it occasionally
-                    ctx.dest_comms.send_command(Command::Marker(progress_count));
-                }
-                let c = match dest_details {
-                    EntryDetails::File { size, .. } => {
-                        ctx.stats.num_files_deleted += 1;
-                        ctx.stats.num_bytes_deleted += size;
-                        Command::DeleteFile {
-                            path: dest_path.clone(),
-                        }
-                    }
-                    EntryDetails::Folder => {
-                        ctx.stats.num_folders_deleted += 1;
-                        Command::DeleteFolder {
-                            path: dest_path.clone(),
-                        }
-                    }
-                    EntryDetails::Symlink { kind, .. } => {
-                        ctx.stats.num_symlinks_deleted += 1;
-                        Command::DeleteSymlink {
-                            path: dest_path.clone(),
-                            kind: *kind,
-                        }
-                    }
-                };
-                if !ctx.dry_run {
-                    ctx.dest_comms.send_command(c);
-                    process_dest_responses(ctx.dest_comms, &ctx.progress_bar, &mut ctx.stats, None)?;
-                } else {
-                    // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be deleted
-                    info!("Would delete from dest {}", format_root_relative(&dest_path, &ctx.dest_root));
-                }
+                delete_dest_entry(&mut ctx, dest_details, dest_path)?;
             }
-            progress_count += 1;
+            ctx.progress_count += 1;
         }
-        ctx.dest_comms.send_command(Command::Marker(progress_count)); // Mark the exact end of deletion, rather then having to wait for the first file to be copied
+        ctx.dest_comms.send_command(Command::Marker(ctx.progress_count)); // Mark the exact end of deletion, rather then having to wait for the first file to be copied
     }
 
     // Copy entries that don't exist, or do exist but are out-of-date.
@@ -492,7 +458,7 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), Vec<String>> {
                 _ => match src_details {
                     EntryDetails::File { size, modified_time: src_modified_time } => {
                         debug!("Source file {} file doesn't exist on dest - copying", format_root_relative(&path, &ctx.src_root));
-                        ctx.dest_comms.send_command(Command::Marker(progress_count));
+                        ctx.dest_comms.send_command(Command::Marker(ctx.progress_count));
                         copy_file(&path, size, src_modified_time, &mut ctx)?
                     }
                     EntryDetails::Folder => {
@@ -525,7 +491,7 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), Vec<String>> {
                     }
                 },
             }
-            progress_count += 1;
+            ctx.progress_count += 1;
 
             process_dest_responses(ctx.dest_comms, &ctx.progress_bar, &mut ctx.stats, None)?;
         }
@@ -620,6 +586,43 @@ pub fn should_delete(src: &EntryDetails, dest: &EntryDetails, dest_platform_diff
             _ => true,
         }
     }
+}
+
+fn delete_dest_entry(ctx: &mut SyncContext, dest_details: &EntryDetails, dest_path: &RootRelativePath) -> Result<(), Vec<String>> {
+    debug!("Deleting from dest {}", format_root_relative(&dest_path, &ctx.dest_root));
+    if ctx.progress_count % 100 == 0 {
+        // Deletes are quite quick, so reduce the overhead of marking progress by only marking it occasionally
+        ctx.dest_comms.send_command(Command::Marker(ctx.progress_count));
+    }
+    let c = match dest_details {
+        EntryDetails::File { size, .. } => {
+            ctx.stats.num_files_deleted += 1;
+            ctx.stats.num_bytes_deleted += size;
+            Command::DeleteFile {
+                path: dest_path.clone(),
+            }
+        }
+        EntryDetails::Folder => {
+            ctx.stats.num_folders_deleted += 1;
+            Command::DeleteFolder {
+                path: dest_path.clone(),
+            }
+        }
+        EntryDetails::Symlink { kind, .. } => {
+            ctx.stats.num_symlinks_deleted += 1;
+            Command::DeleteSymlink {
+                path: dest_path.clone(),
+                kind: *kind,
+            }
+        }
+    };
+    Ok(if !ctx.dry_run {
+        ctx.dest_comms.send_command(c);
+        process_dest_responses(ctx.dest_comms, &ctx.progress_bar, &mut ctx.stats, None)?;
+    } else {
+        // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be deleted
+        info!("Would delete from dest {}", format_root_relative(&dest_path, &ctx.dest_root));
+    })
 }
 
 fn handle_existing_file(
