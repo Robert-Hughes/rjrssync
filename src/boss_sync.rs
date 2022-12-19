@@ -614,7 +614,11 @@ fn handle_existing_file(
                         "Dest file {} is newer than src file {}. What do?",
                         format_root_relative(&path, &dest_root),
                         format_root_relative(&path, src_root)),
-                        progress_bar);
+                        progress_bar, 
+                        &[
+                            ("Skip", DestFileNewerBehaviour::Skip),
+                            ("Overwrite", DestFileNewerBehaviour::Overwrite),
+                        ], DestFileNewerBehaviour::Error);
                     if let Some(b) = prompt_result.remembered_behaviour {
                         *dest_file_newer_behaviour = b;
                     }
@@ -669,64 +673,75 @@ fn handle_existing_file(
 /// to respond.
 const TEST_PROMPT_RESPONSE_ENV_VAR: &str = "RJRSSYNC_TEST_PROMPT_RESPONSE";
 
-struct ResolvePromptResult {
+#[derive(Clone, Copy)]
+struct ResolvePromptResult<B> {
     /// The decision that was made for this occurence.
-    immediate_behaviour: DestFileNewerBehaviour,
+    immediate_behaviour: B,
     /// The decision that was made to be remembered for future occurences (if any)
-    remembered_behaviour: Option<DestFileNewerBehaviour>,
+    remembered_behaviour: Option<B>,
 }
-impl ResolvePromptResult {
-    fn once(b: DestFileNewerBehaviour) -> ResolvePromptResult {
-        ResolvePromptResult { immediate_behaviour: b, remembered_behaviour: None }
+impl<B: Copy> ResolvePromptResult<B> {
+    fn once(b: B) -> Self {
+        Self { immediate_behaviour: b, remembered_behaviour: None }
     }
-    fn always(b: DestFileNewerBehaviour) -> ResolvePromptResult {
-        ResolvePromptResult { immediate_behaviour: b, remembered_behaviour: Some(b) }
+    fn always(b: B) -> Self {
+        Self { immediate_behaviour: b, remembered_behaviour: Some(b) }
     }
 }
 
-//TODO: make this generic, so can use for other behaviours too
-fn resolve_prompt(prompt: String, progress_bar: &ProgressBar) -> ResolvePromptResult {
+fn resolve_prompt<B: Copy>(prompt: String, progress_bar: &ProgressBar,
+    options: &[(&str, B)], cancel_behaviour: B) -> ResolvePromptResult<B> {
+
+    let mut items = vec![];
+    for o in options {
+        items.push((format!("{} (just this occurence)", o.0), ResolvePromptResult::once(o.1)));
+        items.push((format!("{} (all occurences)", o.0), ResolvePromptResult::always(o.1)));
+    }
+
     // Allow overriding the prompt response for testing
-    let mut overriden_response = None;
+    let mut response_idx = None;
     if let Ok(all_responses) = std::env::var(TEST_PROMPT_RESPONSE_ENV_VAR) {
         let mut iter = all_responses.splitn(2, ',');
         let next_response = iter.next().unwrap(); // It always has at least one entry, even if the input string is empty
         if !next_response.is_empty() {
             // Print the prompt anyway, so the test can confirm that it was hit
             println!("{}", prompt);
-            overriden_response = Some(next_response.to_string());
+            response_idx = match next_response {
+                "<CANCEL>" => Some(-1),
+                x => if let Some(p) = items.iter().position(|i| i.0 == x) {
+                    Some(p as i32)
+                } else {
+                    panic!("Invalid response");
+                }
+            };
             std::env::set_var(TEST_PROMPT_RESPONSE_ENV_VAR, iter.next().unwrap_or(""));
         }
     }
-    let response = match overriden_response {
+    let response_idx = match response_idx {
         Some(r) => r,
         None => {
             if !dialoguer::console::user_attended() {
                 debug!("Unattended terminal, acting as if error");
-                String::from("<CANCEL>")
+                -1
             } else {
                 progress_bar.suspend(|| { // Hide the progress bar while showing this message, otherwise the background tick will redraw it over our prompt!
-                    let items = ["Skip (just this occurence)", "Skip (all occurences)", "Overwrite (just this occurence)", "Overwrite (all occurences)"];
                     let r = dialoguer::Select::with_theme(&dialoguer::theme::ColorfulTheme::default())
                         .with_prompt(prompt)
-                        .items(&items).default(0).interact_opt();
+                        .items(&items.iter().map(|i| &i.0).collect::<Vec<&String>>())
+                        .default(0).interact_opt();
                     let response = match r {
-                        Ok(Some(i)) if i < items.len() => items[i],
-                        _ => "<CANCEL>", // e.g. if user presses q or Esc
+                        Ok(Some(i)) => i as i32,
+                        _ => -1, // e.g. if user presses q or Esc
                     };
-                    response.to_string()
+                    response
                 })
             }
         }
     };
 
-    match &response[..] {
-        "<CANCEL>" => ResolvePromptResult::once(DestFileNewerBehaviour::Error),
-        "Skip (just this occurence)" => ResolvePromptResult::once(DestFileNewerBehaviour::Skip),
-        "Skip (all occurences)" => ResolvePromptResult::always(DestFileNewerBehaviour::Skip),
-        "Overwrite (just this occurence)" => ResolvePromptResult::once(DestFileNewerBehaviour::Overwrite),
-        "Overwrite (all occurences)" => ResolvePromptResult::always(DestFileNewerBehaviour::Overwrite),
-        _ => panic!("Impossible!"),
+    match response_idx {
+        -1 => ResolvePromptResult::once(cancel_behaviour),
+        i => items[i as usize].1,
     }
 }
 

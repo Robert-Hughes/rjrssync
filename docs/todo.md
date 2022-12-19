@@ -49,6 +49,7 @@ Syncing logic
 * What happens if src and dest both point to the same place?
    - Either directly, or via symlink(s)?
 * --no-encryption option, might be faster?
+   - Possibly want to keep the authentication aspects, but drop the encryption?
 * How to handle case when want to copy two different folders into the same destination, some sort of --no-delete?
 * Use of SystemTime
    -  is this compatible between platforms, time zone changes, precision differences, etc. etc.
@@ -68,6 +69,7 @@ which we can default to the current destructive behaviour.
     which is a bit silly! Need to check first?
   - When files need overwriting/updating. Combined with the others, this would be a complete "no-destructive" mode if you set everything to prompt or skip? 
   - Maybe could have an option to set all of them at once?
+* Errors aren't displayed in a very friendly way (it has all the logging prefixes)
 
 Performance
 ------------
@@ -85,7 +87,9 @@ Performance
 * Profiling events like send/receive could show the message type?
 * Because our send_command/response now returns immediately, if the network is being slow then we will
   slowly take up more and more memory in the channel buffer (same on both sending and receiving side)! 
-  Maybe could use a channel with a max capacity and it blocks? crossbeam?
+  - Idea: keep track of the size (rough bytes) of messages in the channel with some kind of Arc<Atomic<usize>> - the sending side checks this and busy-waits if it's too full (could use
+  the busy wait helper thing in Crossbeam), the receiving side decrements the counter.
+  Would need a "get size" function on messages, which could be std::mem::size() + any heap data.
 * crossbeam channels are supposed to have better performance (and better API/features)
 
 Misc
