@@ -760,6 +760,7 @@ fn resolve_prompt<B: Copy>(prompt: String, progress_bar: &ProgressBar,
         items.push((format!("{} (just this occurence)", o.0), ResolvePromptResult::once(o.1)));
         items.push((format!("{} (all occurences)", o.0), ResolvePromptResult::always(o.1)));
     }
+    items.push((String::from("Cancel sync"), ResolvePromptResult::once(cancel_behaviour)));
 
     // Allow overriding the prompt response for testing
     let mut response_idx = None;
@@ -769,14 +770,7 @@ fn resolve_prompt<B: Copy>(prompt: String, progress_bar: &ProgressBar,
         if !next_response.is_empty() {
             // Print the prompt anyway, so the test can confirm that it was hit
             println!("{}", prompt);
-            response_idx = match next_response {
-                "<CANCEL>" => Some(-1),
-                x => if let Some(p) = items.iter().position(|i| i.0 == x) {
-                    Some(p as i32)
-                } else {
-                    panic!("Invalid response");
-                }
-            };
+            response_idx = Some(items.iter().position(|i| i.0 == next_response).expect("Invalid response"));
             std::env::set_var(TEST_PROMPT_RESPONSE_ENV_VAR, iter.next().unwrap_or(""));
         }
     }
@@ -784,8 +778,8 @@ fn resolve_prompt<B: Copy>(prompt: String, progress_bar: &ProgressBar,
         Some(r) => r,
         None => {
             if !dialoguer::console::user_attended() {
-                debug!("Unattended terminal, acting as if error");
-                -1
+                debug!("Unattended terminal, behaving as if prompt cancelled");
+                items.len() - 1 // Last entry is always cancel
             } else {
                 progress_bar.suspend(|| { // Hide the progress bar while showing this message, otherwise the background tick will redraw it over our prompt!
                     let r = dialoguer::Select::with_theme(&dialoguer::theme::ColorfulTheme::default())
@@ -793,8 +787,8 @@ fn resolve_prompt<B: Copy>(prompt: String, progress_bar: &ProgressBar,
                         .items(&items.iter().map(|i| &i.0).collect::<Vec<&String>>())
                         .default(0).interact_opt(); //TODO: remember default from previous time the same prompt was shown?
                     let response = match r {
-                        Ok(Some(i)) => i as i32,
-                        _ => -1, // e.g. if user presses q or Esc
+                        Ok(Some(i)) => i,
+                        _ => items.len() - 1 // Last entry is always cancel, e.g. if user presses q or Esc
                     };
                     response
                 })
@@ -802,10 +796,7 @@ fn resolve_prompt<B: Copy>(prompt: String, progress_bar: &ProgressBar,
         }
     };
 
-    match response_idx {
-        -1 => ResolvePromptResult::once(cancel_behaviour),
-        i => items[i as usize].1,
-    }
+    items[response_idx].1
 }
 
 fn copy_file(

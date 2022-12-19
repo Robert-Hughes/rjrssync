@@ -166,7 +166,7 @@ fn prompt_cancel() {
             "prompt".to_string(),
         ],
         prompt_responses: vec![
-            String::from("<CANCEL>"),
+            String::from("Cancel sync"),
         ],
         expected_exit_code: 12,
         expected_output_messages: vec![
