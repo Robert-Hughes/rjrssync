@@ -660,41 +660,63 @@ fn handle_existing_file(
     Ok(())
 }
 
+/// For testing purposes, this env var can be set to a list of responses to prompts
+/// that we might display, which we use immediately rather than waiting for a real user
+/// to respond.
+const TEST_PROMPT_RESPONSE_ENV_VAR: &str = "RJRSSYNC_TEST_PROMPT_RESPONSE";
+
 //TODO: rather than taking mutable ref, can we return something, e.g. Option<Behaviour> to specify new default behaviour?
 //TODO: make this generic, so can use for other behaviours too
 fn resolve_prompt(prompt: String, progress_bar: &ProgressBar, dest_file_newer_behaviour: &mut DestFileNewerBehaviour) 
     -> DestFileNewerBehaviour {
-    if !dialoguer::console::user_attended() {
-        debug!("Unattended terminal, acting as if error");
-        return DestFileNewerBehaviour::Error;
-    }
-    progress_bar.disable_steady_tick();
-    //TODO: check this works properly, with suspending the progress bar temporarily and then putting it back. Perhaps use .suspend instead?
-    let items = ["Skip (just this occurence)", "Skip (all occurences)", "Overwrite (just this occurence)", "Overwrite (all occurences)"];
-    let r = dialoguer::Select::with_theme(&dialoguer::theme::ColorfulTheme::default())
-        .with_prompt(prompt)
-        .items(&items).default(0).interact();
-    //TODO: allow the user cancelling? Use interact_opt? Need to test this case too!
-    let result = match r {
-        Ok(i) if i < items.len() => {
-            match items[i] {
-                "Skip (just this occurence)" => DestFileNewerBehaviour::Skip,
-                "Skip (all occurences)" => {
-                    *dest_file_newer_behaviour = DestFileNewerBehaviour::Skip;
-                    DestFileNewerBehaviour::Skip
-                },
-                "Overwrite (just this occurence)" => DestFileNewerBehaviour::Overwrite,
-                "Overwrite (all occurences)" => {
-                    *dest_file_newer_behaviour = DestFileNewerBehaviour::Overwrite;
-                    DestFileNewerBehaviour::Overwrite
-                },
-                _ => panic!("Impossible!"),
-            }
+    // Allow overriding the prompt response for testing
+    let mut overriden_response = None;
+    if let Ok(all_responses) = std::env::var(TEST_PROMPT_RESPONSE_ENV_VAR) {
+        let mut iter = all_responses.splitn(2, ',');
+        let next_response = iter.next().unwrap(); // It always has at least one entry, even if the input string is empty
+        if !next_response.is_empty() {
+            // Print the prompt anyway, so the test can confirm that it was hit
+            println!("{}", prompt);
+            overriden_response = Some(next_response.to_string());
+            std::env::set_var(TEST_PROMPT_RESPONSE_ENV_VAR, iter.next().unwrap_or(""));
         }
-        _ => panic!("Unexpected response!"), //TODO: when can this happen?
+    }
+    let response = match overriden_response {
+        Some(r) => r,
+        None => {
+            if !dialoguer::console::user_attended() {
+                debug!("Unattended terminal, acting as if error");
+                return DestFileNewerBehaviour::Error;
+            }
+            progress_bar.disable_steady_tick();
+            //TODO: check this works properly, with suspending the progress bar temporarily and then putting it back. Perhaps use .suspend instead?
+            let items = ["Skip (just this occurence)", "Skip (all occurences)", "Overwrite (just this occurence)", "Overwrite (all occurences)"];
+            let r = dialoguer::Select::with_theme(&dialoguer::theme::ColorfulTheme::default())
+                .with_prompt(prompt)
+                .items(&items).default(0).interact_opt();
+            let response = match r {
+                Ok(Some(i)) if i < items.len() => items[i],
+                _ => "<CANCEL>", // e.g. if user presses q or Esc
+            };
+            progress_bar.enable_steady_tick(Duration::from_millis(250)); //TODO: this duplicates the duration, can we use .suspend instead? Would it handle Ctrl-C to cancel?    
+            response.to_string()
+        }
     };
-    progress_bar.enable_steady_tick(Duration::from_millis(250)); //TODO: this duplicates the duration, can we use .suspend instead? Would it handle Ctrl-C to cancel?
-    result
+
+    match &response[..] {
+        "<CANCEL>" => DestFileNewerBehaviour::Error,
+        "Skip (just this occurence)" => DestFileNewerBehaviour::Skip,
+        "Skip (all occurences)" => {
+            *dest_file_newer_behaviour = DestFileNewerBehaviour::Skip;
+            DestFileNewerBehaviour::Skip
+        },
+        "Overwrite (just this occurence)" => DestFileNewerBehaviour::Overwrite,
+        "Overwrite (all occurences)" => {
+            *dest_file_newer_behaviour = DestFileNewerBehaviour::Overwrite;
+            DestFileNewerBehaviour::Overwrite
+        },
+        _ => panic!("Impossible!"),
+    }
 }
 
 fn copy_file(

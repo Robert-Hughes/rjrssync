@@ -313,13 +313,13 @@ fn test_dest_file_newer_prompt_skip_then_overwrite() {
             "prompt".to_string(),
         ],
         prompt_responses: vec![
-            String::from("Skip"),
-            String::from("Overwrite"),
+            String::from("Skip (just this occurence)"),
+            String::from("Overwrite (just this occurence)"),
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
-            Regex::new(&regex::escape("PROMPT1!")).unwrap(),
-            Regex::new(&regex::escape("PROMPT2!")).unwrap(),
+            Regex::new("Dest file .*c1.* is newer than src file .*c1.*").unwrap(),
+            Regex::new("Dest file .*c2.* is newer than src file .*c2.*").unwrap(),
             Regex::new(&regex::escape("Copied 1 file(s)")).unwrap(), // 1 file copied the other skipped
         ],
         expected_filesystem_nodes: vec![
@@ -331,13 +331,131 @@ fn test_dest_file_newer_prompt_skip_then_overwrite() {
         ],
         ..Default::default()
     });
-    //TODO: how do we test the prompt, when this is a non-interactive test? Maybe we could have a way to mock
-    //  user inputs to rjrssync for testing? E.g. an env var, or a special test build?
-    //TODO: ideally we also confirm that all the prompt responses were "consumed" by rjrssync somehow.
 }
 
-//TODO: test for prompt with skip all
-//TODO: test for prompt with overwrite all
+/// Syncing two files which already exists on the dest, but the dest has newer modified
+/// dates. The expected behaviour is controlled by a command-line argument, which in this case
+/// we set to "prompt", and choose "skip all" on the first prompt, so both files should be skipped.
+#[test]
+fn test_dest_file_newer_prompt_skip_all() {
+    let src = folder! {
+        "c1" => file_with_modified("contents1", SystemTime::UNIX_EPOCH),
+        "c2" => file_with_modified("contents2", SystemTime::UNIX_EPOCH),
+    };
+    let dest = folder! {
+        "c1" => file_with_modified("contents3", SystemTime::UNIX_EPOCH + Duration::from_secs(1)),
+        "c2" => file_with_modified("contents4", SystemTime::UNIX_EPOCH + Duration::from_secs(1)),
+    };
+    run(TestDesc {
+        setup_filesystem_nodes: vec![
+            ("$TEMP/src", &src),
+            ("$TEMP/dest", &dest),
+        ],
+        args: vec![
+            "$TEMP/src".to_string(),
+            "$TEMP/dest".to_string(),
+            "--dest-file-newer".to_string(),
+            "prompt".to_string(),
+        ],
+        prompt_responses: vec![
+            String::from("Skip (all occurences)"),
+        ],
+        expected_exit_code: 0,
+        expected_output_messages: vec![
+            Regex::new("Dest file .*c1.* is newer than src file .*c1.*").unwrap(),
+            Regex::new(&regex::escape("Nothing to do")).unwrap(), // Both files skipped
+        ],
+        unexpected_output_messages: vec![
+            Regex::new("Dest file .*c2.* is newer than src file .*c2.*").unwrap(), // We'll never be prompted about c2, because we choose to "skip all"
+        ],
+        expected_filesystem_nodes: vec![
+            ("$TEMP/src", Some(&src)), // Unchanged
+            ("$TEMP/dest", Some(&dest)), // Unchanged
+        ],
+        ..Default::default()
+    });
+}
+
+/// Syncing two files which already exists on the dest, but the dest has newer modified
+/// dates. The expected behaviour is controlled by a command-line argument, which in this case
+/// we set to "prompt", and choose "overwrite all" on the first prompt, so both files should be overwritten.
+#[test]
+fn test_dest_file_newer_prompt_overwrite_all() {
+    let src = folder! {
+        "c1" => file_with_modified("contents1", SystemTime::UNIX_EPOCH),
+        "c2" => file_with_modified("contents2", SystemTime::UNIX_EPOCH),
+    };
+    let dest = folder! {
+        "c1" => file_with_modified("contents3", SystemTime::UNIX_EPOCH + Duration::from_secs(1)),
+        "c2" => file_with_modified("contents4", SystemTime::UNIX_EPOCH + Duration::from_secs(1)),
+    };
+    run(TestDesc {
+        setup_filesystem_nodes: vec![
+            ("$TEMP/src", &src),
+            ("$TEMP/dest", &dest),
+        ],
+        args: vec![
+            "$TEMP/src".to_string(),
+            "$TEMP/dest".to_string(),
+            "--dest-file-newer".to_string(),
+            "prompt".to_string(),
+        ],
+        prompt_responses: vec![
+            String::from("Overwrite (all occurences)"),
+        ],
+        expected_exit_code: 0,
+        expected_output_messages: vec![
+            Regex::new("Dest file .*c1.* is newer than src file .*c1.*").unwrap(),
+            Regex::new(&regex::escape("Copied 2 file(s)")).unwrap(), // Both files copied
+        ],
+        unexpected_output_messages: vec![
+            Regex::new("Dest file .*c2.* is newer than src file .*c2.*").unwrap(), // We'll never be prompted about c2, because we choose to "overwrite all"
+        ],
+        expected_filesystem_nodes: vec![
+            ("$TEMP/src", Some(&src)), // Unchanged
+            ("$TEMP/dest", Some(&src)), // All files copied, so same as src
+        ],
+        ..Default::default()
+    });
+}
+
+/// Syncing a file which already exists on the dest, but the dest has a newer modified
+/// date. The expected behaviour is controlled by a command-line argument, which in this case
+/// we set to "prompt", and choose to cancel the prompt, so the sync should stop.
+#[test]
+fn test_dest_file_newer_prompt_cancel() {
+    let src = folder! {
+        "c1" => file_with_modified("contents1", SystemTime::UNIX_EPOCH),
+    };
+    let dest = folder! {
+        "c1" => file_with_modified("contents2", SystemTime::UNIX_EPOCH + Duration::from_secs(1)),
+    };
+    run(TestDesc {
+        setup_filesystem_nodes: vec![
+            ("$TEMP/src", &src),
+            ("$TEMP/dest", &dest),
+        ],
+        args: vec![
+            "$TEMP/src".to_string(),
+            "$TEMP/dest".to_string(),
+            "--dest-file-newer".to_string(),
+            "prompt".to_string(),
+        ],
+        prompt_responses: vec![
+            String::from("<CANCEL>"),
+        ],
+        expected_exit_code: 12,
+        expected_output_messages: vec![
+            Regex::new("Dest file .*c1.* is newer than src file .*c1.*").unwrap(),
+            Regex::new(&regex::escape("Will not overwrite")).unwrap(), // Cancelled
+        ],
+        expected_filesystem_nodes: vec![
+            ("$TEMP/src", Some(&src)), // Unchanged
+            ("$TEMP/dest", Some(&dest)), // Unchanged
+        ],
+        ..Default::default()
+    });
+}
 
 /// Syncing a file which already exists on the dest, but the dest has a newer modified
 /// date. The expected behaviour is controlled by a command-line argument, which in this case

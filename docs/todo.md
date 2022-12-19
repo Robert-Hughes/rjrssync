@@ -61,6 +61,13 @@ Also the same buffer size this is used for both the filesystem read() buffer siz
 // the size of data written on the other doer. The same size might not be optimal for all of these!
 * Use new prompting and behaviour logic for other cases, e.g. to allow preventing file deletion,
 which we can default to the current destructive behaviour.
+  - When a dest entry needs deleting (default: just do it)
+  - WHen dest _root_ needs deleting (default: prompt). This will cover the possibly surprising
+    behaviour in the trailing slash table. Need to be careful if the dest root is a folder, as we will
+    first try to delete all the contents of that folder, and only then warn about deleting the root,
+    which is a bit silly! Need to check first?
+  - When files need overwriting/updating. Combined with the others, this would be a complete "no-destructive" mode if you set everything to prompt or skip? 
+  - Maybe could have an option to set all of them at once?
 
 Performance
 ------------

@@ -233,6 +233,7 @@ pub fn run(desc: TestDesc) {
     let output = run_process_with_live_output(
         std::process::Command::new(rjrssync_path)
         .current_dir(&temp_folder) // So that any relative paths are inside the test folder
+        .env("RJRSSYNC_TEST_PROMPT_RESPONSE", desc.prompt_responses.join(","))
         .args(desc.args.iter().map(|a| substitute_temp(a))));
 
     // Check exit code
