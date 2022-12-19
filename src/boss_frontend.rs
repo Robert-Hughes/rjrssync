@@ -68,6 +68,13 @@ pub struct BossCliArgs {
     //TODO: equivalent for symlinks?
     //TODO: include in spec file?
 
+    /// Specifies behaviour when a file/folder/symlink on the destination side needs deleting.
+    /// This might indicate that data is about to be unintentionally lost.
+    #[arg(long, default_value="delete")]
+    pub dest_entry_needs_deleting: DestEntryNeedsDeletingBehaviour,
+    //TODO: name too long!
+    //TODO: include in spec file?
+
     /// Outputs some additional statistics about the data copied.
     #[arg(long)]
     pub stats: bool, // This is a separate flag to --verbose, because that is more for debugging, but this is useful for normal users
@@ -148,6 +155,20 @@ pub enum DestFileNewerBehaviour {
     Skip,
     /// The destination file will be overwritten and the rest of the sync will continue.
     Overwrite,
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug)]
+pub enum DestEntryNeedsDeletingBehaviour {
+    /// The user will be asked what to do. (In a non-interactive environment, this is equivalent to 'error')
+    Prompt,
+    /// An error will be raised, the sync will stop and the destination file will not be deleted.
+    Error,
+    /// The destination file will not be deleted and the rest of the sync will continue.
+    /// Note that this choice may lead to errors, as the entry that needed deleting might be preventing
+    /// something else from being placed there.
+    Skip,
+    /// The destination entry will be deleted and the rest of the sync will continue.
+    Delete,
 }
 
 #[derive(Default, Debug, PartialEq)]
@@ -376,7 +397,8 @@ pub fn boss_main() -> ExitCode {
         }
 
         let sync_result = sync(&sync_spec.src, &sync_spec.dest, &filters,
-            args.dry_run, args.dest_file_newer, args.stats, &mut src_comms, &mut dest_comms);
+            args.dry_run, args.dest_file_newer, args.dest_entry_needs_deleting,
+            args.stats, &mut src_comms, &mut dest_comms);
 
         match sync_result {
             Ok(()) => (),

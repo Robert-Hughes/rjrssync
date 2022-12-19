@@ -7,3 +7,4 @@ mod trailing_slash_tests;
 mod remote_tests;
 mod symlink_tests;
 mod dest_file_newer_tests;
+mod dest_entry_needs_deleting;

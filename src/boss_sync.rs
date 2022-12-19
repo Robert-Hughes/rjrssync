@@ -185,6 +185,7 @@ struct SyncContext<'a> {
     stats: Stats,
     dry_run: bool,
     dest_file_newer_behaviour: DestFileNewerBehaviour,
+    dest_entry_needs_deleting_behaviour: DestEntryNeedsDeletingBehaviour,
     show_stats: bool,
     src_root: String,
     dest_root: String,
@@ -192,12 +193,14 @@ struct SyncContext<'a> {
     progress_count: u64,
 }
 
+//TODO: maybe this should take a SyncSpec to provide most of these params?
 pub fn sync(
     src_root: &str,
     dest_root: &str,
     filters: &[Filter],
     dry_run: bool,
     dest_file_newer_behaviour: DestFileNewerBehaviour,
+    dest_entry_needs_deleting_behaviour: DestEntryNeedsDeletingBehaviour,
     show_stats: bool,
     src_comms: &mut Comms,
     dest_comms: &mut Comms,
@@ -211,6 +214,7 @@ pub fn sync(
         dry_run,
         show_stats,
         dest_file_newer_behaviour,
+        dest_entry_needs_deleting_behaviour,
         src_root: String::from(src_root),
         dest_root: String::from(dest_root),
         progress_bar: ProgressBar::new_spinner().with_message("Querying..."),
@@ -589,40 +593,74 @@ pub fn should_delete(src: &EntryDetails, dest: &EntryDetails, dest_platform_diff
 }
 
 fn delete_dest_entry(ctx: &mut SyncContext, dest_details: &EntryDetails, dest_path: &RootRelativePath) -> Result<(), Vec<String>> {
-    debug!("Deleting from dest {}", format_root_relative(&dest_path, &ctx.dest_root));
     if ctx.progress_count % 100 == 0 {
         // Deletes are quite quick, so reduce the overhead of marking progress by only marking it occasionally
         ctx.dest_comms.send_command(Command::Marker(ctx.progress_count));
     }
-    let c = match dest_details {
-        EntryDetails::File { size, .. } => {
-            ctx.stats.num_files_deleted += 1;
-            ctx.stats.num_bytes_deleted += size;
-            Command::DeleteFile {
-                path: dest_path.clone(),
+
+    // Resolve any behaviour resulting from a prompt first
+    let resolved_behaviour = match ctx.dest_entry_needs_deleting_behaviour {
+        DestEntryNeedsDeletingBehaviour::Prompt => {
+            let prompt_result = resolve_prompt(format!(
+                "Dest entry {} needs deleting as it doesn't exist on the src. What do?",
+                format_root_relative(dest_path, &ctx.dest_root)),
+                &ctx.progress_bar, 
+                &[
+                    ("Skip", DestEntryNeedsDeletingBehaviour::Skip),
+                    ("Delete", DestEntryNeedsDeletingBehaviour::Delete),
+                ], DestEntryNeedsDeletingBehaviour::Error);
+            if let Some(b) = prompt_result.remembered_behaviour {
+                ctx.dest_entry_needs_deleting_behaviour = b;
             }
-        }
-        EntryDetails::Folder => {
-            ctx.stats.num_folders_deleted += 1;
-            Command::DeleteFolder {
-                path: dest_path.clone(),
-            }
-        }
-        EntryDetails::Symlink { kind, .. } => {
-            ctx.stats.num_symlinks_deleted += 1;
-            Command::DeleteSymlink {
-                path: dest_path.clone(),
-                kind: *kind,
-            }
-        }
+            prompt_result.immediate_behaviour
+        },
+        x => x,
     };
-    Ok(if !ctx.dry_run {
-        ctx.dest_comms.send_command(c);
-        process_dest_responses(ctx.dest_comms, &ctx.progress_bar, &mut ctx.stats, None)?;
-    } else {
-        // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be deleted
-        info!("Would delete from dest {}", format_root_relative(&dest_path, &ctx.dest_root));
-    })
+    match resolved_behaviour {
+        DestEntryNeedsDeletingBehaviour::Prompt => panic!("Should have already been resolved!"),
+        DestEntryNeedsDeletingBehaviour::Error => return Err(vec![format!(
+            "Dest entry {} needs deleting as it doesn't exist on the src (or has a different type). Will not delete. See --dest-entry-needs-deleting.",
+            format_root_relative(&dest_path, &ctx.dest_root),
+        )]),
+        DestEntryNeedsDeletingBehaviour::Skip => {
+            trace!("Dest entry {} needs deleting as it doesn't exist on the src (or has a different type). Skipping.",
+                format_root_relative(&dest_path, &ctx.dest_root));
+            Ok(())
+        }
+        DestEntryNeedsDeletingBehaviour::Delete => {
+            trace!("Dest entry {} needs deleting as it doesn't exist on the src (or has a different type). Deleting.",
+            format_root_relative(&dest_path, &ctx.dest_root));
+            let c = match dest_details {
+                EntryDetails::File { size, .. } => {
+                    ctx.stats.num_files_deleted += 1;
+                    ctx.stats.num_bytes_deleted += size;
+                    Command::DeleteFile {
+                        path: dest_path.clone(),
+                    }
+                }
+                EntryDetails::Folder => {
+                    ctx.stats.num_folders_deleted += 1;
+                    Command::DeleteFolder {
+                        path: dest_path.clone(),
+                    }
+                }
+                EntryDetails::Symlink { kind, .. } => {
+                    ctx.stats.num_symlinks_deleted += 1;
+                    Command::DeleteSymlink {
+                        path: dest_path.clone(),
+                        kind: *kind,
+                    }
+                }
+            };
+            Ok(if !ctx.dry_run {
+                ctx.dest_comms.send_command(c);
+                process_dest_responses(ctx.dest_comms, &ctx.progress_bar, &mut ctx.stats, None)?;
+            } else {
+                // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be deleted
+                info!("Would delete from dest {}", format_root_relative(&dest_path, &ctx.dest_root));
+            })     
+        }
+    }
 }
 
 fn handle_existing_file(
@@ -749,12 +787,11 @@ fn resolve_prompt<B: Copy>(prompt: String, progress_bar: &ProgressBar,
                 debug!("Unattended terminal, acting as if error");
                 -1
             } else {
-                //TODO: the timer isn't being suspended! THe progress bar is still redrawing!
                 progress_bar.suspend(|| { // Hide the progress bar while showing this message, otherwise the background tick will redraw it over our prompt!
                     let r = dialoguer::Select::with_theme(&dialoguer::theme::ColorfulTheme::default())
                         .with_prompt(prompt)
                         .items(&items.iter().map(|i| &i.0).collect::<Vec<&String>>())
-                        .default(0).interact_opt();
+                        .default(0).interact_opt(); //TODO: remember default from previous time the same prompt was shown?
                     let response = match r {
                         Ok(Some(i)) => i as i32,
                         _ => -1, // e.g. if user presses q or Esc
