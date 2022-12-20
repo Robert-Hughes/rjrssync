@@ -64,7 +64,15 @@ pub struct BossCliArgs {
     /// destination file has a newer modified timestamp. This might indicate that data is about
     /// to be unintentionally lost.
     #[arg(long, default_value="prompt")]
-    pub dest_file_newer: DestFileNewerBehaviour,
+    pub dest_file_newer: DestFileUpdateBehaviour,
+    //TODO: equivalent for symlinks?
+    //TODO: include in spec file?
+
+    /// Specifies behaviour when a file exists on both source and destination sides, but the 
+    /// destination file has a older modified timestamp. This might indicate that data is about
+    /// to be unintentionally lost.
+    #[arg(long, default_value="overwrite")]
+    pub dest_file_older: DestFileUpdateBehaviour,
     //TODO: equivalent for symlinks?
     //TODO: include in spec file?
 
@@ -156,7 +164,7 @@ impl std::str::FromStr for RemotePathDesc {
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug)]
-pub enum DestFileNewerBehaviour {
+pub enum DestFileUpdateBehaviour {
     /// The user will be asked what to do. (In a non-interactive environment, this is equivalent to 'error')
     Prompt,
     /// An error will be raised, the sync will stop and the destination file will not be overwritten.
@@ -417,7 +425,7 @@ pub fn boss_main() -> ExitCode {
         }
 
         let sync_result = sync(&sync_spec.src, &sync_spec.dest, &filters,
-            args.dry_run, args.dest_file_newer, args.dest_entry_needs_deleting,
+            args.dry_run, args.dest_file_newer, args.dest_file_older, args.dest_entry_needs_deleting,
             args.dest_root_needs_deleting,
             args.stats, &mut src_comms, &mut dest_comms);
 

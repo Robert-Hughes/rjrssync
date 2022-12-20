@@ -60,9 +60,9 @@ Right now I just picked an arbitrary value which could possibly be improved a lo
 Also the same buffer size this is used for both the filesystem read() buffer size, _and_ the size of data we send to the boss, _and_
 // the size of data written on the other doer. The same size might not be optimal for all of these!
 * Use new prompting and behaviour logic for other cases
-  - When files need overwriting/updating.
   - Combined with the other options, this would be a complete "no-destructive" mode if you set everything to prompt or skip? Maybe could have an option to set all of them at once (either 
   to full destructive or no destructive)?
+   --all-destructive-behaviours=[prompt,do-it,error,skip]? (which just sets the other cmd-line options)
 * Errors aren't displayed in a very friendly way (it has all the logging prefixes)
 * The prompt messages don't account for --dry-run, so it will look like things are actually going to be deleted,
 when they're not
@@ -79,7 +79,8 @@ Performance
    - need to watch out for ssh prompts though - what if we get two of these in parallel!
 * Could investigate using UDP or something else to reduce TCP overhead, possibly this could speed up the TCP connection time?
 * Benchmarking with two remotes rather than just one
-* Measure peak memory usage in benchmark?
+* Measure peak memory usage in benchmark? Maybe before we close the process handle, we can get
+the peak mem usage from Win32 API? Or on linux use /proc/$PID/stats (or similar)
 * Profiling events like send/receive could show the message type?
 * Because our send_command/response now returns immediately, if the network is being slow then we will
   slowly take up more and more memory in the channel buffer (same on both sending and receiving side)! 

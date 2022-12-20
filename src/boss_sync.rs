@@ -184,7 +184,8 @@ struct SyncContext<'a> {
     filters: &'a [Filter],
     stats: Stats,
     dry_run: bool,
-    dest_file_newer_behaviour: DestFileNewerBehaviour,
+    dest_file_newer_behaviour: DestFileUpdateBehaviour,
+    dest_file_older_behaviour: DestFileUpdateBehaviour,
     dest_entry_needs_deleting_behaviour: DestEntryNeedsDeletingBehaviour,
     dest_root_needs_deleting_behaviour: DestRootNeedsDeletingBehaviour,
     show_stats: bool,
@@ -200,7 +201,8 @@ pub fn sync(
     dest_root: &str,
     filters: &[Filter],
     dry_run: bool,
-    dest_file_newer_behaviour: DestFileNewerBehaviour,
+    dest_file_newer_behaviour: DestFileUpdateBehaviour,
+    dest_file_older_behaviour: DestFileUpdateBehaviour,
     dest_entry_needs_deleting_behaviour: DestEntryNeedsDeletingBehaviour,
     dest_root_needs_deleting_behaviour: DestRootNeedsDeletingBehaviour,
     show_stats: bool,
@@ -216,6 +218,7 @@ pub fn sync(
         dry_run,
         show_stats,
         dest_file_newer_behaviour,
+        dest_file_older_behaviour,
         dest_entry_needs_deleting_behaviour,
         dest_root_needs_deleting_behaviour,
         src_root: String::from(src_root),
@@ -705,16 +708,16 @@ fn handle_existing_file(
         Ordering::Less => {
             // Resolve any behaviour resulting from a prompt first
             let resolved_behaviour = match ctx.dest_file_newer_behaviour {
-                DestFileNewerBehaviour::Prompt => {
+                DestFileUpdateBehaviour::Prompt => {
                     let prompt_result = resolve_prompt(format!(
                         "Dest file {} is newer than src file {}. What do?",
                         format_root_relative(&path, &ctx.dest_root),
                         format_root_relative(&path, &ctx.src_root)),
                         &ctx.progress_bar, 
                         &[
-                            ("Skip", DestFileNewerBehaviour::Skip),
-                            ("Overwrite", DestFileNewerBehaviour::Overwrite),
-                        ], true, DestFileNewerBehaviour::Error);
+                            ("Skip", DestFileUpdateBehaviour::Skip),
+                            ("Overwrite", DestFileUpdateBehaviour::Overwrite),
+                        ], true, DestFileUpdateBehaviour::Error);
                     if let Some(b) = prompt_result.remembered_behaviour {
                         ctx.dest_file_newer_behaviour = b;
                     }
@@ -723,19 +726,19 @@ fn handle_existing_file(
                 x => x,
             };
             match resolved_behaviour {
-                DestFileNewerBehaviour::Prompt => panic!("Should have already been resolved!"),
-                DestFileNewerBehaviour::Error => return Err(vec![format!(
+                DestFileUpdateBehaviour::Prompt => panic!("Should have already been resolved!"),
+                DestFileUpdateBehaviour::Error => return Err(vec![format!(
                     "Dest file {} is newer than src file {}. Will not overwrite. See --dest-file-newer.",
                     format_root_relative(&path, &ctx.dest_root),
                     format_root_relative(&path, &ctx.src_root)
                 )]),
-                DestFileNewerBehaviour::Skip => {
+                DestFileUpdateBehaviour::Skip => {
                     trace!("Dest file {} is newer than src file {}. Skipping.",
                     format_root_relative(&path, &ctx.dest_root),
                     format_root_relative(&path, &ctx.src_root));
                     false
                 }
-                DestFileNewerBehaviour::Overwrite => {
+                DestFileUpdateBehaviour::Overwrite => {
                     trace!("Dest file {} is newer than src file {}. Overwriting anyway.",
                         format_root_relative(&path, &ctx.dest_root),
                         format_root_relative(&path, &ctx.src_root));
@@ -750,10 +753,45 @@ fn handle_existing_file(
             false
         }
         Ordering::Greater => {
-            debug!("Source file {} is newer than dest file {}. Will copy.",
-                format_root_relative(&path, &ctx.src_root),
-                format_root_relative(&path, &ctx.dest_root));
-            true
+            // Resolve any behaviour resulting from a prompt first
+            let resolved_behaviour = match ctx.dest_file_older_behaviour {
+                DestFileUpdateBehaviour::Prompt => {
+                    let prompt_result = resolve_prompt(format!(
+                        "Dest file {} is older than src file {}. What do?",
+                        format_root_relative(&path, &ctx.dest_root),
+                        format_root_relative(&path, &ctx.src_root)),
+                        &ctx.progress_bar, 
+                        &[
+                            ("Skip", DestFileUpdateBehaviour::Skip),
+                            ("Overwrite", DestFileUpdateBehaviour::Overwrite),
+                        ], true, DestFileUpdateBehaviour::Error);
+                    if let Some(b) = prompt_result.remembered_behaviour {
+                        ctx.dest_file_older_behaviour = b;
+                    }
+                    prompt_result.immediate_behaviour
+                },
+                x => x,
+            };
+            match resolved_behaviour {
+                DestFileUpdateBehaviour::Prompt => panic!("Should have already been resolved!"),
+                DestFileUpdateBehaviour::Error => return Err(vec![format!(
+                    "Source file {} is newer than dest file {}. Will not overwrite. See --dest-file-older.",
+                    format_root_relative(&path, &ctx.src_root),
+                    format_root_relative(&path, &ctx.dest_root)
+                )]),
+                DestFileUpdateBehaviour::Skip => {
+                    trace!("Source file {} is newer than dest file {}. Skipping.",
+                        format_root_relative(&path, &ctx.src_root),
+                        format_root_relative(&path, &ctx.dest_root));
+                    false
+                }
+                DestFileUpdateBehaviour::Overwrite => {
+                    trace!("Source file {} is newer than dest file {}. Overwriting.",
+                        format_root_relative(&path, &ctx.src_root),
+                        format_root_relative(&path, &ctx.dest_root));
+                    true
+                }
+            }
         }
     };
     if copy {                    
