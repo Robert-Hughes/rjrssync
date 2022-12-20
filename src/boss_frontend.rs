@@ -126,6 +126,7 @@ pub struct BossCliArgs {
     /// or in an unattended "--yes" mode (set this to 'proceed').
     #[arg(long)]
     pub all_destructive_behaviour: Option<AllDestructiveBehaviour>,
+    //TODO: name is terrible?
 
     /// Outputs some additional statistics about the data copied.
     #[arg(long)]
