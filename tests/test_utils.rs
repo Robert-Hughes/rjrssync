@@ -13,6 +13,7 @@ pub struct ProcessOutput {
     pub stdout: String,
     #[allow(unused)]
     pub stderr: String,
+    pub peak_memory_usage: Option<usize>,
 }
 
 /// Runs a child processes and waits for it to exit. The stdout and stderr of the child process
@@ -120,6 +121,7 @@ pub fn run_process_with_live_output_impl(c: &mut std::process::Command,
                 if !quiet {
                     println!("Both reader threads done, child process must have exited. Waiting for process.");
                 }
+
                 // Wait for the process to exit, to get the exit code
                 let result = match child.wait() {
                     Ok(r) => r,
@@ -128,7 +130,11 @@ pub fn run_process_with_live_output_impl(c: &mut std::process::Command,
                 if !quiet {
                     println!("Exit status: {:?}", result);
                 }
-                return ProcessOutput { exit_status: result, stdout: captured_stdout, stderr: captured_stderr };
+
+                // Collect peak memory usage stats before we close the handle
+                let peak_memory_usage = get_peak_memory_usage(&child);
+
+                return ProcessOutput { exit_status: result, stdout: captured_stdout, stderr: captured_stderr, peak_memory_usage };
             }
         }
     }
@@ -183,6 +189,27 @@ where S : std::io::Read {
             }
         }
     }
+}
+
+fn get_peak_memory_usage(process: &std::process::Child) -> Option<usize> {
+    #[cfg(windows)]
+    unsafe {
+        use std::os::windows::prelude::{AsRawHandle};
+        let mut counters : winapi::um::psapi::PROCESS_MEMORY_COUNTERS = std::mem::zeroed();
+        let handle = process.as_raw_handle();
+        if winapi::um::psapi::GetProcessMemoryInfo(handle, &mut counters, 
+            std::mem::size_of::<winapi::um::psapi::PROCESS_MEMORY_COUNTERS>() as u32) == 0 
+        {
+            panic!("Win32 API failed!");
+        }
+        // I think this only accounts for physical memory, not paged memory, but hopefully that's fine
+        Some(counters.PeakWorkingSetSize)
+    }
+    #[cfg(unix)]
+    // On Linux there doesn't seem to be a good way of implementing this, as the /proc/X/status
+    // file doesn't contain memory usage during process shutdown: https://unix.stackexchange.com/questions/500212/memory-usage-info-in-proc-pid-status-missing-when-program-is-about-to-terminate
+    // and we don't have a good way of querying it before this happens.
+    None
 }
 
 // Some tests and benchmarks rely on accessing "remote" hosts to test

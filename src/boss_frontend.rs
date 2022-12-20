@@ -10,7 +10,7 @@ use log::info;
 use log::{debug, error};
 use yaml_rust::{YamlLoader, Yaml};
 
-use crate::profiling::{dump_all_profiling, start_timer, stop_timer};
+use crate::profiling::{dump_all_profiling, start_timer, stop_timer, self};
 use crate::{boss_launch::*, profile_this, function_name};
 use crate::boss_sync::*;
 use crate::doer::Filter;
@@ -498,6 +498,12 @@ pub fn boss_main() -> ExitCode {
     stop_timer(timer);
 
     dump_all_profiling();
+
+    // Dump memory usage figures when used for benchmarking. There isn't a good way of determining this from the benchmarking app
+    // (especially for remote processes), so we instrument it instead.
+    if std::env::var("RJRSSYNC_TEST_DUMP_MEMORY_USAGE").is_ok() {
+        println!("Boss peak memory usage: {}", profiling::get_peak_memory_usage());
+    }
 
     ExitCode::SUCCESS
 }

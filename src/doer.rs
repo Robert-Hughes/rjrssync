@@ -1,7 +1,7 @@
 use aes_gcm::aead::generic_array::GenericArray;
 use clap::Parser;
 use env_logger::Env;
-use log::{debug, error, trace};
+use log::{debug, error, trace, info};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::io::{ErrorKind, Read};
@@ -31,6 +31,8 @@ struct DoerCliArgs {
     /// Logging configuration.
     #[arg(long, default_value="info")]
     log_filter: String,
+    #[arg(long)]
+    dump_memory_usage: bool,
 }
 
 fn normalize_path(p: &Path) -> Result<RootRelativePath, String> {
@@ -517,6 +519,12 @@ pub fn doer_main() -> ExitCode {
         #[cfg(not(feature="profiling"))]
         encrypted_comms.shutdown(); // Simple clean shutdown
     }
+
+    // Dump memory usage figures when used for benchmarking. There isn't a good way of determining this from the benchmarking app
+    // (especially for remote processes), so we instrument it instead.
+    if args.dump_memory_usage {
+        info!("Doer peak memory usage: {}", profiling::get_peak_memory_usage());
+    }
    
     debug!("doer process finished successfully!");
     ExitCode::SUCCESS
@@ -617,6 +625,7 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut Option<DoerCo
             let full_path = path.get_full_path(&context.as_ref().unwrap().root);
             trace!("Creating/updating content of '{}'", full_path.display());
             profile_this!(format!("CreateOrUpdateFile {}", path.to_string()));
+        //    std::thread::sleep(std::time::Duration::from_nanos(1));
 
             // Check if this is the continuation of an existing file
             let mut f = match context.as_mut().unwrap().in_progress_file_receive.take() {

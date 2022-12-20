@@ -656,6 +656,7 @@ dependencies = [
  "tempdir",
  "tempfile",
  "walkdir",
+ "winapi",
  "yaml-rust",
 ]
 

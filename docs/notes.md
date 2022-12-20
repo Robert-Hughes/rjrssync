@@ -225,6 +225,8 @@ Some more advanced options:
 
 `cargo bench -- --skip-setup --only-remote --programs rjrssync -n 5`
 
+TODO: update these with memory figures!!
+
 From Windows
 ------------
 

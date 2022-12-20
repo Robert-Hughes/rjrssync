@@ -3,6 +3,7 @@ use std::{time::{Instant, Duration}, path::{Path, PathBuf}, io::Write};
 use ascii_table::AsciiTable;
 use clap::Parser;
 use fs_extra::dir::CopyOptions;
+use indicatif::HumanBytes;
 
 #[path = "../tests/test_utils.rs"]
 mod test_utils;
@@ -145,8 +146,11 @@ fn main () {
             Target::Remote { is_windows: false, user_and_host: test_utils::REMOTE_LINUX_CONFIG.0.clone(), folder: test_utils::REMOTE_LINUX_CONFIG.1.clone() + "/benchmark-dest" })));
     }
 
+    println!();
+    println!("Each result cell has (if available): <min> - <max> time, <min> - <max> local memory, <min> - <max> remote memory");
+
     let mut ascii_table = AsciiTable::default();
-    ascii_table.set_max_width(200);
+    ascii_table.set_max_width(300);
     ascii_table.column(0).set_header("Method");
     ascii_table.column(1).set_header("Everything copied");
     ascii_table.column(2).set_header("Nothing copied");
@@ -157,6 +161,9 @@ fn main () {
     for (table_name, table_data) in results {
         println!();
         println!("{}", table_name);
+
+        //TODO: Transpose the data as it displays better
+
         ascii_table.print(table_data);    
     }
 }
@@ -196,24 +203,32 @@ fn run_benchmarks_for_target(args: &CliArgs, target: Target) -> Vec<Vec<String>>
     }
 
     if args.programs.contains(&String::from("apis")) && matches!(target, Target::Local(..)) { // APIs are local only
-            run_benchmarks(args, "APIs", |src, dest| {
+            run_benchmarks(args, "APIs", |src, dest| -> PeakMemoryUsage {
             if !Path::new(&dest).exists() {
                 std::fs::create_dir_all(&dest).expect("Failed to create dest folder");
             }
             fs_extra::dir::copy(src, dest, &CopyOptions { content_only: true, overwrite: true, ..Default::default() })
                 .expect("Copy failed");
+            PeakMemoryUsage { local: None, remote: None } // No measurement of peak memory usage as this is in-process
         }, target.clone(), &mut result_table);
     }
 
     result_table
 }
 
+#[derive(Debug)]
+struct PeakMemoryUsage {
+    local: Option<usize>,
+    remote: Option<usize>,
+}
+
 fn run_benchmarks_using_program(cli_args: &CliArgs, program: &str, program_args: &[&str], target: Target, result_table: &mut Vec<Vec<String>>) {
     let id = Path::new(program).file_name().unwrap().to_string_lossy().to_string();
-    let f = |src: String, dest: String| {
+    let f = |src: String, dest: String| -> PeakMemoryUsage {
         let substitute = |p: &str| PathBuf::from(p.replace("$SRC", &src).replace("$DEST", &dest));
         let mut cmd = std::process::Command::new(program);
         let result = cmd
+            .env("RJRSSYNC_TEST_DUMP_MEMORY_USAGE", "1") // To enable memory instrumentation when running rjrssync
             .args(program_args.iter().map(|a| substitute(a)));
         let hide_stdout = program == "scp"; // scp spams its stdout, and we can't turn this off, so we hide it.
         let result = test_utils::run_process_with_live_output_impl(result, hide_stdout, false, true);
@@ -225,13 +240,44 @@ fn run_benchmarks_using_program(cli_args: &CliArgs, program: &str, program_args:
         } else {
             assert!(result.exit_status.success());
         }
+
+        // Because reporting of memory usage is tricky (we can't do it well on Linux, nor for the remote
+        // part of processes on any OS), we have our own instrumentation built into rjrssync. We use this 
+        // when possible, otherwise use the memory usage from the process we launched (which only works on
+        // Windows, and doesn't include remote usage)
+        if program.contains("rjrssync") {
+            // For rjrssync, parse the output to get the instrumented memory usage for both boss (local) and doer (remote, if relevant for this test)
+            PeakMemoryUsage { 
+                local: Some(result.stdout.lines().filter(|l| l.starts_with("Boss peak memory usage")).next().expect("Couldn't find line")
+                    .split_once(':').expect("Failed to parse line").1.trim()
+                    .parse::<usize>().expect("Failed to parse number")),
+                remote: match &target {
+                    Target::Local(_) => None,
+                    Target::Remote { .. } => Some(result.stderr.lines().filter(|l| l.starts_with("Doer peak memory usage")).next().expect("Couldn't find line")
+                        .split_once(':').expect("Failed to parse line").1.trim()
+                        .parse::<usize>().expect("Failed to parse number")),
+                } 
+            }
+        } else {
+            // For other programs, use the value reported by run_process_with_live_output_impl, which has some limitations
+            PeakMemoryUsage { local: result.peak_memory_usage, remote: None }
+        }
     };
-    run_benchmarks(cli_args, &id, f, target, result_table);
+    run_benchmarks(cli_args, &id, f, target.clone(), result_table);
 }
 
-fn run_benchmarks<F>(cli_args: &CliArgs, id: &str, sync_fn: F, target: Target, result_table: &mut Vec<Vec<String>>) where F : Fn(String, String) {
+fn run_benchmarks<F>(cli_args: &CliArgs, id: &str, sync_fn: F, target: Target, result_table: &mut Vec<Vec<String>>) 
+    where F : Fn(String, String) -> PeakMemoryUsage
+{
     println!("  Subject: {id}");
-    let mut samples : Vec<Vec<Option<Duration>>> = vec![];
+
+    #[derive(Debug)]
+    struct Sample {
+        time: Duration,
+        peak_memory: PeakMemoryUsage,
+    }
+
+    let mut samples : Vec<Vec<Option<Sample>>> = vec![];
     for sample_idx in 0..cli_args.num_samples {
         println!("    Sample {sample_idx}");
 
@@ -261,27 +307,27 @@ fn run_benchmarks<F>(cli_args: &CliArgs, id: &str, sync_fn: F, target: Target, r
             }
         };
 
-        let run = |src, dest| {
+        let run = |src, dest| -> Sample {
             let start = Instant::now();
-            sync_fn(src, dest);
-            let elapsed = start.elapsed();
-            elapsed    
+            let peak_memory = sync_fn(src, dest);
+            let time = start.elapsed();
+            Sample { time, peak_memory }    
         };
 
         let mut sample = vec![];
 
         // Sync example-repo to an empty folder, so this means everything is copied
         println!("      {id} example-repo everything copied...");
-        let elapsed = run(Path::new("src").join("example-repo").to_string_lossy().to_string(), dest_prefix.clone() + "example-repo");
-        println!("      {id} example-repo everything copied: {:?}", elapsed);
-        sample.push(Some(elapsed));
+        let s = run(Path::new("src").join("example-repo").to_string_lossy().to_string(), dest_prefix.clone() + "example-repo");
+        println!("      {id} example-repo everything copied: {:?}", s);
+        sample.push(Some(s));
 
         // Sync again - this should be a no-op, but still needs to check that everything is up-to-date
         if id.contains("rjrssync") || id.contains("robocopy") || id.contains("rsync") {
             println!("      {id} example-repo nothing copied...");
-            let elapsed = run(Path::new("src").join("example-repo").to_string_lossy().to_string(), dest_prefix.clone() + "example-repo");
-            println!("      {id} example-repo nothing copied: {:?}", elapsed);
-            sample.push(Some(elapsed));
+            let s = run(Path::new("src").join("example-repo").to_string_lossy().to_string(), dest_prefix.clone() + "example-repo");
+            println!("      {id} example-repo nothing copied: {:?}", s);
+            sample.push(Some(s));
         } else {
             sample.push(None); // Programs like scp will always copy everything, so there's no point running this part of the test
         }
@@ -289,9 +335,9 @@ fn run_benchmarks<F>(cli_args: &CliArgs, id: &str, sync_fn: F, target: Target, r
         // Make some small changes, e.g. check out a new version
         if id.contains("rjrssync") || id.contains("robocopy") || id.contains("rsync") {
             println!("      {id} example-repo some copied...");
-            let elapsed = run(Path::new("src").join("example-repo-slight-change").to_string_lossy().to_string(), dest_prefix.clone() + "example-repo");
-            println!("      {id} example-repo some copied: {:?}", elapsed);
-            sample.push(Some(elapsed));
+            let s = run(Path::new("src").join("example-repo-slight-change").to_string_lossy().to_string(), dest_prefix.clone() + "example-repo");
+            println!("      {id} example-repo some copied: {:?}", s);
+            sample.push(Some(s));
         } else {
             sample.push(None); // Programs like scp will always copy everything, so there's no point running this part of the test
         }
@@ -299,18 +345,18 @@ fn run_benchmarks<F>(cli_args: &CliArgs, id: &str, sync_fn: F, target: Target, r
         // Make some large changes, (a big folder was renamed, so many things need deleting and then copying)
         if id.contains("rjrssync") || id.contains("robocopy") || id.contains("rsync") {
             println!("      {id} example-repo delete and copy...");
-            let elapsed = run(Path::new("src").join("example-repo-large-change").to_string_lossy().to_string(), dest_prefix.clone() + "example-repo");
-            println!("      {id} example-repo delete and copy: {:?}", elapsed);
-            sample.push(Some(elapsed));
+            let s = run(Path::new("src").join("example-repo-large-change").to_string_lossy().to_string(), dest_prefix.clone() + "example-repo");
+            println!("      {id} example-repo delete and copy: {:?}", s);
+            sample.push(Some(s));
         } else {
             sample.push(None); // Programs like scp will always copy everything, so there's no point running this part of the test
         }
 
         // Sync a single large file
         println!("      {id} example-repo single large file...");
-        let elapsed = run(Path::new("src").join("large-file").to_string_lossy().to_string(), dest_prefix.clone() + "large-file");
-        println!("      {id} example-repo single large file: {:?}", elapsed);
-        sample.push(Some(elapsed));
+        let s = run(Path::new("src").join("large-file").to_string_lossy().to_string(), dest_prefix.clone() + "large-file");
+        println!("      {id} example-repo single large file: {:?}", s);
+        sample.push(Some(s));
 
         samples.push(sample);
     }
@@ -318,10 +364,21 @@ fn run_benchmarks<F>(cli_args: &CliArgs, id: &str, sync_fn: F, target: Target, r
     // Make statistics and add to results table
     let mut results = vec![format!("{id} (x{})", samples.len())];
     for c in 0..samples[0].len() {
-        let min = samples.iter().filter_map(|s| s[c]).min();
-        let max = samples.iter().filter_map(|s| s[c]).max();
-        if let (Some(min), Some(max)) = (min, max) {
-            results.push(format!("{} - {}", format_duration(min), format_duration(max)));
+        let min_time = samples.iter().filter_map(|s| s[c].as_ref()).map(|s| s.time).min();
+        let max_time = samples.iter().filter_map(|s| s[c].as_ref()).map(|s| s.time).max();
+        let min_memory_local = samples.iter().filter_map(|s| s[c].as_ref()).filter_map(|s| s.peak_memory.local).min();
+        let max_memory_local = samples.iter().filter_map(|s| s[c].as_ref()).filter_map(|s| s.peak_memory.local).max();
+        let min_memory_remote = samples.iter().filter_map(|s| s[c].as_ref()).filter_map(|s| s.peak_memory.remote).min();
+        let max_memory_remote = samples.iter().filter_map(|s| s[c].as_ref()).filter_map(|s| s.peak_memory.remote).max();
+        if let (Some(min_time), Some(max_time)) = (min_time, max_time) {
+            let mut s = format!("{} - {}", format_duration(min_time), format_duration(max_time));
+            if let (Some(min_memory_local), Some(max_memory_local)) = (min_memory_local, max_memory_local) {
+                s += &format!(", {} - {}", HumanBytes(min_memory_local as u64), HumanBytes(max_memory_local as u64));
+            }
+            if let (Some(min_memory_remote), Some(max_memory_remote)) = (min_memory_remote, max_memory_remote) {
+                s += &format!(", {} - {}", HumanBytes(min_memory_remote as u64), HumanBytes(max_memory_remote as u64));
+            }
+            results.push(s);
         } else {
             results.push(format!("Skipped")); 
         }

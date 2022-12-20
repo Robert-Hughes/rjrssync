@@ -124,7 +124,7 @@ impl Comms {
                 let _ = self.send_command(Command::Shutdown);
 
                 // Shutdown the comms cleanly, potentially getting profiling data at the same time
-                if let Comms::Remote { encrypted_comms, .. } = self { // This is always true, we just need a way of getting the fields
+                if let Comms::Remote { encrypted_comms, stderr_reading_thread, .. } = self { // This is always true, we just need a way of getting the fields
                     #[cfg(feature="profiling")]
                     {
                         // Wait for remote doers to send back any profiling data, if enabled
@@ -135,6 +135,12 @@ impl Comms {
                     }
                     #[cfg(not(feature="profiling"))]
                     encrypted_comms.shutdown(); // Simple clean shutdown
+
+                    if std::env::var("RJRSSYNC_TEST_DUMP_MEMORY_USAGE").is_ok() {
+                        // Wait for the doer to prints its memory usage on stderr
+                        //TODO: maybe we should be joining here in all cases, not just for memory usage?
+                        stderr_reading_thread.join().expect("Failed to join stderr_reading_thread");
+                    }
                 }
             }
         }
@@ -448,9 +454,15 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str, remote_port_for
         None => "".to_string()
     };
 
+    // Forward memory dumping flag to the remote doer
+    let memory_dump_arg = match std::env::var("RJRSSYNC_TEST_DUMP_MEMORY_USAGE") {
+        Ok(_) => format!(" --dump-memory-usage"),
+        Err(_) => "".to_string()
+    };
+
     // Note we don't cd, so that relative paths for the path specified by the user on the remote
     // will be correct (relative to their ssh default dir, e.g. home dir)
-    let doer_args = format!("--doer {} {}", log_arg, port_arg);
+    let doer_args = format!("--doer {} {} {}", log_arg, port_arg, memory_dump_arg);
     // Try launching using both Unix and Windows paths, as we don't know what the remote system is
     // We run a command that doesn't print out anything on both Windows and Linux, so we don't pollute the output
     // (we show all output from ssh, in case it contains prompts etc. that are useful/required for the user to see).
