@@ -847,6 +847,9 @@ fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, filters: &[F
     // when walking what's known to be a directory (discovered in SetRoot).
     let mut walker_it = WalkDir::new(&context.root)
         .follow_links(false)  // We want to see the symlinks, not their targets
+        // To ensure deterministic order, mainly for tests. If this turns out to have a performance impact,
+        // we could enable it only for tests perhaps.
+        .sort_by_file_name() 
         .into_iter();
     let mut count = 0;
     loop {
