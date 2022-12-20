@@ -86,11 +86,8 @@ fn prompt_skip_all() {
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
-            Regex::new("Dest file .*c1.* is newer than src file .*c1.*").unwrap(),
+            Regex::new("Dest file .*c1|2.* is newer than src file .*c1|2.*").unwrap(), // We don't know which file will be first, as it depends on the OS
             Regex::new(&regex::escape("Nothing to do")).unwrap(), // Both files skipped
-        ],
-        unexpected_output_messages: vec![
-            Regex::new("Dest file .*c2.* is newer than src file .*c2.*").unwrap(), // We'll never be prompted about c2, because we choose to "skip all"
         ],
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&src)), // Unchanged
@@ -129,11 +126,8 @@ fn prompt_overwrite_all() {
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
-            Regex::new("Dest file .*c1.* is newer than src file .*c1.*").unwrap(),
+            Regex::new("Dest file .*c1|2.* is newer than src file .*c1|2.*").unwrap(), // We don't know which file will be first, as it depends on the OS
             Regex::new(&regex::escape("Copied 2 file(s)")).unwrap(), // Both files copied
-        ],
-        unexpected_output_messages: vec![
-            Regex::new("Dest file .*c2.* is newer than src file .*c2.*").unwrap(), // We'll never be prompted about c2, because we choose to "overwrite all"
         ],
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&src)), // Unchanged
