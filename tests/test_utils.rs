@@ -191,12 +191,12 @@ where S : std::io::Read {
     }
 }
 
-fn get_peak_memory_usage(process: &std::process::Child) -> Option<usize> {
+fn get_peak_memory_usage(_process: &std::process::Child) -> Option<usize> {
     #[cfg(windows)]
     unsafe {
         use std::os::windows::prelude::{AsRawHandle};
         let mut counters : winapi::um::psapi::PROCESS_MEMORY_COUNTERS = std::mem::zeroed();
-        let handle = process.as_raw_handle();
+        let handle = _process.as_raw_handle();
         if winapi::um::psapi::GetProcessMemoryInfo(handle, &mut counters, 
             std::mem::size_of::<winapi::um::psapi::PROCESS_MEMORY_COUNTERS>() as u32) == 0 
         {
