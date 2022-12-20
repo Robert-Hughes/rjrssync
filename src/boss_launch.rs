@@ -141,6 +141,7 @@ impl Comms {
                     if std::env::var("RJRSSYNC_TEST_DUMP_MEMORY_USAGE").is_ok() {
                         // Wait for the doer to prints its memory usage on stderr
                         //TODO: maybe we should be joining here in all cases, not just for memory usage?
+                        //TODO: and what about the doer process itself, are we ever joining that?
                         stderr_reading_thread.join().expect("Failed to join stderr_reading_thread");
                     }
                 }

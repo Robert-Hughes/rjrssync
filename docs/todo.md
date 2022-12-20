@@ -8,7 +8,6 @@ Interface
 * Perhaps could have hard/soft includes/excludes - soft would keep evaluating other filters which may change the decision, hard would stop evaluating and keep that as the final decision.
 * If a dir is excluded by the filters (after resolving all filters), then we don't walk inside that dir, so stuff inside it will be excluded *even if the filters would have matched them*. Document this?
 * --dry-run (and the same for -v) should make it clearer exactly what is being copied to where, e.g. give absolute paths. If there is a long path up to the root (or afterwards), could shorten it with ellipses, e.g. "Copying T:\work\...\bob\folder\...\thing.txt to X:\backups\...\newbackup\folder\...\thing.txt"
-* Option to override the "dest file is newer" error. Test this behaviour (not sure if it's tested atm)
 * Should filters expect to see trailing slashes on folder names or not? What about folder symlinks?
 * Ctrl-C doesn't seem to work very well at stopping rjrssync when it's running
 * Tab-completion for parameters, part of clap?
@@ -24,6 +23,8 @@ Remote launching
 doesn't exist or is incompatible do we deploy/build from scratch?
 * Sometimes see "ssh stderr: mesg: ttyname failed: Inappropriate ioctl for device" when deploying to remote (I think
 on 'F**A' platforms). Can we hide this using "-T" for example?
+* Launching on a new system can take a while, even if cargo is already installed, and if cargo isn't installed,
+this is an extra step for the user. Pre-built binaries?
 
 Syncing logic
 -------------
@@ -50,7 +51,6 @@ Syncing logic
    - Either directly, or via symlink(s)?
 * --no-encryption option, might be faster?
    - Possibly want to keep the authentication aspects, but drop the encryption?
-* How to handle case when want to copy two different folders into the same destination, some sort of --no-delete?
 * Use of SystemTime
    -  is this compatible between platforms, time zone changes, precision differences, etc. etc.
    - can we safely serialize this on one platform and deserialize on another?
@@ -80,14 +80,11 @@ Performance
 Misc
 -----
 
-* Make GitHub actions run on both Windows and Linux.
-* Configure GitHub actions to run with remote hosts somehow
 * On work PC this fails:
 `cargo run D:\TempSource\ robhug01@localhost:/home/robhug01/TempDest -v`
 ERROR | rjrssync::boss_frontend: Sync error: Unexpected response from dest GetEntries: Ok(Error("normalize_path failed: Illegal characters in path"))
 * Maybe should extend test framework to support doing things remotely, like saving and loading filesystem nodes, making and clearing out a temporary folder etc.
 * Upload to crates.io, so that we can "cargo install" from anywhere?
-* "cargo install" should only install rjrssync, not the other binaries like piper etc.
 * Warning if filter doesn't match anything, possibly after GetEntries but before actually doing anything (to prevent mistaken filter?)
 * Would be nice to automatically detect cases where the version number hasn't been updated, e.g. if we
 could see that the Command/Response struct layout has changed.
