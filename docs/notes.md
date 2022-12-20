@@ -3,10 +3,12 @@ Notes on performance & security
 
 Some perf results of walking directories on each OS:
 
+```
    Host ->       Windows     Linux
 Filesystem:
   Windows        100k        9k
    Linux          1k         500k
+```
 
 Conclusion => accessing WSL filesytem from Windows or vice-versa is slow, so we use native access.
 
@@ -20,6 +22,8 @@ security though, as anybody can connect to the tunnel.
 The best for performance is a direct TCP connection (without ssh), which peaks at around 2GB/s
 locally on Windows. We can use ssh for the initial setup, sharing some kind of secret key
 so that each side of the connection is secure.
+
+```
 
 All readings from home PC (MANTA)
 
@@ -70,6 +74,8 @@ Windows -> WSL: ~500MB/s
 WSL -> Windows: 700-800MB/s
 WSL -> WSL: 900-1000MB/s
 
+```
+
 Disabling PAM on sshd_config seems to speed up ssh login https://serverfault.com/questions/792486/ssh-connection-takes-forever-to-initiate-stuck-at-pledge-network
 
 
@@ -97,6 +103,8 @@ The cell contents describe the behaviour given those inputs:
    - '!' indicates that the behaviour might be surprising/destructive because it deletes an existing file or folder and replaces it
         with a folder/file. We prompt the user for this.
 
+```
+
 |---------------------------------------------------------------------|
 |          Dest ->    |  Non-existent |File or symlink|    Folder     |
 |                     |---------------|---------------|---------------|
@@ -116,6 +124,8 @@ The cell contents describe the behaviour given those inputs:
 |---------------------|-------|-------|-------|-------|-------|-------|
 
 *: On Linux, a symlink with a trailing slash that points to a folder is treated as the target folder.
+
+```
 
 The behaviour can be summarised as a "golden rule" which is that after the sync, the object pointed to by the destination path will be identical to the object pointed to by the source path, i.e. `tree $SRC == tree $DEST`.
 
@@ -201,6 +211,8 @@ When deleting a symlink folder and we're in unaware model, the whole symlink *ta
 Idea for filters, with re-usable "functions":
 ===============
 
+```
+
 "filters": [
    "src/.*" : include,
    "tests/.*" : include,
@@ -216,6 +228,8 @@ Idea for filters, with re-usable "functions":
    "other/artifacts/.*\.bin" : include,
 ]
 
+```
+
 Benchmarking results
 =======================
 
@@ -225,8 +239,7 @@ Some more advanced options (see `cargo bench -- --help` for details):
 
 `cargo bench -- --skip-setup --only-remote --programs rjrssync -n 5`
 
-TODO: update these with memory figures!!
-
+```
 Each cell shows <min> - <max> over 5 sample(s) for: time | local memory (if available) | remote memory (if available)
 
 Windows -> Windows
@@ -316,6 +329,8 @@ Linux -> Remote Linux
 │ Delete and copy   │ 578ms   - 643ms  | 479.69 MiB - 479.69 MiB| 215.62 MiB - 215.62 MiB │ 647ms   - 743ms   │ Skipped           │
 │ Single large file │ 2.12s   - 2.22s  | 611.69 MiB - 615.70 MiB| 215.62 MiB - 215.62 MiB │ 4.09s   - 4.21s   │ 4.55s   - 4.73s   │
 └───────────────────┴─────────────────────────────────────────────────────────────────────┴───────────────────┴───────────────────┘
+
+```
 
 Notes on filters
 ================
