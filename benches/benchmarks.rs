@@ -147,73 +147,79 @@ fn main () {
     }
 
     println!();
-    println!("Each result cell has (if available): <min> - <max> time, <min> - <max> local memory, <min> - <max> remote memory");
+    println!("Each cell shows <min> - <max> over {} sample(s) for: time | local memory (if available) | remote memory (if available)", args.num_samples);
 
-    let mut ascii_table = AsciiTable::default();
-    ascii_table.set_max_width(300);
-    ascii_table.column(0).set_header("Method");
-    ascii_table.column(1).set_header("Everything copied");
-    ascii_table.column(2).set_header("Nothing copied");
-    ascii_table.column(3).set_header("Some copied");
-    ascii_table.column(4).set_header("Delete and copy");
-    ascii_table.column(5).set_header("Single large file");
-
-    for (table_name, table_data) in results {
+    for (table_name, target_results) in results {
         println!();
         println!("{}", table_name);
 
-        //TODO: Transpose the data as it displays better
-
+        let mut ascii_table = AsciiTable::default();
+        ascii_table.set_max_width(300);
+        ascii_table.column(0).set_header("Test case");
+        let mut table_data = vec![vec!["Everything copied"], vec!["Nothing copied"], vec!["Some copied"], vec!["Delete and copy"], vec!["Single large file"]];
+        for (i, p) in target_results.iter().enumerate() {
+            ascii_table.column(i + 1).set_header(&p.program);
+            for (row, result) in p.results.iter().enumerate() {
+                table_data[row].push(result);
+            }
+        }
+        
         ascii_table.print(table_data);    
     }
 }
 
-fn run_benchmarks_for_target(args: &CliArgs, target: Target) -> Vec<Vec<String>> {
+struct ProgramResults {
+    program: String,
+    results: Vec<String>,
+}
+type TargetResults = Vec<ProgramResults>;
+
+fn run_benchmarks_for_target(args: &CliArgs, target: Target) -> TargetResults {
     println!("Target: {:?}", target);
-    let mut result_table = vec![];
+    let mut results = vec![];
 
     if args.programs.contains(&String::from("rjrssync")) {
         let rjrssync_path = env!("CARGO_BIN_EXE_rjrssync");
-        run_benchmarks_using_program(args, rjrssync_path, &["$SRC", "$DEST"], target.clone(), &mut result_table);
+        results.push(run_benchmarks_using_program(args, rjrssync_path, &["$SRC", "$DEST"], target.clone()));
     }
    
     if args.programs.contains(&String::from("rsync")) && !matches!(target, Target::Remote{ is_windows, .. } if is_windows) { // rsync is Linux -> Linux only
         #[cfg(unix)]
         // Note trailing slash on the src is important for rsync!
-        run_benchmarks_using_program(args, "rsync", &["--archive", "--delete", "$SRC/", "$DEST"], target.clone(), &mut result_table);
+        results.push(run_benchmarks_using_program(args, "rsync", &["--archive", "--delete", "$SRC/", "$DEST"], target.clone()));
     }
 
     if args.programs.contains(&String::from("scp")) {
-        run_benchmarks_using_program(args, "scp", &["-r", "-q", "$SRC", "$DEST"], target.clone(), &mut result_table);
+        results.push(run_benchmarks_using_program(args, "scp", &["-r", "-q", "$SRC", "$DEST"], target.clone()));
     }
    
     if args.programs.contains(&String::from("cp")) && matches!(target, Target::Local(..)) { // cp is local only
         #[cfg(unix)]
-        run_benchmarks_using_program(args, "cp", &["-r", "$SRC", "$DEST"], target.clone(), &mut result_table);
+        results.push(run_benchmarks_using_program(args, "cp", &["-r", "$SRC", "$DEST"], target.clone()));
     }
 
     if args.programs.contains(&String::from("xcopy")) && matches!(target, Target::Local(..)) { // xcopy is local only
         #[cfg(windows)]
-        run_benchmarks_using_program(args, "xcopy", &["/i", "/s", "/q", "/y", "$SRC", "$DEST"], target.clone(), &mut result_table);
+        results.push(run_benchmarks_using_program(args, "xcopy", &["/i", "/s", "/q", "/y", "$SRC", "$DEST"], target.clone()));
     }
    
     if args.programs.contains(&String::from("robocopy")) && matches!(target, Target::Local(..)) { // robocopy is local only
         #[cfg(windows)]
-        run_benchmarks_using_program(args, "robocopy", &["/MIR", "/nfl", "/NJH", "/NJS", "/nc", "/ns", "/np", "/ndl", "$SRC", "$DEST"], target.clone(), &mut result_table);
+        results.push(run_benchmarks_using_program(args, "robocopy", &["/MIR", "/nfl", "/NJH", "/NJS", "/nc", "/ns", "/np", "/ndl", "$SRC", "$DEST"], target.clone()));
     }
 
     if args.programs.contains(&String::from("apis")) && matches!(target, Target::Local(..)) { // APIs are local only
-            run_benchmarks(args, "APIs", |src, dest| -> PeakMemoryUsage {
+        results.push(run_benchmarks(args, "APIs", |src, dest| -> PeakMemoryUsage {
             if !Path::new(&dest).exists() {
                 std::fs::create_dir_all(&dest).expect("Failed to create dest folder");
             }
             fs_extra::dir::copy(src, dest, &CopyOptions { content_only: true, overwrite: true, ..Default::default() })
                 .expect("Copy failed");
             PeakMemoryUsage { local: None, remote: None } // No measurement of peak memory usage as this is in-process
-        }, target.clone(), &mut result_table);
+        }, target.clone()));
     }
 
-    result_table
+    results
 }
 
 #[derive(Debug)]
@@ -222,7 +228,7 @@ struct PeakMemoryUsage {
     remote: Option<usize>,
 }
 
-fn run_benchmarks_using_program(cli_args: &CliArgs, program: &str, program_args: &[&str], target: Target, result_table: &mut Vec<Vec<String>>) {
+fn run_benchmarks_using_program(cli_args: &CliArgs, program: &str, program_args: &[&str], target: Target) -> ProgramResults {
     let id = Path::new(program).file_name().unwrap().to_string_lossy().to_string();
     let f = |src: String, dest: String| -> PeakMemoryUsage {
         let substitute = |p: &str| PathBuf::from(p.replace("$SRC", &src).replace("$DEST", &dest));
@@ -263,10 +269,10 @@ fn run_benchmarks_using_program(cli_args: &CliArgs, program: &str, program_args:
             PeakMemoryUsage { local: result.peak_memory_usage, remote: None }
         }
     };
-    run_benchmarks(cli_args, &id, f, target.clone(), result_table);
+    run_benchmarks(cli_args, &id, f, target.clone())
 }
 
-fn run_benchmarks<F>(cli_args: &CliArgs, id: &str, sync_fn: F, target: Target, result_table: &mut Vec<Vec<String>>) 
+fn run_benchmarks<F>(cli_args: &CliArgs, id: &str, sync_fn: F, target: Target) -> ProgramResults
     where F : Fn(String, String) -> PeakMemoryUsage
 {
     println!("  Subject: {id}");
@@ -362,7 +368,7 @@ fn run_benchmarks<F>(cli_args: &CliArgs, id: &str, sync_fn: F, target: Target, r
     }
 
     // Make statistics and add to results table
-    let mut results = vec![format!("{id} (x{})", samples.len())];
+    let mut results = vec![];
     for c in 0..samples[0].len() {
         let min_time = samples.iter().filter_map(|s| s[c].as_ref()).map(|s| s.time).min();
         let max_time = samples.iter().filter_map(|s| s[c].as_ref()).map(|s| s.time).max();
@@ -371,19 +377,19 @@ fn run_benchmarks<F>(cli_args: &CliArgs, id: &str, sync_fn: F, target: Target, r
         let min_memory_remote = samples.iter().filter_map(|s| s[c].as_ref()).filter_map(|s| s.peak_memory.remote).min();
         let max_memory_remote = samples.iter().filter_map(|s| s[c].as_ref()).filter_map(|s| s.peak_memory.remote).max();
         if let (Some(min_time), Some(max_time)) = (min_time, max_time) {
-            let mut s = format!("{} - {}", format_duration(min_time), format_duration(max_time));
+            let mut s = format!("{:7} - {:7}", format_duration(min_time), format_duration(max_time));
             if let (Some(min_memory_local), Some(max_memory_local)) = (min_memory_local, max_memory_local) {
-                s += &format!(", {} - {}", HumanBytes(min_memory_local as u64), HumanBytes(max_memory_local as u64));
+                s += &format!("| {:10} - {:10}", HumanBytes(min_memory_local as u64).to_string(), HumanBytes(max_memory_local as u64).to_string());
             }
             if let (Some(min_memory_remote), Some(max_memory_remote)) = (min_memory_remote, max_memory_remote) {
-                s += &format!(", {} - {}", HumanBytes(min_memory_remote as u64), HumanBytes(max_memory_remote as u64));
+                s += &format!("| {:10} - {:10}", HumanBytes(min_memory_remote as u64).to_string(), HumanBytes(max_memory_remote as u64).to_string());
             }
             results.push(s);
         } else {
             results.push(format!("Skipped")); 
         }
     }
-    result_table.push(results);
+    ProgramResults { program: format!("{id} (x{})", samples.len()), results }
 }
 
 fn format_duration(d: Duration) -> String {
