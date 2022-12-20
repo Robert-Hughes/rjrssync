@@ -429,8 +429,10 @@ pub fn boss_main() -> ExitCode {
     //           doing one command at the same time for each Source and Dest, which might be more complicated.)
 
     let progress = ProgressBar::new_spinner().with_message("Connecting...");
-    progress.enable_steady_tick(Duration::from_millis(250));
-
+    // Unfortunately we can't use enable_steady_tick to get a nice animation as we connect, because
+    // this will clash with potential ssh output/prompts and potential output from the remote build 
+    progress.tick(); 
+    
     // Launch doers on remote hosts or threads on local targets and estabilish communication (check version etc.)
     let mut src_comms = match setup_comms(
         &spec.src_hostname,

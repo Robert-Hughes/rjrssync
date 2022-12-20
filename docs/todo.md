@@ -46,7 +46,6 @@ Syncing logic
   - hide progress bar for --dry-run?
   - hide progress bar for --quiet?
   - hide progress bar for --no-progress?
-  - do we want to show the Connecting spinner whilst deploying/building on a remote?
 * What happens if src and dest both point to the same place?
    - Either directly, or via symlink(s)?
 * --no-encryption option, might be faster?
