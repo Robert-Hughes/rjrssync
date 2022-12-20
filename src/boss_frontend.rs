@@ -63,7 +63,12 @@ pub struct BossCliArgs {
     /// Specifies behaviour when a file exists on both source and destination sides, but the 
     /// destination file has a newer modified timestamp. This might indicate that data is about
     /// to be unintentionally lost.
-    #[arg(long, default_value="prompt")]
+    #[arg(long, default_value="prompt",
+        default_value_if("all_destructive_behaviour", "prompt", "prompt"),
+        default_value_if("all_destructive_behaviour", "error", "error"),
+        default_value_if("all_destructive_behaviour", "skip", "skip"),
+        default_value_if("all_destructive_behaviour", "proceed", "overwrite"),
+    )]
     pub dest_file_newer: DestFileUpdateBehaviour,
     //TODO: equivalent for symlinks?
     //TODO: include in spec file?
@@ -71,14 +76,25 @@ pub struct BossCliArgs {
     /// Specifies behaviour when a file exists on both source and destination sides, but the 
     /// destination file has a older modified timestamp. This might indicate that data is about
     /// to be unintentionally lost.
-    #[arg(long, default_value="overwrite")]
+    #[arg(long, 
+        default_value="overwrite", 
+        default_value_if("all_destructive_behaviour", "prompt", "prompt"),
+        default_value_if("all_destructive_behaviour", "error", "error"),
+        default_value_if("all_destructive_behaviour", "skip", "skip"),
+        default_value_if("all_destructive_behaviour", "proceed", "overwrite"),
+    )]
     pub dest_file_older: DestFileUpdateBehaviour,
     //TODO: equivalent for symlinks?
     //TODO: include in spec file?
 
     /// Specifies behaviour when a file/folder/symlink on the destination side needs deleting.
     /// This might indicate that data is about to be unintentionally lost.
-    #[arg(long, default_value="delete")]
+    #[arg(long, default_value="delete",
+        default_value_if("all_destructive_behaviour", "prompt", "prompt"),
+        default_value_if("all_destructive_behaviour", "error", "error"),
+        default_value_if("all_destructive_behaviour", "skip", "skip"),
+        default_value_if("all_destructive_behaviour", "proceed", "delete"),
+    )]
     pub dest_entry_needs_deleting: DestEntryNeedsDeletingBehaviour,
     //TODO: name too long!
     //TODO: include in spec file?
@@ -88,10 +104,28 @@ pub struct BossCliArgs {
     /// This is separate to --dest-entry-needs-deleting, because there is some potentially
     /// surprising behaviour with regards to replacing the destination root that warrants
     /// special warning.
-    #[arg(long, default_value="prompt")]
+    #[arg(long, default_value="prompt",
+        default_value_if("all_destructive_behaviour", "prompt", "prompt"),
+        default_value_if("all_destructive_behaviour", "error", "error"),
+        default_value_if("all_destructive_behaviour", "skip", "skip"),
+        default_value_if("all_destructive_behaviour", "proceed", "delete"),
+    )]
     pub dest_root_needs_deleting: DestRootNeedsDeletingBehaviour,
     //TODO: name too long?
     //TODO: include in spec file?
+
+    /// Specifies behaviour when any destructive action is required.
+    /// This might indicate that data is about to be unintentionally lost.
+    /// This is a convenience for setting the following flags all to equivalant values:
+    ///   --dest-file-newer
+    ///   --dest-file-older
+    ///   --dest-entry-needs-deleting
+    ///   --dest-root-needs-deleting
+    /// If any of those arguments are set individually, their value will be kept.
+    /// This can be useful for running rjrssync in a "safe" mode (set this to 'prompt' or 'error'),
+    /// or in an unattended "--yes" mode (set this to 'proceed').
+    #[arg(long)]
+    pub all_destructive_behaviour: Option<AllDestructiveBehaviour>,
 
     /// Outputs some additional statistics about the data copied.
     #[arg(long)]
@@ -201,6 +235,18 @@ pub enum DestRootNeedsDeletingBehaviour {
     Skip,
     /// The destination root will be deleted and the rest of the sync will continue.
     Delete,
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug)]
+pub enum AllDestructiveBehaviour {
+    /// The user will be asked what to do. (In a non-interactive environment, this is equivalent to 'error')
+    Prompt,
+    /// An error will be raised, the sync will stop and the destructive action will not take place.
+    Error,
+    /// The destructive action will not take place and the rest of the sync will continue, if possible.
+    Skip,
+    /// The destructive action will take place and the rest of the sync will continue.
+    Proceed,
 }
 
 #[derive(Default, Debug, PartialEq)]

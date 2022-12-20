@@ -11,6 +11,7 @@ Interface
 * Option to override the "dest file is newer" error. Test this behaviour (not sure if it's tested atm)
 * Should filters expect to see trailing slashes on folder names or not? What about folder symlinks?
 * Ctrl-C doesn't seem to work very well at stopping rjrssync when it's running
+* Tab-completion for parameters, part of clap?
 
 Remote launching
 ----------------
