@@ -312,8 +312,9 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), Vec<String>> {
                         format_root_relative(&RootRelativePath::root(), &ctx.dest_root)),
                         &ctx.progress_bar, 
                         &[
+                            ("Skip", DestRootNeedsDeletingBehaviour::Skip),
                             ("Delete", DestRootNeedsDeletingBehaviour::Delete),
-                        ], false, DestRootNeedsDeletingBehaviour::Error);
+                            ], false, DestRootNeedsDeletingBehaviour::Error);
                     prompt_result.immediate_behaviour
                 },
                 x => x,
@@ -322,6 +323,7 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), Vec<String>> {
                 DestRootNeedsDeletingBehaviour::Prompt => panic!("Should have been alredy resolved!"),
                 DestRootNeedsDeletingBehaviour::Error => return Err(vec![format!("Dest root {} needs deleting as it is incompatible with the source. Will not delete. See --dest-root-needs-deleting",
                     format_root_relative(&RootRelativePath::root(), &ctx.dest_root))]),
+                DestRootNeedsDeletingBehaviour::Skip => return Ok(()), // Don't raise an error, but we can't continue as it will fail, so skip the entire sync
                 DestRootNeedsDeletingBehaviour::Delete => (), // We will delete it anyway later on
             }
         }

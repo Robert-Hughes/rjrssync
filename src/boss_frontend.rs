@@ -195,6 +195,10 @@ pub enum DestRootNeedsDeletingBehaviour {
     Prompt,
     /// An error will be raised, the sync will stop and the destination will not be changed.
     Error,
+    /// The destination root will not be deleted and the sync will stop, but no error will be raised.
+    /// The only difference between this and 'error' is that rjrssync will still report success, it just
+    /// won't have actually done anything.
+    Skip,
     /// The destination root will be deleted and the rest of the sync will continue.
     Delete,
 }

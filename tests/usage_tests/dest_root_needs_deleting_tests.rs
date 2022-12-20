@@ -78,6 +78,38 @@ fn prompt_delete() {
 }
 
 /// Dest root needs deleting. The expected behaviour is controlled by a command-line argument, which in this case
+/// we set to "prompt", and choose "skip" on the prompt, so the sync should stop but the program still report success.
+#[test]
+fn prompt_skip() {
+    let src = file("this will replace the dest!");
+    let dest = empty_folder();
+    run(TestDesc {
+        setup_filesystem_nodes: vec![
+            ("$TEMP/src", &src),
+            ("$TEMP/dest", &dest),
+        ],
+        args: vec![
+            "$TEMP/src".to_string(),
+            "$TEMP/dest".to_string(),
+            "--dest-root-needs-deleting".to_string(),
+            "prompt".to_string(),
+        ],
+        prompt_responses: vec![
+            String::from("Skip"),
+        ],
+        expected_exit_code: 0,
+        expected_output_messages: vec![
+            Regex::new("Dest root .* needs deleting").unwrap(),
+        ],
+        expected_filesystem_nodes: vec![
+            ("$TEMP/src", Some(&src)), // Unchanged
+            ("$TEMP/dest", Some(&dest)), // Unchanged
+        ],
+        ..Default::default()
+    });
+}
+
+/// Dest root needs deleting. The expected behaviour is controlled by a command-line argument, which in this case
 /// we set to produce an error.
 #[test]
 fn error() {
@@ -103,6 +135,37 @@ fn error() {
         expected_output_messages: vec![
             Regex::new(&regex::escape("Will not delete")).unwrap(),
         ],
+        expected_filesystem_nodes: vec![
+            ("$TEMP/src", Some(&src)), // Unchanged
+            ("$TEMP/dest", Some(&dest)), // Unchanged
+        ],
+        ..Default::default()
+    });
+}
+
+/// Dest root needs deleting. The expected behaviour is controlled by a command-line argument, which in this case
+/// we set to skip.
+#[test]
+fn skip() {
+    let src = file("this will replace the dest!");
+    let dest = folder! {
+        // We put some files in the destination folder, to make sure that these aren't deleted even though the 
+        // root isn't (because we delete in reverse order, this would be a potential bug)
+        "c1" => file_with_modified("contents3", SystemTime::UNIX_EPOCH),
+        "c2" => file_with_modified("contents4", SystemTime::UNIX_EPOCH),
+    };
+    run(TestDesc {
+        setup_filesystem_nodes: vec![
+            ("$TEMP/src", &src),
+            ("$TEMP/dest", &dest),
+        ],
+        args: vec![
+            "$TEMP/src".to_string(),
+            "$TEMP/dest".to_string(),
+            "--dest-root-needs-deleting".to_string(),
+            "skip".to_string(),
+        ],
+        expected_exit_code: 0,
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&src)), // Unchanged
             ("$TEMP/dest", Some(&dest)), // Unchanged
