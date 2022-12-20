@@ -29,8 +29,8 @@ pub enum Comms {
     Local {
         debug_name: String, // To identify this Comms against others for debugging, when there are several
         thread: JoinHandle<()>,
-        sender: Sender<Command>,
-        receiver: Receiver<Response>,
+        sender: memory_bound_channel::Sender<Command>,
+        receiver: memory_bound_channel::Receiver<Response>,
     },
     Remote {
         debug_name: String, // To identify this Comms against others for debugging, when there are several
@@ -45,20 +45,22 @@ pub enum Comms {
     },
 }
 impl Comms {
-    pub fn get_sender(&self) -> &Sender<Command> {
+    pub fn get_sender(&self) -> &memory_bound_channel::Sender<Command> {
         match self {
             Comms::Local { sender, .. } => &sender,
             Comms::Remote { encrypted_comms, .. } => &encrypted_comms.sender,
         }
     }
 
-    pub fn get_receiver(&self) -> &Receiver<Response> {
+    pub fn get_receiver(&self) -> &memory_bound_channel::Receiver<Response> {
         match self {
             Comms::Local { receiver, .. } => &receiver,
             Comms::Remote { encrypted_comms, .. } => &encrypted_comms.receiver,
         }
     }
 
+    /// This will block if there is not enough capacity in the channel, so
+    /// that we don't use up infinite memory if the doer is being slow.
     pub fn send_command(&self, c: Command) {
         trace!("Sending command {:?} to {}", c, &self);
         self.get_sender().send(c).expect("Error sending on channel");
@@ -170,13 +172,13 @@ pub fn setup_comms(
     );
 
     // If the target is local, then start a thread to handle commands.
-    // Use a separate thread to avoid synchornisation with the Boss (and both Source and Dest may be on same PC, so all three in one process),
+    // Use a separate thread to avoid synchronisation with the Boss (and both Source and Dest may be on same PC, so all three in one process),
     // and for consistency with remote doers.
     if remote_hostname.is_empty() {
         debug!("Spawning local thread for {} doer", debug_name);
         let debug_name = "Local ".to_string() + &debug_name + " doer";
-        let (command_sender, command_receiver) = mpsc::channel();
-        let (response_sender, response_receiver) = mpsc::channel();
+        let (command_sender, command_receiver) = memory_bound_channel::new(BOSS_DOER_CHANNEL_MEMORY_CAPACITY);
+        let (response_sender, response_receiver) = memory_bound_channel::new(BOSS_DOER_CHANNEL_MEMORY_CAPACITY);
         let thread_builder = thread::Builder::new().name(debug_name.clone());
         let thread = thread_builder.spawn(move || {
             doer_thread_running_on_boss(command_receiver, response_sender)

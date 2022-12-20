@@ -6,6 +6,7 @@ mod boss_launch;
 mod boss_sync;
 mod doer;
 mod encrypted_comms;
+mod memory_bound_channel;
 mod profiling;
 
 use boss_frontend::*;
@@ -15,7 +16,7 @@ use profiling::*;
 
 // We include the profiling config in the version number, as profiling and non-profiling builds are not compatible
 // (both because the Command struct is different and because a non-profiling doer won't record any events).
-pub const VERSION: &str = concatcp!("105", if cfg!(feature="profiling") { "+profiling"} else { "" });
+pub const VERSION: &str = concatcp!("107", if cfg!(feature="profiling") { "+profiling"} else { "" });
 
 // Message printed by a doer copy of the program to indicate that it has loaded and is ready
 // to receive data over its stdin. Once the boss receives this, it knows that ssh has connected
@@ -30,6 +31,15 @@ pub const HANDSHAKE_COMPLETED_MSG: &str = "Waiting for incoming network connecti
 
 pub const REMOTE_TEMP_UNIX: &str = "/tmp/";
 pub const REMOTE_TEMP_WINDOWS: &str = r"%TEMP%\";
+
+/// Rough maximum amount of memory we allow to be buffered in our cross-thread communication channels
+/// between boss and doer. If this is set too high (or we didn't set a limit at all), then we would
+/// buffer unlimited amounts of data in the case that one side of the transfer is faster than the 
+/// other and this would take up too much memory. If set too small, then we won't buffer enough
+/// and this could lead to reduced performance.
+pub const BOSS_DOER_CHANNEL_MEMORY_CAPACITY : usize = 100*1024*1024;
+//TODO: investigate different values of this using profiling?
+//TODO: could this be set based on e.g. 10% of the system memory?
 
 fn main() -> ExitCode {
     // The process can run as either a CLI which takes input from command line arguments, performs

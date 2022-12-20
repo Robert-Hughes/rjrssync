@@ -1,4 +1,4 @@
-use std::{net::TcpStream, io::{Write, Read}, thread::{JoinHandle, self}, sync::mpsc::{Sender, Receiver, self}};
+use std::{net::TcpStream, io::{Write, Read}, thread::{JoinHandle, self}};
 
 use aead::{Key, KeyInit};
 use bytes::{BytesMut, BufMut};
@@ -6,7 +6,7 @@ use aes_gcm::{Aes128Gcm, aead::{Nonce, Aead}, AeadInPlace};
 use log::{trace};
 use serde::{Deserialize, Serialize};
 
-use crate::profile_this;
+use crate::{profile_this, memory_bound_channel::{Sender, Receiver, self}, BOSS_DOER_CHANNEL_MEMORY_CAPACITY};
 
 /// Provides asynchronous, encrypted communication over a TcpStream, sending messages of type S
 /// and receiving messages of type R.
@@ -25,7 +25,7 @@ pub struct AsyncEncryptedComms<S: Serialize, R: for<'a> Deserialize<'a>> {
     receiving_thread: JoinHandle<()>,
     pub receiver: Receiver<R>,
 }
-impl<S: Serialize + Send + 'static, R: for<'a> Deserialize<'a> + Send + 'static> AsyncEncryptedComms<S, R> {
+impl<S: Serialize + Send + 'static, R: for<'a> Deserialize<'a> + Serialize + Send + 'static> AsyncEncryptedComms<S, R> {
     pub fn new(tcp_connection: TcpStream, secret_key: Key<Aes128Gcm>, sending_nonce_lsb: u64, receiving_nonce_lsb: u64,
         debug_local_remote_name: (&str, &str)) -> AsyncEncryptedComms<S, R> 
     {
@@ -33,7 +33,7 @@ impl<S: Serialize + Send + 'static, R: for<'a> Deserialize<'a> + Send + 'static>
         let mut tcp_connection_clone2 = tcp_connection.try_clone().expect("Failed to clone TCP stream");
 
         let sending_thread_name = format!("{} -> {}", debug_local_remote_name.0, debug_local_remote_name.1);
-        let (sender, thread_receiver) = mpsc::channel();
+        let (sender, thread_receiver) = memory_bound_channel::new(BOSS_DOER_CHANNEL_MEMORY_CAPACITY);
         let sending_thread = thread::Builder::new()
             .name(sending_thread_name.clone())
             .spawn(move || {
@@ -59,7 +59,7 @@ impl<S: Serialize + Send + 'static, R: for<'a> Deserialize<'a> + Send + 'static>
             }).expect("Failed to spawn thread");
 
         let receiving_thread_name = format!("{} -> {}", debug_local_remote_name.1, debug_local_remote_name.0);
-        let (thread_sender, receiver) = mpsc::channel();
+        let (thread_sender, receiver) = memory_bound_channel::new(BOSS_DOER_CHANNEL_MEMORY_CAPACITY);
         let receiving_thread = thread::Builder::new()
             .name(receiving_thread_name.clone())
             .spawn(move || {

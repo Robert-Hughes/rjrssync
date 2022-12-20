@@ -233,88 +233,88 @@ Windows -> Windows
 ┌───────────────────┬────────────────────────────────────────────┬────────────────────────────────────────────┬────────────────────────────────────────────┬────────────────────────────────────────────┬───────────────────┐
 │ Test case         │ rjrssync.exe (x5)                          │ scp (x5)                                   │ xcopy (x5)                                 │ robocopy (x5)                              │ APIs (x5)         │
 ├───────────────────┼────────────────────────────────────────────┼────────────────────────────────────────────┼────────────────────────────────────────────┼────────────────────────────────────────────┼───────────────────┤
-│ Everything copied │ 2.88s   - 3.19s  | 43.18 MiB  - 78.52 MiB  │ 2.36s   - 3.55s  | 7.23 MiB   - 7.23 MiB   │ 2.47s   - 2.94s  | 5.76 MiB   - 5.89 MiB   │ 1.88s   - 2.40s  | 6.85 MiB   - 6.96 MiB   │ 2.06s   - 2.64s   │
-│ Nothing copied    │ 85ms    - 186ms  | 7.59 MiB   - 7.62 MiB   │ Skipped                                    │ Skipped                                    │ 94ms    - 117ms  | 5.70 MiB   - 5.71 MiB   │ Skipped           │
-│ Some copied       │ 78ms    - 194ms  | 8.00 MiB   - 8.21 MiB   │ Skipped                                    │ Skipped                                    │ 237ms   - 259ms  | 6.03 MiB   - 6.05 MiB   │ Skipped           │
-│ Delete and copy   │ 2.93s   - 3.44s  | 64.39 MiB  - 64.81 MiB  │ Skipped                                    │ Skipped                                    │ 2.67s   - 3.09s  | 6.93 MiB   - 7.04 MiB   │ Skipped           │
-│ Single large file │ 629ms   - 794ms  | 29.10 MiB  - 121.99 MiB │ 423ms   - 441ms  | 7.22 MiB   - 7.23 MiB   │ 381ms   - 448ms  | 5.64 MiB   - 5.65 MiB   │ 385ms   - 421ms  | 6.70 MiB   - 6.71 MiB   │ 370ms   - 415ms   │
+│ Everything copied │ 2.78s   - 3.83s  | 36.92 MiB  - 76.68 MiB  │ 2.73s   - 3.38s  | 7.22 MiB   - 7.24 MiB   │ 2.41s   - 3.00s  | 5.75 MiB   - 6.00 MiB   │ 2.16s   - 2.39s  | 6.83 MiB   - 6.99 MiB   │ 1.97s   - 2.83s   │
+│ Nothing copied    │ 84ms    - 258ms  | 7.61 MiB   - 7.72 MiB   │ Skipped                                    │ Skipped                                    │ 96ms    - 100ms  | 5.70 MiB   - 5.71 MiB   │ Skipped           │
+│ Some copied       │ 88ms    - 283ms  | 8.04 MiB   - 8.23 MiB   │ Skipped                                    │ Skipped                                    │ 236ms   - 277ms  | 6.02 MiB   - 6.09 MiB   │ Skipped           │
+│ Delete and copy   │ 2.82s   - 4.15s  | 64.26 MiB  - 64.47 MiB  │ Skipped                                    │ Skipped                                    │ 2.69s   - 3.21s  | 6.91 MiB   - 7.04 MiB   │ Skipped           │
+│ Single large file │ 574ms   - 861ms  | 45.96 MiB  - 69.96 MiB  │ 420ms   - 526ms  | 7.21 MiB   - 7.24 MiB   │ 385ms   - 423ms  | 5.63 MiB   - 5.65 MiB   │ 406ms   - 456ms  | 6.70 MiB   - 6.71 MiB   │ 373ms   - 389ms   │
 └───────────────────┴────────────────────────────────────────────┴────────────────────────────────────────────┴────────────────────────────────────────────┴────────────────────────────────────────────┴───────────────────┘
 
 Windows -> \\wsl$\...
 ┌───────────────────┬────────────────────────────────────────────┬────────────────────────────────────────────┬────────────────────────────────────────────┬────────────────────────────────────────────┬───────────────────┐
 │ Test case         │ rjrssync.exe (x5)                          │ scp (x5)                                   │ xcopy (x5)                                 │ robocopy (x5)                              │ APIs (x5)         │
 ├───────────────────┼────────────────────────────────────────────┼────────────────────────────────────────────┼────────────────────────────────────────────┼────────────────────────────────────────────┼───────────────────┤
-│ Everything copied │ 8.74s   - 9.00s  | 78.49 MiB  - 78.80 MiB  │ 23.39s  - 24.05s | 7.21 MiB   - 7.24 MiB   │ 23.77s  - 28.95s | 12.27 MiB  - 12.57 MiB  │ 13.78s  - 16.66s | 13.76 MiB  - 13.88 MiB  │ 8.99s   - 14.19s  │
-│ Nothing copied    │ 495ms   - 537ms  | 7.95 MiB   - 8.00 MiB   │ Skipped                                    │ Skipped                                    │ 925ms   - 1.78s  | 5.70 MiB   - 5.72 MiB   │ Skipped           │
-│ Some copied       │ 489ms   - 622ms  | 8.48 MiB   - 8.58 MiB   │ Skipped                                    │ Skipped                                    │ 1.02s   - 2.15s  | 5.93 MiB   - 5.95 MiB   │ Skipped           │
-│ Delete and copy   │ 11.31s  - 12.97s | 64.93 MiB  - 65.04 MiB  │ Skipped                                    │ Skipped                                    │ 18.77s  - 23.63s | 13.84 MiB  - 14.09 MiB  │ Skipped           │
-│ Single large file │ 5.79s   - 6.24s  | 934.80 MiB - 938.82 MiB │ 2.90s   - 3.01s  | 7.22 MiB   - 7.23 MiB   │ 2.84s   - 3.35s  | 12.16 MiB  - 12.18 MiB  │ 2.86s   - 6.76s  | 13.62 MiB  - 13.68 MiB  │ 2.75s   - 4.00s   │
+│ Everything copied │ 7.92s   - 8.74s  | 78.48 MiB  - 78.58 MiB  │ 23.12s  - 23.84s | 7.23 MiB   - 7.24 MiB   │ 24.48s  - 29.05s | 12.30 MiB  - 12.57 MiB  │ 13.32s  - 14.80s | 13.75 MiB  - 13.80 MiB  │ 9.59s   - 10.96s  │
+│ Nothing copied    │ 510ms   - 555ms  | 7.90 MiB   - 8.07 MiB   │ Skipped                                    │ Skipped                                    │ 891ms   - 1.18s  | 5.70 MiB   - 5.73 MiB   │ Skipped           │
+│ Some copied       │ 574ms   - 598ms  | 8.22 MiB   - 8.30 MiB   │ Skipped                                    │ Skipped                                    │ 996ms   - 1.14s  | 5.93 MiB   - 5.97 MiB   │ Skipped           │
+│ Delete and copy   │ 11.54s  - 12.07s | 64.56 MiB  - 64.72 MiB  │ Skipped                                    │ Skipped                                    │ 19.77s  - 22.74s | 13.84 MiB  - 14.09 MiB  │ Skipped           │
+│ Single large file │ 6.49s   - 6.72s  | 222.42 MiB - 222.43 MiB │ 2.89s   - 2.94s  | 7.22 MiB   - 7.24 MiB   │ 2.89s   - 3.55s  | 12.18 MiB  - 12.19 MiB  │ 3.01s   - 3.30s  | 13.71 MiB  - 13.73 MiB  │ 2.82s   - 4.39s   │
 └───────────────────┴────────────────────────────────────────────┴────────────────────────────────────────────┴────────────────────────────────────────────┴────────────────────────────────────────────┴───────────────────┘
 
 Windows -> Remote Windows
 ┌───────────────────┬─────────────────────────────────────────────────────────────────────┬────────────────────────────────────────────┐
 │ Test case         │ rjrssync.exe (x5)                                                   │ scp (x5)                                   │
 ├───────────────────┼─────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────┤
-│ Everything copied │ 3.41s   - 4.15s  | 20.12 MiB  - 20.65 MiB | 30.43 MiB  - 44.86 MiB  │ 5.00s   - 7.84s  | 7.95 MiB   - 7.97 MiB   │
-│ Nothing copied    │ 270ms   - 681ms  | 8.11 MiB   - 8.17 MiB  | 5.45 MiB   - 5.51 MiB   │ Skipped                                    │
-│ Some copied       │ 281ms   - 543ms  | 8.39 MiB   - 8.63 MiB  | 5.70 MiB   - 5.78 MiB   │ Skipped                                    │
-│ Delete and copy   │ 3.26s   - 4.22s  | 21.76 MiB  - 30.15 MiB | 42.81 MiB  - 43.08 MiB  │ Skipped                                    │
-│ Single large file │ 3.65s   - 6.04s  | 819.02 MiB - 919.64 MiB| 18.77 MiB  - 30.78 MiB  │ 5.30s   - 7.81s  | 7.31 MiB   - 7.35 MiB   │
+│ Everything copied │ 3.65s   - 4.25s  | 19.75 MiB  - 20.71 MiB | 18.62 MiB  - 42.06 MiB  │ 5.46s   - 5.76s  | 7.96 MiB   - 8.15 MiB   │
+│ Nothing copied    │ 415ms   - 702ms  | 8.16 MiB   - 8.35 MiB  | 5.53 MiB   - 5.76 MiB   │ Skipped                                    │
+│ Some copied       │ 285ms   - 552ms  | 8.45 MiB   - 8.68 MiB  | 5.76 MiB   - 5.89 MiB   │ Skipped                                    │
+│ Delete and copy   │ 3.56s   - 3.97s  | 21.79 MiB  - 26.92 MiB | 42.67 MiB  - 42.83 MiB  │ Skipped                                    │
+│ Single large file │ 5.03s   - 6.00s  | 226.51 MiB - 227.26 MiB| 18.08 MiB  - 20.79 MiB  │ 5.51s   - 6.03s  | 7.48 MiB   - 7.50 MiB   │
 └───────────────────┴─────────────────────────────────────────────────────────────────────┴────────────────────────────────────────────┘
 
 Windows -> Remote Linux
 ┌───────────────────┬─────────────────────────────────────────────────────────────────────┬────────────────────────────────────────────┐
 │ Test case         │ rjrssync.exe (x5)                                                   │ scp (x5)                                   │
 ├───────────────────┼─────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────┤
-│ Everything copied │ 1.36s   - 1.99s  | 20.37 MiB  - 21.73 MiB | 215.60 MiB - 215.60 MiB │ 10.69s  - 14.28s | 7.95 MiB   - 8.01 MiB   │
-│ Nothing copied    │ 995ms   - 1.60s  | 8.38 MiB   - 8.49 MiB  | 215.60 MiB - 215.60 MiB │ Skipped                                    │
-│ Some copied       │ 939ms   - 1.02s  | 8.73 MiB   - 8.80 MiB  | 215.60 MiB - 215.60 MiB │ Skipped                                    │
-│ Delete and copy   │ 1.32s   - 1.39s  | 21.79 MiB  - 23.04 MiB | 215.60 MiB - 215.60 MiB │ Skipped                                    │
-│ Single large file │ 3.20s   - 4.15s  | 787.55 MiB - 803.02 MiB| 215.60 MiB - 215.60 MiB │ 5.80s   - 7.89s  | 7.33 MiB   - 7.36 MiB   │
+│ Everything copied │ 1.39s   - 2.20s  | 20.12 MiB  - 21.49 MiB | 215.62 MiB - 215.62 MiB │ 11.12s  - 11.49s | 7.97 MiB   - 8.07 MiB   │
+│ Nothing copied    │ 1.48s   - 1.59s  | 8.39 MiB   - 8.48 MiB  | 215.62 MiB - 215.62 MiB │ Skipped                                    │
+│ Some copied       │ 966ms   - 1.71s  | 8.56 MiB   - 8.73 MiB  | 215.62 MiB - 215.62 MiB │ Skipped                                    │
+│ Delete and copy   │ 1.33s   - 1.95s  | 21.63 MiB  - 23.71 MiB | 215.62 MiB - 215.62 MiB │ Skipped                                    │
+│ Single large file │ 3.74s   - 4.95s  | 226.52 MiB - 227.06 MiB| 215.62 MiB - 215.62 MiB │ 6.34s   - 7.21s  | 7.48 MiB   - 7.50 MiB   │
 └───────────────────┴─────────────────────────────────────────────────────────────────────┴────────────────────────────────────────────┘
 
 Linux -> Linux
 ┌───────────────────┬────────────────────────────────────────────┬───────────────────┬───────────────────┬───────────────────┬───────────────────┐
 │ Test case         │ rjrssync (x5)                              │ rsync (x5)        │ scp (x5)          │ cp (x5)           │ APIs (x5)         │
 ├───────────────────┼────────────────────────────────────────────┼───────────────────┼───────────────────┼───────────────────┼───────────────────┤
-│ Everything copied │ 205ms   - 310ms  | 347.63 MiB - 347.63 MiB │ 191ms   - 234ms   │ 91ms    - 110ms   │ 93ms    - 119ms   │ 94ms    - 116ms   │
-│ Nothing copied    │ 39ms    - 48ms   | 347.63 MiB - 347.63 MiB │ 24ms    - 33ms    │ Skipped           │ Skipped           │ Skipped           │
-│ Some copied       │ 231ms   - 346ms  | 347.63 MiB - 347.63 MiB │ 32ms    - 40ms    │ Skipped           │ Skipped           │ Skipped           │
-│ Delete and copy   │ 202ms   - 324ms  | 347.63 MiB - 347.63 MiB │ 246ms   - 266ms   │ Skipped           │ Skipped           │ Skipped           │
-│ Single large file │ 527ms   - 1.55s  | 295.64 MiB - 859.62 MiB │ 1.95s   - 2.05s   │ 436ms   - 503ms   │ 436ms   - 527ms   │ 383ms   - 682ms   │
+│ Everything copied │ 116ms   - 156ms  | 347.66 MiB - 347.66 MiB │ 189ms   - 198ms   │ 90ms    - 97ms    │ 87ms    - 91ms    │ 94ms    - 109ms   │
+│ Nothing copied    │ 20ms    - 34ms   | 347.66 MiB - 347.66 MiB │ 25ms    - 31ms    │ Skipped           │ Skipped           │ Skipped           │
+│ Some copied       │ 154ms   - 182ms  | 347.66 MiB - 347.66 MiB │ 32ms    - 36ms    │ Skipped           │ Skipped           │ Skipped           │
+│ Delete and copy   │ 164ms   - 201ms  | 347.66 MiB - 347.66 MiB │ 244ms   - 259ms   │ Skipped           │ Skipped           │ Skipped           │
+│ Single large file │ 490ms   - 541ms  | 475.66 MiB - 539.66 MiB │ 1.87s   - 1.92s   │ 427ms   - 462ms   │ 424ms   - 487ms   │ 383ms   - 450ms   │
 └───────────────────┴────────────────────────────────────────────┴───────────────────┴───────────────────┴───────────────────┴───────────────────┘
 
 Linux -> /mnt/...
 ┌───────────────────┬────────────────────────────────────────────┬───────────────────┬───────────────────┬───────────────────┬───────────────────┐
 │ Test case         │ rjrssync (x5)                              │ rsync (x5)        │ scp (x5)          │ cp (x5)           │ APIs (x5)         │
 ├───────────────────┼────────────────────────────────────────────┼───────────────────┼───────────────────┼───────────────────┼───────────────────┤
-│ Everything copied │ 14.63s  - 18.65s | 347.63 MiB - 347.63 MiB │ 42.63s  - 61.86s  │ 16.58s  - 32.46s  │ 16.82s  - 25.63s  │ 18.10s  - 23.87s  │
-│ Nothing copied    │ 15.13s  - 20.40s | 347.63 MiB - 347.63 MiB │ 24.49s  - 47.55s  │ Skipped           │ Skipped           │ Skipped           │
-│ Some copied       │ 15.08s  - 16.85s | 347.63 MiB - 347.63 MiB │ 27.79s  - 34.88s  │ Skipped           │ Skipped           │ Skipped           │
-│ Delete and copy   │ 27.73s  - 32.28s | 347.63 MiB - 347.63 MiB │ 52.38s  - 77.35s  │ Skipped           │ Skipped           │ Skipped           │
-│ Single large file │ 4.01s   - 4.46s  | 1.16 GiB   - 1.27 GiB   │ 5.87s   - 11.31s  │ 4.85s   - 7.47s   │ 4.84s   - 6.27s   │ 5.40s   - 6.39s   │
+│ Everything copied │ 15.15s  - 17.81s | 347.66 MiB - 347.66 MiB │ 42.95s  - 44.38s  │ 16.87s  - 17.87s  │ 16.89s  - 17.42s  │ 17.31s  - 18.15s  │
+│ Nothing copied    │ 16.38s  - 19.08s | 347.66 MiB - 347.66 MiB │ 23.58s  - 26.28s  │ Skipped           │ Skipped           │ Skipped           │
+│ Some copied       │ 16.67s  - 18.86s | 347.66 MiB - 347.66 MiB │ 24.71s  - 26.56s  │ Skipped           │ Skipped           │ Skipped           │
+│ Delete and copy   │ 29.07s  - 32.68s | 347.66 MiB - 347.66 MiB │ 51.36s  - 53.47s  │ Skipped           │ Skipped           │ Skipped           │
+│ Single large file │ 3.78s   - 5.26s  | 567.73 MiB - 567.75 MiB │ 5.29s   - 6.35s   │ 3.82s   - 5.36s   │ 4.96s   - 5.02s   │ 5.35s   - 5.78s   │
 └───────────────────┴────────────────────────────────────────────┴───────────────────┴───────────────────┴───────────────────┴───────────────────┘
 
 Linux -> Remote Windows
 ┌───────────────────┬─────────────────────────────────────────────────────────────────────┬───────────────────┐
 │ Test case         │ rjrssync (x5)                                                       │ scp (x5)          │
 ├───────────────────┼─────────────────────────────────────────────────────────────────────┼───────────────────┤
-│ Everything copied │ 3.38s   - 4.05s  | 479.66 MiB - 479.66 MiB| 46.34 MiB  - 54.72 MiB  │ 5.48s   - 7.89s   │
-│ Nothing copied    │ 546ms   - 1.09s  | 479.66 MiB - 479.66 MiB| 5.44 MiB   - 5.82 MiB   │ Skipped           │
-│ Some copied       │ 3.22s   - 3.91s  | 479.66 MiB - 479.66 MiB| 35.23 MiB  - 53.81 MiB  │ Skipped           │
-│ Delete and copy   │ 3.76s   - 5.62s  | 479.66 MiB - 479.66 MiB| 55.78 MiB  - 56.24 MiB  │ Skipped           │
-│ Single large file │ 2.84s   - 3.29s  | 1.22 GiB   - 1.22 GiB  | 18.76 MiB  - 50.81 MiB  │ 4.75s   - 6.97s   │
+│ Everything copied │ 3.60s   - 3.87s  | 479.69 MiB - 479.69 MiB| 38.23 MiB  - 54.57 MiB  │ 5.67s   - 6.25s   │
+│ Nothing copied    │ 536ms   - 1.08s  | 479.69 MiB - 479.69 MiB| 5.53 MiB   - 5.86 MiB   │ Skipped           │
+│ Some copied       │ 3.36s   - 3.66s  | 479.69 MiB - 479.69 MiB| 36.09 MiB  - 53.80 MiB  │ Skipped           │
+│ Delete and copy   │ 4.09s   - 4.55s  | 479.69 MiB - 479.69 MiB| 55.49 MiB  - 55.84 MiB  │ Skipped           │
+│ Single large file │ 3.16s   - 3.33s  | 619.69 MiB - 647.71 MiB| 18.79 MiB  - 18.82 MiB  │ 4.94s   - 5.20s   │
 └───────────────────┴─────────────────────────────────────────────────────────────────────┴───────────────────┘
 
 Linux -> Remote Linux
 ┌───────────────────┬─────────────────────────────────────────────────────────────────────┬───────────────────┬───────────────────┐
 │ Test case         │ rjrssync (x5)                                                       │ rsync (x5)        │ scp (x5)          │
 ├───────────────────┼─────────────────────────────────────────────────────────────────────┼───────────────────┼───────────────────┤
-│ Everything copied │ 588ms   - 1.40s  | 479.66 MiB - 479.66 MiB| 215.60 MiB - 215.60 MiB │ 565ms   - 743ms   │ 1.71s   - 2.07s   │
-│ Nothing copied    │ 328ms   - 611ms  | 479.66 MiB - 479.66 MiB| 215.60 MiB - 215.60 MiB │ 330ms   - 507ms   │ Skipped           │
-│ Some copied       │ 589ms   - 934ms  | 479.66 MiB - 479.66 MiB| 215.60 MiB - 215.60 MiB │ 336ms   - 416ms   │ Skipped           │
-│ Delete and copy   │ 690ms   - 1.29s  | 479.66 MiB - 479.66 MiB| 215.60 MiB - 215.60 MiB │ 638ms   - 730ms   │ Skipped           │
-│ Single large file │ 1.81s   - 2.95s  | 1.09 GiB   - 1.22 GiB  | 215.60 MiB - 215.60 MiB │ 4.04s   - 5.68s   │ 4.37s   - 4.70s   │
+│ Everything copied │ 495ms   - 572ms  | 479.69 MiB - 479.69 MiB| 215.62 MiB - 215.62 MiB │ 580ms   - 645ms   │ 1.77s   - 1.80s   │
+│ Nothing copied    │ 338ms   - 403ms  | 479.69 MiB - 479.69 MiB| 215.62 MiB - 215.62 MiB │ 322ms   - 350ms   │ Skipped           │
+│ Some copied       │ 521ms   - 662ms  | 479.69 MiB - 479.69 MiB| 215.62 MiB - 215.62 MiB │ 346ms   - 371ms   │ Skipped           │
+│ Delete and copy   │ 578ms   - 643ms  | 479.69 MiB - 479.69 MiB| 215.62 MiB - 215.62 MiB │ 647ms   - 743ms   │ Skipped           │
+│ Single large file │ 2.12s   - 2.22s  | 611.69 MiB - 615.70 MiB| 215.62 MiB - 215.62 MiB │ 4.09s   - 4.21s   │ 4.55s   - 4.73s   │
 └───────────────────┴─────────────────────────────────────────────────────────────────────┴───────────────────┴───────────────────┘
 
 Notes on filters

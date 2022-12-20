@@ -10,13 +10,13 @@ use std::{
     fmt::{self, Display},
     io::{Write},
     path::{Path, PathBuf},
-    sync::mpsc::{Receiver, Sender},
     time::{Instant, SystemTime}, net::{TcpListener},
 };
 use walkdir::WalkDir;
 
 use crate::*;
 use crate::encrypted_comms::AsyncEncryptedComms;
+use crate::memory_bound_channel::{Sender, Receiver};
 
 #[derive(clap::Parser)]
 struct DoerCliArgs {
@@ -352,9 +352,8 @@ enum Comms {
     },
 }
 impl Comms {
-    //TODO: because this returns immediately, if the network is being slow then we will
-    // slowly take up more and more memory in the channel buffer! Maybe could use a channel with
-    // a max capacity and it blocks?
+    /// This will block if there is not enough capacity in the channel, so
+    /// that we don't use up infinite memory if the boss is being slow.
     pub fn send_response(&mut self, r: Response) {
         trace!("Sending response {:?} to {}", r, &self);
         let sender = match self {

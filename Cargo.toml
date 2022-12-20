@@ -26,6 +26,7 @@ const_format = "=0.2.30"
 indicatif = "=0.17.2"
 dialoguer = "=0.10.2"
 winapi = { version = "=0.3.9", features=["psapi"] }
+crossbeam = "=0.8.2"
 
 # Profiling-only dependencies
 json = { version = "0.12.4", optional = true }

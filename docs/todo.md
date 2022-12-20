@@ -77,12 +77,6 @@ Performance
 * Could investigate using UDP or something else to reduce TCP overhead, possibly this could speed up the TCP connection time?
 * Benchmarking with two remotes rather than just one
 * Profiling events like send/receive could show the message type?
-* Because our send_command/response now returns immediately, if the network is being slow then we will
-  slowly take up more and more memory in the channel buffer (same on both sending and receiving side)! 
-  - Idea: keep track of the size (rough bytes) of messages in the channel with some kind of Arc<Atomic<usize>> - the sending side checks this and busy-waits if it's too full (could use
-  the busy wait helper thing in Crossbeam), the receiving side decrements the counter.
-  Would need a "get size" function on messages, which could be std::mem::size() + any heap data.
-* crossbeam channels are supposed to have better performance (and better API/features)
 
 Misc
 -----
