@@ -1,7 +1,6 @@
 use std::path::Path;
 use std::process::ExitCode;
 use std::io::Write;
-use std::time::Duration;
 
 use clap::{Parser, ValueEnum};
 use env_logger::{Env, fmt::Color};

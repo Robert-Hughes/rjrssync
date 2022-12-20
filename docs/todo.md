@@ -82,12 +82,9 @@ Misc
 
 * Make GitHub actions run on both Windows and Linux.
 * Configure GitHub actions to run with remote hosts somehow
-* piper and tcper maybe shouldn't be in the `bin/` folder, as then they count as part of the proper program (and then get installed with cargo install, or with crate publish?),
-but they should just be for testing/investigation. Maybe should be a separate crate?
 * On work PC this fails:
 `cargo run D:\TempSource\ robhug01@localhost:/home/robhug01/TempDest -v`
 ERROR | rjrssync::boss_frontend: Sync error: Unexpected response from dest GetEntries: Ok(Error("normalize_path failed: Illegal characters in path"))
-* Improve compile times. Is it the RustEmbed crate? Maybe the debug-embed feature of the crate could help?
 * Maybe should extend test framework to support doing things remotely, like saving and loading filesystem nodes, making and clearing out a temporary folder etc.
 * Upload to crates.io, so that we can "cargo install" from anywhere?
 * "cargo install" should only install rjrssync, not the other binaries like piper etc.

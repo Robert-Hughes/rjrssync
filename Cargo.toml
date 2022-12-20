@@ -58,11 +58,11 @@ bench = false # Prevent from being run as a benchmark when running "cargo bench"
 name = "benchmarks"
 harness = false
 
-[[bin]]
+[[example]]
 name = "piper"
 bench = false # Prevent from being run as a benchmark when running "cargo bench"
 
-[[bin]]
+[[example]]
 name = "tcper"
 bench = false # Prevent from being run as a benchmark when running "cargo bench"
 
