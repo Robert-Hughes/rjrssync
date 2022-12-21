@@ -8,6 +8,9 @@ use indicatif::HumanBytes;
 #[path = "../tests/test_utils.rs"]
 mod test_utils;
 
+use test_utils::get_unique_remote_temp_folder;
+use test_utils::RemotePlatform;
+
 #[derive(Debug, Clone)]
 enum Target {
     Local(PathBuf),
@@ -142,14 +145,14 @@ fn main () {
         results.push((format!("{local_name} -> Remote Windows"), run_benchmarks_for_target(&args, 
             Target::Remote { 
                 is_windows: true, 
-                user_and_host: test_utils::RemotePlatform::get_windows().user_and_host.clone(), 
-                folder: test_utils::RemotePlatform::get_windows().test_folder.clone() + "\\benchmark-dest" })));
+                user_and_host: RemotePlatform::get_windows().user_and_host.clone(), 
+                folder: get_unique_remote_temp_folder(RemotePlatform::get_windows()) })));
         
         results.push((format!("{local_name} -> Remote Linux"), run_benchmarks_for_target(&args, 
             Target::Remote { 
                 is_windows: false, 
-                user_and_host: test_utils::RemotePlatform::get_linux().user_and_host.clone(), 
-                folder: test_utils::RemotePlatform::get_linux().test_folder.clone() + "/benchmark-dest" })));
+                user_and_host: RemotePlatform::get_linux().user_and_host.clone(), 
+                folder: get_unique_remote_temp_folder(RemotePlatform::get_linux()) })));
     }
 
     println!();

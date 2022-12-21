@@ -6,7 +6,7 @@ use network_interface::NetworkInterface;
 use network_interface::NetworkInterfaceConfig;
 use network_interface::V4IfAddr;
 use network_interface::Addr::V4;
-use lazy_static::{lazy_static, __Deref};
+use lazy_static::{lazy_static};
 use rand::{thread_rng, distributions::DistString};
 
 pub struct ProcessOutput {
@@ -27,6 +27,7 @@ pub fn run_process_with_live_output(c: &mut std::process::Command) -> ProcessOut
     run_process_with_live_output_impl(c, false, false, false)
 }
 
+#[allow(unused)] // Unusued in benchmarks.rs (we compile this file twice)
 pub fn assert_process_with_live_output(c: &mut std::process::Command) {
     let r = run_process_with_live_output_impl(c, false, false, false);
     assert!(r.exit_status.success());
