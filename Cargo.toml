@@ -38,6 +38,7 @@ map-macro = "=0.2.4"
 network-interface = "=0.1.5"
 fs_extra = "=1.2.0"
 ascii_table = "=4.0.2"
+rand = "=0.8.5"
 #end
 
 [features]

@@ -7,6 +7,7 @@ use network_interface::NetworkInterfaceConfig;
 use network_interface::V4IfAddr;
 use network_interface::Addr::V4;
 use lazy_static::{lazy_static, __Deref};
+use rand::{thread_rng, distributions::DistString};
 
 pub struct ProcessOutput {
     pub exit_status: std::process::ExitStatus,
@@ -364,4 +365,22 @@ fn confirm_remote_test_environment(remote_user_and_host: &str, remote_folder: &s
 
     assert!(output.exit_status.success());
     assert!(output.stdout.contains(expected_os));
+}
+
+/// Creates and returns the path to an empty temporary folder on the given remote platform.
+/// We can't use TempDir or similar as this is for a remote platform, not the local one.
+/// We need to use separate folders for each test so that each test is run in a clean environment.
+pub fn get_unique_remote_temp_folder(remote_platform: &RemotePlatform) -> String {
+    // For now we make a random number and hope that it's unique!
+    let mut rng = thread_rng();
+    let slash = match remote_platform {
+        RemotePlatform::Windows => '\\',
+        RemotePlatform::Linux => '/',
+    };
+    let folder = format!("{}{}{}", remote_platform.get_config().1, slash, &rand::distributions::Alphanumeric.sample_string(&mut rng, 8));
+
+    // Create the folder
+    assert_process_with_live_output(Command::new("ssh").arg(&remote_platform.get_config().0).arg(format!("mkdir {folder}")));
+
+    folder
 }
