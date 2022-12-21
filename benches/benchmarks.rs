@@ -140,10 +140,16 @@ fn main () {
     
     if !args.only_local {
         results.push((format!("{local_name} -> Remote Windows"), run_benchmarks_for_target(&args, 
-            Target::Remote { is_windows: true, user_and_host: test_utils::REMOTE_WINDOWS_CONFIG.0.clone(), folder: test_utils::REMOTE_WINDOWS_CONFIG.1.clone() + "\\benchmark-dest" })));
+            Target::Remote { 
+                is_windows: true, 
+                user_and_host: test_utils::RemotePlatform::get_windows().user_and_host.clone(), 
+                folder: test_utils::RemotePlatform::get_windows().test_folder.clone() + "\\benchmark-dest" })));
         
         results.push((format!("{local_name} -> Remote Linux"), run_benchmarks_for_target(&args, 
-            Target::Remote { is_windows: false, user_and_host: test_utils::REMOTE_LINUX_CONFIG.0.clone(), folder: test_utils::REMOTE_LINUX_CONFIG.1.clone() + "/benchmark-dest" })));
+            Target::Remote { 
+                is_windows: false, 
+                user_and_host: test_utils::RemotePlatform::get_linux().user_and_host.clone(), 
+                folder: test_utils::RemotePlatform::get_linux().test_folder.clone() + "/benchmark-dest" })));
     }
 
     println!();

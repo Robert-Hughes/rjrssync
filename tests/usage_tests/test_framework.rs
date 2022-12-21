@@ -7,8 +7,6 @@ use tempdir::TempDir;
 
 use crate::test_utils::{run_process_with_live_output, get_unique_remote_temp_folder, RemotePlatform};
 use crate::test_utils::assert_process_with_live_output;
-use crate::test_utils::REMOTE_WINDOWS_CONFIG;
-use crate::test_utils::REMOTE_LINUX_CONFIG;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SymlinkKind {
@@ -145,6 +143,7 @@ fn save_filesystem_node_to_disk_remote(node: &FilesystemNode, remote_host_and_pa
     save_filesystem_node_to_disk_local(node, &local_node_path);
 
     // Pack into tar
+    //TODO: tar messes about with symlinks when extracting on a different platform (Windows vs Linux)
     let tar_file_local = local_temp_folder.join("stuff.tar");
     // Important to use --format=posix so that modified timestamps are preserved at higher precision (the default is just 1 second)
     assert_process_with_live_output(Command::new("tar").arg("--format=posix") 
@@ -219,6 +218,7 @@ fn load_filesystem_node_from_disk_remote(remote_host_and_path: &str) -> Option<F
     let local_temp_folder = local_temp_folder.path();
 
     // Pack into tar
+    //TODO: tar messes about with symlinks when extracting on a different platform (Windows vs Linux)
     let tar_file_remote = String::from(remote_path) + ".tar";
     assert_process_with_live_output(Command::new("ssh").arg(remote_host)
         // Important to use --format=posix so that modified timestamps are preserved at higher precision (the default is just 1 second)
@@ -297,16 +297,18 @@ pub fn run(desc: TestDesc) {
         // need to have remote platforms available (e.g. on GitHub Actions).
         // Use a new remote temporary folder for each test (rather than re-using the root one)
         if p.contains("$REMOTE_WINDOWS_TEMP") {
+            let platform = RemotePlatform::get_windows();
             if remote_windows_temp_path.is_none() {
-                remote_windows_temp_path = Some(get_unique_remote_temp_folder(&RemotePlatform::Windows));
+                remote_windows_temp_path = Some(get_unique_remote_temp_folder(platform));
             }
-            p = p.replace("$REMOTE_WINDOWS_TEMP", &format!("{}:{}", REMOTE_WINDOWS_CONFIG.0, remote_windows_temp_path.as_ref().unwrap()));
+            p = p.replace("$REMOTE_WINDOWS_TEMP", &format!("{}:{}", platform.user_and_host, remote_windows_temp_path.as_ref().unwrap()));
         }
         if p.contains("$REMOTE_LINUX_TEMP") {
+            let platform = RemotePlatform::get_linux();
             if remote_linux_temp_path.is_none() {
-                remote_linux_temp_path = Some(get_unique_remote_temp_folder(&RemotePlatform::Linux));
+                remote_linux_temp_path = Some(get_unique_remote_temp_folder(platform));
             }
-            p = p.replace("$REMOTE_LINUX_TEMP", &format!("{}:{}", REMOTE_LINUX_CONFIG.0, remote_linux_temp_path.as_ref().unwrap()));
+            p = p.replace("$REMOTE_LINUX_TEMP", &format!("{}:{}", platform.user_and_host, remote_linux_temp_path.as_ref().unwrap()));
         }
         p
     };

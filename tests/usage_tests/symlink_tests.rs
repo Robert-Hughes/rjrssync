@@ -333,7 +333,7 @@ fn test_file_to_symlink_folder_dest_root() {
 // "Tag" these tests as they require remote platforms (GitHub Actions differentiates these)
 mod remote {
 
-use crate::{test_utils::RemotePlatform, test_utils::run_process_with_live_output};
+use crate::{test_utils::RemotePlatform, test_utils::{run_process_with_live_output, get_unique_remote_temp_folder}};
 
 use super::*;
 
@@ -353,20 +353,11 @@ fn test_symlink_target_slashes() {
     };
     // Sync it to a remote platform (both Windows and Linux), and check that they were converted to the correct 
     // representation for that platform
-    for remote_platform in [RemotePlatform::Windows, RemotePlatform::Linux] {
-        let (remote_user_and_host, remote_test_folder) = remote_platform.get_config();
-
-        let dest = remote_test_folder.to_string() + "/test_symlink_target_relative_slashes";
-
-        // The remote folder needs to be cleaned out first!
-        let mut cmd = std::process::Command::new("ssh");
-        let cmd = cmd.arg(format!("{remote_user_and_host}"));
-        let cmd = match remote_platform {            
-            RemotePlatform::Linux => cmd.arg("rm").arg("-rf").arg(&dest),
-            RemotePlatform::Windows => cmd.arg("rmdir").arg("/Q").arg("/S").arg(&dest.replace("/", "\\")),
-        };
-        let _ = run_process_with_live_output(cmd);
-        // If the folder doesn't already exist, this will error, so don't check the return code
+    for remote_platform in [RemotePlatform::get_windows(), RemotePlatform::get_linux()] {
+        // The remote part of the test framework doesn't handle symlinks so well, as tar messes about
+        // with the links, so we do the check manually, and so need to create our own temp folder rather
+        // than using REMOTE_WINDOWS_TEMP.
+        let remote_dest = get_unique_remote_temp_folder(remote_platform);
 
         run(TestDesc {
             setup_filesystem_nodes: vec![
@@ -374,29 +365,33 @@ fn test_symlink_target_slashes() {
             ],
             args: vec![
                 "$TEMP/src".to_string(),
-                format!("{remote_user_and_host}:{dest}")
+                format!("{}:{}", remote_platform.user_and_host, remote_dest),
             ],
             expected_exit_code: 0,
             ..Default::default()
-        }.with_expected_actions(copied_files_folders_and_symlinks(1, 1, 2)));
+        }.with_expected_actions(copied_files_folders_and_symlinks(1, 0, 2)));
 
+        // The remote part of the test framework doesn't handle symlinks so well, as tar messes about
+        // with the links, so we do the check manually.
         let mut cmd = std::process::Command::new("ssh");
-        let cmd = cmd.arg(format!("{remote_user_and_host}"));
-        let cmd = match remote_platform {            
-            RemotePlatform::Linux => cmd.arg("ls").arg("-al").arg(dest),
-            RemotePlatform::Windows => cmd.arg("dir").arg(&dest.replace("/", "\\")),
+        let cmd = cmd.arg(&remote_platform.user_and_host);
+        let cmd = match &remote_platform.path_separator {            
+            '/' => cmd.arg("ls").arg("-al").arg(remote_dest),
+            '\\' => cmd.arg("dir").arg(remote_dest),
+            _ => panic!()
         };
         let result = run_process_with_live_output(cmd);
         assert!(result.exit_status.success());
-        match remote_platform {            
-            RemotePlatform::Linux => {
+        match &remote_platform.path_separator {            
+            '/' => {
                 assert!(result.stdout.contains("relative-symlink -> ../src/../src/dummy-target")); // Forward slashes on the relative symlink (converted from the local representation)
                 assert!(result.stdout.contains(&format!("absolute-symlink -> {abs_path}"))); // Absolute symlink has been unchanged
             }
-            RemotePlatform::Windows => {
+            '\\' => {
                 assert!(result.stdout.contains(r"<SYMLINK>      relative-symlink [..\src\..\src\dummy-target]")); // Backwards slashes on the relative symlink  (converted from the local representation)
                 assert!(result.stdout.contains(&format!("<SYMLINKD>     absolute-symlink [{abs_path}]"))); // Absolute symlink has been unchanged
             }
+            _ => panic!()
         };        
     }
 }

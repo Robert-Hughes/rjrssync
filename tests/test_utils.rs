@@ -224,33 +224,33 @@ fn get_peak_memory_usage(_process: &std::process::Child) -> Option<usize> {
 // a Windows and Linux remote hostname are required.
 // One way of achieving this is to use WSL.
 
-#[allow(unused)] // Because this file is compiled in two targets (usage tests and benchmarks), and one doesn't use it
-pub enum RemotePlatform {
-    Windows,
-    Linux
+pub struct RemotePlatform {
+    pub user_and_host: String,
+    pub test_folder: String,
+    pub path_separator: char,
 }
 
 impl RemotePlatform {
-    #[allow(unused)] // Because this file is compiled in two targets (usage tests and benchmarks), and one doesn't use it
-    pub fn get_config(&self) -> &(String, String) {
-        match self {
-            RemotePlatform::Windows => REMOTE_WINDOWS_CONFIG.deref(),
-            RemotePlatform::Linux => REMOTE_LINUX_CONFIG.deref(),
-        }
+    pub fn get_windows() -> &'static RemotePlatform {
+        &REMOTE_WINDOWS_PLATFORM
+    }
+    pub fn get_linux() -> &'static RemotePlatform {
+        &REMOTE_LINUX_PLATFORM
     }
 }
 
 // Determine the remote config just once using lazy_static, as it might be a bit expensive
 // as it runs some commands.
+// Don't use these directly, use RemotePlatform::get_windows/linux instead
 lazy_static! {
-    pub static ref REMOTE_WINDOWS_CONFIG: (String, String) = get_remote_windows_config();
-    pub static ref REMOTE_LINUX_CONFIG: (String, String) = get_remote_linux_config();
+    static ref REMOTE_WINDOWS_PLATFORM: RemotePlatform = create_remote_windows_platform();
+    static ref REMOTE_LINUX_PLATFORM: RemotePlatform = create_remote_linux_platform();
 }
 
 /// Gets the remote host configuration to use for remote Windows tests.
 /// This can come from environment variables specified by the user, or if not specified,
 /// a default is returned assuming a WSL setup.
-fn get_remote_windows_config() -> (String, String) {
+fn create_remote_windows_platform() -> RemotePlatform {
     let user_and_host = match std::env::var("RJRSSYNC_TEST_REMOTE_USER_AND_HOST_WINDOWS") {
         Ok(x) => x,
         Err(std::env::VarError::NotPresent) => {
@@ -298,13 +298,13 @@ fn get_remote_windows_config() -> (String, String) {
     // Confirm that we can connect to this remote host, to help debugging the test environment
     confirm_remote_test_environment(&user_and_host, &test_folder, "Windows");
 
-    (user_and_host, test_folder)
+    RemotePlatform { user_and_host, test_folder, path_separator: '\\' }
 }
 
 /// Gets the remote host configuration to use for remote Linux tests.
 /// This can come from environment variables specified by the user, or if not specified,
 /// a default is returned assuming a WSL setup.
-fn get_remote_linux_config() -> (String, String) {
+fn create_remote_linux_platform() -> RemotePlatform {
     let user_and_host = match std::env::var("RJRSSYNC_TEST_REMOTE_USER_AND_HOST_LINUX") {
         Ok(x) => x,
         Err(std::env::VarError::NotPresent) => {
@@ -342,7 +342,7 @@ fn get_remote_linux_config() -> (String, String) {
     // Confirm that we can connect to this remote host, to help debugging the test environment
     confirm_remote_test_environment(&user_and_host, &test_folder, "Linux");
 
-    (user_and_host, test_folder)
+    RemotePlatform { user_and_host, test_folder, path_separator: '/' }
 }
 
 fn confirm_remote_test_environment(remote_user_and_host: &str, remote_folder: &str, expected_os: &str) {
@@ -373,14 +373,10 @@ fn confirm_remote_test_environment(remote_user_and_host: &str, remote_folder: &s
 pub fn get_unique_remote_temp_folder(remote_platform: &RemotePlatform) -> String {
     // For now we make a random number and hope that it's unique!
     let mut rng = thread_rng();
-    let slash = match remote_platform {
-        RemotePlatform::Windows => '\\',
-        RemotePlatform::Linux => '/',
-    };
-    let folder = format!("{}{}{}", remote_platform.get_config().1, slash, &rand::distributions::Alphanumeric.sample_string(&mut rng, 8));
+    let folder = format!("{}{}{}", remote_platform.test_folder, remote_platform.path_separator, &rand::distributions::Alphanumeric.sample_string(&mut rng, 8));
 
     // Create the folder
-    assert_process_with_live_output(Command::new("ssh").arg(&remote_platform.get_config().0).arg(format!("mkdir {folder}")));
+    assert_process_with_live_output(Command::new("ssh").arg(&remote_platform.user_and_host).arg(format!("mkdir {folder}")));
 
     folder
 }
