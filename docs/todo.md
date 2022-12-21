@@ -53,6 +53,7 @@ Syncing logic
    - Possibly want to keep the authentication aspects, but drop the encryption?
 * Use of SystemTime
    -  is this compatible between platforms, time zone changes, precision differences, etc. etc.
+   - systems might have different precision, so we would think the timestamp has changed, when it hasn't really
    - can we safely serialize this on one platform and deserialize on another?
 * --dry-run isn't honoured when creating dest ancestors! It should instead say that it _would_ create the ancestors.
 * When splitting large files, the optimum chunk size might vary, we could adjust this dynamically.
@@ -83,9 +84,9 @@ Misc
 * On work PC this fails:
 `cargo run D:\TempSource\ robhug01@localhost:/home/robhug01/TempDest -v`
 ERROR | rjrssync::boss_frontend: Sync error: Unexpected response from dest GetEntries: Ok(Error("normalize_path failed: Illegal characters in path"))
-* Maybe should extend test framework to support doing things remotely, like saving and loading filesystem nodes, making and clearing out a temporary folder etc.
 * Upload to crates.io, so that we can "cargo install" from anywhere?
 * Warning if filter doesn't match anything, possibly after GetEntries but before actually doing anything (to prevent mistaken filter?)
 * Would be nice to automatically detect cases where the version number hasn't been updated, e.g. if we
 could see that the Command/Response struct layout has changed.
 * Async comms might not be handling errors properly - the threads can stop early due to either the tcp connection or the channel being closed, and might need propagating somehow?
+* Various tests are leaving behind temporary folders, filling up with disk space!

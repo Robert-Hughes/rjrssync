@@ -1,13 +1,11 @@
-use lazy_static::__Deref;
 use regex::Regex;
 
 use crate::test_framework::{run, TestDesc, empty_folder};
-use crate::test_utils;
 
 /// Tests that rjrssync can be launched on a remote platform, and communication is estabilished.
 /// There is no proper sync performed (just syncing an empty folder), but this checks that
 /// the ssh/scp/cargo commands and TCP connection works.
-fn test_remote_launch_impl(remote_user_and_host: &str, remote_test_folder: &str) {
+fn test_remote_launch_impl(remote_platform_temp_variable: &str) {
     // First run with --force-redeploy, to check that the remote deploying and building works,
     // even when the remote already has rjrssync set up.
     run(TestDesc {
@@ -17,7 +15,7 @@ fn test_remote_launch_impl(remote_user_and_host: &str, remote_test_folder: &str)
         args: vec![
             "--force-redeploy".to_string(),
             "$TEMP/src".to_string(),
-            format!("{remote_user_and_host}:{remote_test_folder}")
+            format!("{remote_platform_temp_variable}/dest")
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
@@ -33,7 +31,7 @@ fn test_remote_launch_impl(remote_user_and_host: &str, remote_test_folder: &str)
         ],
         args: vec![
             "$TEMP/src".to_string(),
-            format!("{remote_user_and_host}:{remote_test_folder}")
+            format!("{remote_platform_temp_variable}/dest")
         ],
         expected_exit_code: 0,
         unexpected_output_messages: vec![
@@ -45,12 +43,10 @@ fn test_remote_launch_impl(remote_user_and_host: &str, remote_test_folder: &str)
 
 #[test]
 fn test_remote_launch_windows() {
-    let (user_and_host, test_folder) = test_utils::REMOTE_WINDOWS_CONFIG.deref();
-    test_remote_launch_impl(&user_and_host, &test_folder);
+    test_remote_launch_impl("$REMOTE_WINDOWS_TEMP");
 }
 
 #[test]
 fn test_remote_launch_linux() {
-    let (user_and_host, test_folder) = test_utils::REMOTE_LINUX_CONFIG.deref();
-    test_remote_launch_impl(&user_and_host, &test_folder);
+    test_remote_launch_impl("$REMOTE_LINUX_TEMP");
 }

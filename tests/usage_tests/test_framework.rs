@@ -1,11 +1,14 @@
-use std::{path::{Path, PathBuf}, time::{SystemTime}, collections::HashMap};
+use std::{path::{Path, PathBuf}, time::{SystemTime}, collections::HashMap, process::Command};
 #[cfg(windows)]
 use std::os::windows::fs::FileTypeExt;
 
 use regex::Regex;
 use tempdir::TempDir;
 
-use crate::test_utils::run_process_with_live_output;
+use crate::test_utils::{run_process_with_live_output, get_unique_remote_temp_folder, RemotePlatform};
+use crate::test_utils::assert_process_with_live_output;
+use crate::test_utils::REMOTE_WINDOWS_CONFIG;
+use crate::test_utils::REMOTE_LINUX_CONFIG;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SymlinkKind {
@@ -86,7 +89,7 @@ pub fn symlink_generic(target: &str) -> FilesystemNode {
 }
 
 /// Mirrors the given file/folder and its descendants onto disk, at the given path.
-fn save_filesystem_node_to_disk(node: &FilesystemNode, path: &Path) { 
+fn save_filesystem_node_to_disk_local(node: &FilesystemNode, path: &Path) { 
     if std::fs::metadata(path).is_ok() {
         panic!("Already exists!");
     }
@@ -99,7 +102,7 @@ fn save_filesystem_node_to_disk(node: &FilesystemNode, path: &Path) {
         FilesystemNode::Folder { children } => {
             std::fs::create_dir(path).unwrap();
             for (child_name, child) in children {
-                save_filesystem_node_to_disk(child, &path.join(child_name));
+                save_filesystem_node_to_disk_local(child, &path.join(child_name));
             }
         }
         FilesystemNode::Symlink { kind, target } => {
@@ -127,9 +130,43 @@ fn save_filesystem_node_to_disk(node: &FilesystemNode, path: &Path) {
     }
 }
 
+/// Mirrors the given file/folder and its descendants onto disk, at the given path, which includes a remote prefix
+/// Save the folder structure locally, tar it up, copy it over and untar it. 
+/// We use tar to preserve symlinks (as scp would otherwise follow these and we would lose them).
+fn save_filesystem_node_to_disk_remote(node: &FilesystemNode, remote_host_and_path: &str) {
+    let (remote_host, remote_path) = remote_host_and_path.split_once(':').expect("Missing colon");
+    let (remote_parent_folder, node_name) = remote_path.rsplit_once(|d| d == '/' || d == '\\').expect("Missing slash");
+
+    let local_temp_folder = TempDir::new("rjrssync-test-remote-staging").unwrap();
+    let local_temp_folder = local_temp_folder.path();
+  
+    // Create local
+    let local_node_path = local_temp_folder.join(node_name);
+    save_filesystem_node_to_disk_local(node, &local_node_path);
+
+    // Pack into tar
+    let tar_file_local = local_temp_folder.join("stuff.tar");
+    // Important to use --format=posix so that modified timestamps are preserved at higher precision (the default is just 1 second)
+    assert_process_with_live_output(Command::new("tar").arg("--format=posix") 
+        .arg("-cf").arg(&tar_file_local).arg("-C").arg(local_temp_folder).arg(node_name));
+
+    // Copy tar to remote
+    let tar_file_remote = String::from(remote_path) + ".tar";
+    assert_process_with_live_output(Command::new("scp").arg(&tar_file_local).arg(format!("{}:{}", remote_host, tar_file_remote)));
+
+    // Check that the destination doesn't already exist (otherwise will cause problems as the 
+    // new stuff will be merged with the existing stuff)
+    let r = run_process_with_live_output(Command::new("ssh").arg(remote_host).arg(format!("stat {remote_path} || dir {remote_path}")));
+    assert!(!r.exit_status.success());
+
+    // Extract on remote
+    assert_process_with_live_output(Command::new("ssh").arg(remote_host)
+        .arg(format!("tar -xf {tar_file_remote} -C {remote_parent_folder}")));
+}
+
 /// Creates an in-memory representation of the file/folder and its descendents at the given path.
 /// Returns None if the path doesn't point to anything.
-fn load_filesystem_node_from_disk(path: &Path) -> Option<FilesystemNode> {
+fn load_filesystem_node_from_disk_local(path: &Path) -> Option<FilesystemNode> {
     // Note using symlink_metadata, so that we see the metadata for a symlink,
     // not the thing that it points to.
     let metadata = match std::fs::symlink_metadata(path) {
@@ -147,7 +184,7 @@ fn load_filesystem_node_from_disk(path: &Path) -> Option<FilesystemNode> {
         for entry in std::fs::read_dir(path).unwrap() {
             let entry = entry.unwrap();
             children.insert(entry.file_name().to_str().unwrap().to_string(), 
-                load_filesystem_node_from_disk(&path.join(entry.file_name())).unwrap());
+            load_filesystem_node_from_disk_local(&path.join(entry.file_name())).unwrap());
         }        
         Some(FilesystemNode::Folder { children })
     } else if metadata.file_type().is_symlink() {
@@ -170,15 +207,45 @@ fn load_filesystem_node_from_disk(path: &Path) -> Option<FilesystemNode> {
     }
 }
 
+/// Creates an in-memory representation of the file/folder and its descendents at the given path, which includes a remote prefix
+/// Returns None if the path doesn't point to anything. //TODO: no it will probably error!
+/// Tar up the folder structure remotely, copy it locally and read it
+/// We use tar to preserve symlinks (as scp would otherwise follow these and we would lose them).
+fn load_filesystem_node_from_disk_remote(remote_host_and_path: &str) -> Option<FilesystemNode> {
+    let (remote_host, remote_path) = remote_host_and_path.split_once(':').expect("Missing colon");
+    let (remote_parent_folder, node_name) = remote_path.rsplit_once(|d| d == '/' || d == '\\').expect("Missing slash");
+    
+    let local_temp_folder = TempDir::new("rjrssync-test-remote-staging").unwrap();
+    let local_temp_folder = local_temp_folder.path();
 
+    // Pack into tar
+    let tar_file_remote = String::from(remote_path) + ".tar";
+    assert_process_with_live_output(Command::new("ssh").arg(remote_host)
+        // Important to use --format=posix so that modified timestamps are preserved at higher precision (the default is just 1 second)
+        .arg(format!("tar --format=posix -cf {tar_file_remote} -C {remote_parent_folder} {node_name}")));
+
+    // Copy tar from remote
+    let tar_file_local = local_temp_folder.join("stuff.tar");
+    assert_process_with_live_output(Command::new("scp").arg(format!("{}:{}", remote_host, tar_file_remote)).arg(&tar_file_local));
+    
+    // Extract it
+    assert_process_with_live_output(Command::new("tar").arg("-xf").arg(tar_file_local)
+        .arg("-C").arg(&local_temp_folder));
+
+    // Load into memory
+    let local_node_path = local_temp_folder.join(node_name);
+    load_filesystem_node_from_disk_local(&local_node_path)
+}
 
 /// Describes a test configuration in a generic way that hopefully covers various success and failure cases.
 /// This is quite verbose to use directly, so some helper functions are available that fill this in for common
 /// test cases.
 /// For example, this can be used to check that a sync completes successfully with a message stating
 /// that some files were copied, and check that the files were in fact copied onto the filesystem.
-/// All the paths provided here will have the special value $TEMP substituted for the temporary folder
-/// created for placing test files in.
+/// All the paths provided here will have special values substituted:
+///     * $TEMP => a (local) empty temporary folder created for placing test files in
+///     * $REMOTE_WINDOWS_TEMP => an empy temporary folder created on a remote windows platform for placing test files in
+///     * $REMOTE_LINUX_TEMP => an empty temporary folder created on a remote linux platform for placing test files in
 #[derive(Default)]
 pub struct TestDesc<'a> {
     /// The given FilesystemNodes are saved to the given paths before running rjrssync
@@ -218,12 +285,40 @@ pub fn run(desc: TestDesc) {
         temp_folder = PathBuf::from(o); 
     }
 
-    // All paths provided in TestDesc have $TEMP replaced with the temporary folder.
-    let substitute_temp = |p: &str| PathBuf::from(p.replace("$TEMP", &temp_folder.to_string_lossy()));
+    // Lazy-initialize as we might not need these, and we want to be able to work when remote platforms
+    // aren't available
+    let mut remote_windows_temp_path = None;
+    let mut remote_linux_temp_path = None;
+
+    // All paths provided in TestDesc have $TEMP (and remote windows/linux temps) replaced with the temporary folder.
+    let mut substitute_vars = |p: &str| {
+        let mut p = p.replace("$TEMP", &temp_folder.to_string_lossy());
+        // Lazily evaluate the remote windows/linux variables, so that tests which do not use them do not 
+        // need to have remote platforms available (e.g. on GitHub Actions).
+        // Use a new remote temporary folder for each test (rather than re-using the root one)
+        if p.contains("$REMOTE_WINDOWS_TEMP") {
+            if remote_windows_temp_path.is_none() {
+                remote_windows_temp_path = Some(get_unique_remote_temp_folder(&RemotePlatform::Windows));
+            }
+            p = p.replace("$REMOTE_WINDOWS_TEMP", &format!("{}:{}", REMOTE_WINDOWS_CONFIG.0, remote_windows_temp_path.as_ref().unwrap()));
+        }
+        if p.contains("$REMOTE_LINUX_TEMP") {
+            if remote_linux_temp_path.is_none() {
+                remote_linux_temp_path = Some(get_unique_remote_temp_folder(&RemotePlatform::Linux));
+            }
+            p = p.replace("$REMOTE_LINUX_TEMP", &format!("{}:{}", REMOTE_LINUX_CONFIG.0, remote_linux_temp_path.as_ref().unwrap()));
+        }
+        p
+    };
 
     // Setup initial filesystem
     for (p, n) in desc.setup_filesystem_nodes {
-        save_filesystem_node_to_disk(&n, &substitute_temp(&p));
+        let p = substitute_vars(&p);
+        if matches!(p.find(':'), Some(p) if p > 1) { // Note the colon must be after position 2, to avoid treating C:\blah as remote
+            save_filesystem_node_to_disk_remote(&n, &p);
+        } else {
+            save_filesystem_node_to_disk_local(&n, &PathBuf::from(p));
+        }
     }
 
     // Run rjrssync with the specified paths
@@ -234,7 +329,7 @@ pub fn run(desc: TestDesc) {
         std::process::Command::new(rjrssync_path)
         .current_dir(&temp_folder) // So that any relative paths are inside the test folder
         .env("RJRSSYNC_TEST_PROMPT_RESPONSE", desc.prompt_responses.join(","))
-        .args(desc.args.iter().map(|a| substitute_temp(a))));
+        .args(desc.args.iter().map(|a| substitute_vars(a))));
 
     // Check exit code
     assert_eq!(output.exit_status.code(), Some(desc.expected_exit_code));
@@ -254,7 +349,13 @@ pub fn run(desc: TestDesc) {
 
     // Check the filesystem is as expected afterwards
     for (p, n) in desc.expected_filesystem_nodes {
-        let actual_node = load_filesystem_node_from_disk(&substitute_temp(&p));
+        let p = substitute_vars(&p);
+        let actual_node = if matches!(p.find(':'), Some(p) if p > 1) {  // Note the colon must be after position 2, to avoid treating C:\blah as remote
+            load_filesystem_node_from_disk_remote(&p)
+        } else {
+            load_filesystem_node_from_disk_local(&PathBuf::from(&p))
+        };
+        
         println!("Checking filesystem contents at '{}'", p);
         assert_eq!(actual_node.as_ref(), n);    
     }
