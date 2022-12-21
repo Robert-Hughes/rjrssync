@@ -63,39 +63,47 @@ pub struct BossCliArgs {
     /// Specifies behaviour when a file exists on both source and destination sides, but the 
     /// destination file has a newer modified timestamp. This might indicate that data is about
     /// to be unintentionally lost.
-    #[arg(long, default_value="prompt",
+    /// The default is 'prompt'.
+    // (the default isn't defined here, because it's defined in SyncSpec::default() and if we duplicate it
+    //  here then we'll have no way of knowing if the user provided it on the cmd prompt as an override or not)
+    #[arg(long,
         default_value_if("all_destructive_behaviour", "prompt", "prompt"),
         default_value_if("all_destructive_behaviour", "error", "error"),
         default_value_if("all_destructive_behaviour", "skip", "skip"),
         default_value_if("all_destructive_behaviour", "proceed", "overwrite"),
     )]
-    pub dest_file_newer: DestFileUpdateBehaviour,
+    pub dest_file_newer: Option<DestFileUpdateBehaviour>,
     //TODO: equivalent for symlinks?
     //TODO: include in spec file?
 
     /// Specifies behaviour when a file exists on both source and destination sides, but the 
     /// destination file has a older modified timestamp. This might indicate that data is about
     /// to be unintentionally lost.
+    /// The default is 'overwrite'.
+    // (the default isn't defined here, because it's defined in SyncSpec::default() and if we duplicate it
+    //  here then we'll have no way of knowing if the user provided it on the cmd prompt as an override or not)
     #[arg(long, 
-        default_value="overwrite", 
         default_value_if("all_destructive_behaviour", "prompt", "prompt"),
         default_value_if("all_destructive_behaviour", "error", "error"),
         default_value_if("all_destructive_behaviour", "skip", "skip"),
         default_value_if("all_destructive_behaviour", "proceed", "overwrite"),
     )]
-    pub dest_file_older: DestFileUpdateBehaviour,
+    pub dest_file_older: Option<DestFileUpdateBehaviour>,
     //TODO: equivalent for symlinks?
     //TODO: include in spec file?
 
     /// Specifies behaviour when a file/folder/symlink on the destination side needs deleting.
     /// This might indicate that data is about to be unintentionally lost.
-    #[arg(long, default_value="delete",
+    /// The default is 'delete'.
+    // (the default isn't defined here, because it's defined in SyncSpec::default() and if we duplicate it
+    //  here then we'll have no way of knowing if the user provided it on the cmd prompt as an override or not)
+    #[arg(long,
         default_value_if("all_destructive_behaviour", "prompt", "prompt"),
         default_value_if("all_destructive_behaviour", "error", "error"),
         default_value_if("all_destructive_behaviour", "skip", "skip"),
         default_value_if("all_destructive_behaviour", "proceed", "delete"),
     )]
-    pub dest_entry_needs_deleting: DestEntryNeedsDeletingBehaviour,
+    pub dest_entry_needs_deleting: Option<DestEntryNeedsDeletingBehaviour>,
     //TODO: name too long!
     //TODO: include in spec file?
 
@@ -104,13 +112,16 @@ pub struct BossCliArgs {
     /// This is separate to --dest-entry-needs-deleting, because there is some potentially
     /// surprising behaviour with regards to replacing the destination root that warrants
     /// special warning.
-    #[arg(long, default_value="prompt",
+    /// The default is 'prompt'.
+    // (the default isn't defined here, because it's defined in SyncSpec::default() and if we duplicate it
+    //  here then we'll have no way of knowing if the user provided it on the cmd prompt as an override or not)
+    #[arg(long,
         default_value_if("all_destructive_behaviour", "prompt", "prompt"),
         default_value_if("all_destructive_behaviour", "error", "error"),
         default_value_if("all_destructive_behaviour", "skip", "skip"),
         default_value_if("all_destructive_behaviour", "proceed", "delete"),
     )]
-    pub dest_root_needs_deleting: DestRootNeedsDeletingBehaviour,
+    pub dest_root_needs_deleting: Option<DestRootNeedsDeletingBehaviour>,
     //TODO: name too long?
     //TODO: include in spec file?
 
@@ -275,8 +286,6 @@ pub struct SyncSpec {
     pub dest_root_needs_deleting_behaviour: DestRootNeedsDeletingBehaviour,
 }
 impl Default for SyncSpec {
-    //TODO: remove default values from cmd-line so that we don't duplicate them here?
-    // (maybe changed them to Option<>s?)
     fn default() -> Self {
         Self { 
             src: String::new(),
@@ -431,7 +440,9 @@ pub fn boss_main() -> ExitCode {
                 return ExitCode::from(18)
             }
         }
-        //TODO: some things in the spec file should be overridable by command line (behaviours, filters etc.)
+        // Some things in the spec file are overridable by command line equivalents (behaviours, filters etc.)
+        // which is done below
+        //TODO: test & document this
     } else {
         let src = args.src.unwrap(); // Command-line parsing rules means these must be valid, if spec is not provided
         let dest = args.dest.unwrap();
@@ -441,13 +452,27 @@ pub fn boss_main() -> ExitCode {
         spec.dest_username = dest.username;
         spec.syncs.push(SyncSpec { 
             src: src.path, 
-            dest: dest.path, 
-            filters: args.filters,
-            dest_file_newer_behaviour: args.dest_file_newer,
-            dest_file_older_behaviour: args.dest_file_older,
-            dest_entry_needs_deleting_behaviour: args.dest_entry_needs_deleting,
-            dest_root_needs_deleting_behaviour: args.dest_root_needs_deleting,
+            dest: dest.path,
+            ..Default::default()
         });
+    }
+
+    for mut sync in &mut spec.syncs {
+        if !args.filters.is_empty() {
+            sync.filters = args.filters.clone();
+        }
+        if let Some(b) = args.dest_file_newer {
+            sync.dest_file_newer_behaviour = b;
+        }
+        if let Some(b) = args.dest_file_older {
+            sync.dest_file_older_behaviour = b;
+        }
+        if let Some(b) = args.dest_entry_needs_deleting {
+            sync.dest_entry_needs_deleting_behaviour = b;
+        }
+        if let Some(b) = args.dest_root_needs_deleting {
+            sync.dest_root_needs_deleting_behaviour = b;
+        }
     }
 
     // The src and/or dest may be on another computer. We need to run a copy of rjrssync on the remote
