@@ -3,6 +3,7 @@ mod test_utils;
 mod test_framework;
 
 mod sync_tests;
+mod filter_tests;
 mod trailing_slash_tests;
 mod remote_tests;
 mod symlink_tests;
