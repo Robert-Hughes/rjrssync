@@ -181,7 +181,7 @@ fn process_dest_responses(dest_comms: &mut Comms, progress: &ProgressBar, stats:
 struct SyncContext<'a> {
     src_comms: &'a mut Comms,
     dest_comms: &'a mut Comms,
-    filters: &'a [Filter],
+    filters: Filters,
     stats: Stats,
     dry_run: bool,
     dest_file_newer_behaviour: DestFileUpdateBehaviour,
@@ -199,7 +199,7 @@ struct SyncContext<'a> {
 pub fn sync(
     src_root: &str,
     dest_root: &str,
-    filters: &[Filter],
+    filters: Filters,
     dry_run: bool,
     dest_file_newer_behaviour: DestFileUpdateBehaviour,
     dest_file_older_behaviour: DestFileUpdateBehaviour,
@@ -351,7 +351,7 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), Vec<String>> {
     src_entries_lookup.insert(RootRelativePath::root(), src_root_details.clone());
 
     if matches!(src_root_details, EntryDetails::Folder) {
-        ctx.src_comms.send_command(Command::GetEntries { filters: ctx.filters.to_vec() });
+        ctx.src_comms.send_command(Command::GetEntries { filters: ctx.filters.clone() });
         src_done = false;
     }
 
@@ -367,7 +367,7 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), Vec<String>> {
     }
 
     if matches!(dest_root_details, Some(EntryDetails::Folder)) {
-        ctx.dest_comms.send_command(Command::GetEntries { filters: ctx.filters.to_vec() });
+        ctx.dest_comms.send_command(Command::GetEntries { filters: ctx.filters.clone() });
         dest_done = false;
     }
 

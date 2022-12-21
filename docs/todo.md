@@ -8,7 +8,7 @@ Interface
 * Perhaps could have hard/soft includes/excludes - soft would keep evaluating other filters which may change the decision, hard would stop evaluating and keep that as the final decision.
 * If a dir is excluded by the filters (after resolving all filters), then we don't walk inside that dir, so stuff inside it will be excluded *even if the filters would have matched them*. Document this?
 * --dry-run (and the same for -v) should make it clearer exactly what is being copied to where, e.g. give absolute paths. If there is a long path up to the root (or afterwards), could shorten it with ellipses, e.g. "Copying T:\work\...\bob\folder\...\thing.txt to X:\backups\...\newbackup\folder\...\thing.txt"
-* Should filters expect to see trailing slashes on folder names or not? What about folder symlinks?
+* Should filters expect to see trailing slashes on folder names or not? What about folder symlinks? Tests for this
 * Ctrl-C doesn't seem to work very well at stopping rjrssync when it's running
 * Tab-completion for parameters, part of clap?
 

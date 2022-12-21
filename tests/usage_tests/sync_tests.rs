@@ -135,6 +135,41 @@ fn test_filters() {
     }.with_expected_actions(copied_files_and_folders(2, 2)));
 }
 
+/// Checks that the regex must match the full path, not just part of it.
+#[test]
+fn test_filters_partial_match() {
+    let src_folder = folder! {
+        // This file would be matched by the filter "build", if it only checked for partial matches
+        "mybuilder.txt" => file_with_modified("contents1", SystemTime::UNIX_EPOCH),
+        "build" => folder! {
+            "sc1" => file_with_modified("contents3", SystemTime::UNIX_EPOCH),
+        }
+    };
+    // Because of the filter, not everything will get copied. mybuilder.txt will though,
+    // because it isn't a complete match for the filter.
+    let expected_dest_folder = folder! {
+        "mybuilder.txt" => file_with_modified("contents1", SystemTime::UNIX_EPOCH),
+    };
+
+    run(TestDesc {
+        setup_filesystem_nodes: vec![
+            ("$TEMP/src", &src_folder),
+        ],
+        args: vec![
+            "$TEMP/src".to_string(),
+            "$TEMP/dest".to_string(),
+            "--filter".to_string(),
+            "-build".to_string(),
+        ],
+        expected_exit_code: 0,
+        expected_filesystem_nodes: vec![
+            ("$TEMP/src", Some(&src_folder)), // Source should always be unchanged
+            ("$TEMP/dest", Some(&expected_dest_folder)),
+        ],
+        ..Default::default()
+    }.with_expected_actions(copied_files_and_folders(1, 1)));
+}
+
 #[test]
 fn test_invalid_filter_prefix() {
     let src = &file("contents");
@@ -169,9 +204,9 @@ fn test_invalid_filter_regex() {
             "--filter".to_string(),
             "+[[INVALID REGEX".to_string(),
        ],
-        expected_exit_code: 12,
+        expected_exit_code: 19,
         expected_output_messages: vec![
-            Regex::new(&regex::escape("Invalid regex for filter")).unwrap(),
+            Regex::new(&regex::escape("regex parse error")).unwrap(),
         ],
         ..Default::default()
     });

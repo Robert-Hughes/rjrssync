@@ -7,12 +7,13 @@ use env_logger::{Env, fmt::Color};
 use indicatif::ProgressBar;
 use log::info;
 use log::{debug, error};
+use regex::RegexSet;
 use yaml_rust::{YamlLoader, Yaml};
 
 use crate::profiling::{dump_all_profiling, start_timer, stop_timer, self};
 use crate::{boss_launch::*, profile_this, function_name};
 use crate::boss_sync::*;
-use crate::doer::Filter;
+use crate::doer::{Filters, FilterKind};
 
 #[derive(clap::Parser)]
 pub struct BossCliArgs {
@@ -46,9 +47,10 @@ pub struct BossCliArgs {
     /// Normalized means that forward slashes are always used as directory separators, never backwards slashes.
     /// If a folder does is excluded, then none of the contents of the folder will be seen, even if they would otherwise match.
     /// The source/dest root is never checked against the filter - this is always considered as included.
+    /// The regex must match the entire relative path for it to have an effect, not just part of it.
     #[arg(name="filter", long, allow_hyphen_values(true))]
     pub filters: Vec<String>,
-    //TODO: "The source/dest root is never checked against the filter - this is always considered as included." - test this!
+    //TODO: "The source/dest root is never checked against the filter - this is always considered as included." - test this (maybe already have a unit test actually!)
     
     /// Overrides the TCP port that any remote copy(s) of rjrssync on hostnames specified in src or dest
     /// will listen on, used for network communication between the local and remote copies.
@@ -458,25 +460,44 @@ pub fn boss_main() -> ExitCode {
 
     // Perform the actual file sync(s)
     for sync_spec in &spec.syncs {
-        // Parse the filter strings - check if they start with a + or a -
-        let mut filters : Vec<Filter>  = vec![];
-        for f in &sync_spec.filters {
-            match f.chars().nth(0) {
-                Some('+') => filters.push(Filter::Include(f.split_at(1).1.to_string())),
-                Some('-') => filters.push(Filter::Exclude(f.split_at(1).1.to_string())),
-                _ => {
-                    error!("Invalid filter '{}': Must start with a '+' or '-'", f);
-                    return ExitCode::from(18)
-                }
-            }
-        }
-
         // Indicate which sync this is, if there are many
         if spec.syncs.len() > 1 {
             info!("{} => {}:", sync_spec.src, sync_spec.dest);
         }
 
-        let sync_result = sync(&sync_spec.src, &sync_spec.dest, &filters,
+        // Parse and compile the filter strings
+        //TODO: move this filter parsing into the SyncSpec stuff?
+        let filters = {
+            let mut patterns = vec![];
+            let mut kinds = vec![];
+            for f in &sync_spec.filters {
+                // Check if starts with a + (include) or a - (exclude)
+                match f.chars().nth(0) {
+                    Some('+') => kinds.push(FilterKind::Include),
+                    Some('-') => kinds.push(FilterKind::Exclude),
+                    _ => {
+                        error!("Invalid filter '{}': Must start with a '+' or '-'", f);
+                        return ExitCode::from(18)
+                    }
+                }
+                let pattern = f.split_at(1).1.to_string();
+                // Wrap in ^...$ to make it match the whole string, otherwise it's too easy
+                // to make a mistake with filters that unintentionally match something else
+                let pattern = format!("^{pattern}$");
+                patterns.push(pattern);
+            }
+            let regex_set = match RegexSet::new(patterns) {
+                Ok(r) => r,
+                Err(e) => {
+                    // Note that the error reported by RegexSet includes the pattern being compiled, so we don't need to duplicate this
+                    error!("Invalid filter: {e}");
+                    return ExitCode::from(19)
+                }
+            };
+            Filters { regex_set, kinds }
+        };
+
+        let sync_result = sync(&sync_spec.src, &sync_spec.dest, filters,
             args.dry_run, args.dest_file_newer, args.dest_file_older, args.dest_entry_needs_deleting,
             args.dest_root_needs_deleting,
             args.stats, &mut src_comms, &mut dest_comms);
