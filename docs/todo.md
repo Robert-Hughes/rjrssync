@@ -35,7 +35,6 @@ Syncing logic
     - would this play nicely with other tools (e.g. build systems) that check timestamps - it might think that it doesn't need to rebuild anything, as the new timestamp for this file is still really old?
     - Maybe instead we could store something else, like a hash or our own marker to indicate when this file was synced, so that the timestamp is "correct", but we know not to sync it again next time.
 * Testing for sync logic, including between different combinations of windows and linux, remote and local etc.
-   - Filters, and how they work on normalized paths between windows and linux.
    - Between different OSes,to make sure the path normalisation works
 * Test for --dry-run
 * Test for --stats (maybe just all the command-line options...)

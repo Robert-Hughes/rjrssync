@@ -240,6 +240,12 @@ jobs:
     - name: Set up tmate session for debugging (only if enabled)
       if: ${{ github.event_name == 'workflow_dispatch' && inputs.tmate_enabled }}
       uses: mxschmitt/action-tmate@v3
+
+    - name: Create temp folders for remote tests
+      shell: pwsh
+      run: |
+        mkdir ${env:TEMP}\rjrssync-tests
+        wsl mkdir /tmp/rjrssync-tests
     
     - name: Run remote tests on Windows
       shell: pwsh
