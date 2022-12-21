@@ -94,7 +94,7 @@ fn test_invalid_filter_prefix() {
             "--filter".to_string(),
             "BLARG".to_string(),
         ],
-        expected_exit_code: 18,
+        expected_exit_code: 12,
         expected_output_messages: vec![
             Regex::new(&regex::escape("Invalid filter 'BLARG'")).unwrap(),
         ],
@@ -115,7 +115,7 @@ fn test_invalid_filter_regex() {
             "--filter".to_string(),
             "+[[INVALID REGEX".to_string(),
        ],
-        expected_exit_code: 19,
+        expected_exit_code: 12,
         expected_output_messages: vec![
             Regex::new(&regex::escape("regex parse error")).unwrap(),
         ],

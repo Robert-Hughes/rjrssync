@@ -5,6 +5,7 @@ use std::{
 
 use indicatif::{ProgressBar, ProgressStyle, HumanCount, HumanBytes};
 use log::{debug, info, trace};
+use regex::RegexSet;
 
 use crate::*;
 
@@ -195,20 +196,40 @@ struct SyncContext<'a> {
     progress_count: u64,
 }
 
-//TODO: maybe this should take a SyncSpec to provide most of these params?
 pub fn sync(
-    src_root: &str,
-    dest_root: &str,
-    filters: Filters,
+    sync_spec: &SyncSpec,
     dry_run: bool,
-    dest_file_newer_behaviour: DestFileUpdateBehaviour,
-    dest_file_older_behaviour: DestFileUpdateBehaviour,
-    dest_entry_needs_deleting_behaviour: DestEntryNeedsDeletingBehaviour,
-    dest_root_needs_deleting_behaviour: DestRootNeedsDeletingBehaviour,
     show_stats: bool,
     src_comms: &mut Comms,
     dest_comms: &mut Comms,
 ) -> Result<(), Vec<String>> {
+    // Parse and compile the filter strings
+    let filters = {
+        let mut patterns = vec![];
+        let mut kinds = vec![];
+        for f in &sync_spec.filters {
+            // Check if starts with a + (include) or a - (exclude)
+            match f.chars().nth(0) {
+                Some('+') => kinds.push(FilterKind::Include),
+                Some('-') => kinds.push(FilterKind::Exclude),
+                _ => return Err(vec![format!("Invalid filter '{}': Must start with a '+' or '-'", f)]),
+            }
+            let pattern = f.split_at(1).1.to_string();
+            // Wrap in ^...$ to make it match the whole string, otherwise it's too easy
+            // to make a mistake with filters that unintentionally match something else
+            let pattern = format!("^{pattern}$");
+            patterns.push(pattern);
+        }
+        let regex_set = match RegexSet::new(patterns) {
+            Ok(r) => r,
+            Err(e) => {
+                // Note that the error reported by RegexSet includes the pattern being compiled, so we don't need to duplicate this
+                return Err(vec![format!("Invalid filter: {e}")]);
+            }
+        };
+        Filters { regex_set, kinds }
+    };
+
     // Make context object, to avoid having to pass around a bunch of individual variables everywhere
     let context = SyncContext {
         src_comms,
@@ -217,12 +238,12 @@ pub fn sync(
         stats: Stats::default(),
         dry_run,
         show_stats,
-        dest_file_newer_behaviour,
-        dest_file_older_behaviour,
-        dest_entry_needs_deleting_behaviour,
-        dest_root_needs_deleting_behaviour,
-        src_root: String::from(src_root),
-        dest_root: String::from(dest_root),
+        dest_file_newer_behaviour: sync_spec.dest_file_newer_behaviour,
+        dest_file_older_behaviour: sync_spec.dest_file_older_behaviour,
+        dest_entry_needs_deleting_behaviour: sync_spec.dest_entry_needs_deleting_behaviour,
+        dest_root_needs_deleting_behaviour: sync_spec.dest_root_needs_deleting_behaviour,
+        src_root: sync_spec.src.clone(),
+        dest_root: sync_spec.dest.clone(),
         progress_bar: ProgressBar::new_spinner().with_message("Querying..."),
         progress_count: 0,    
     };

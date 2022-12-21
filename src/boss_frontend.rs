@@ -7,13 +7,11 @@ use env_logger::{Env, fmt::Color};
 use indicatif::ProgressBar;
 use log::info;
 use log::{debug, error};
-use regex::RegexSet;
 use yaml_rust::{YamlLoader, Yaml};
 
 use crate::profiling::{dump_all_profiling, start_timer, stop_timer, self};
 use crate::{boss_launch::*, profile_this, function_name};
 use crate::boss_sync::*;
-use crate::doer::{Filters, FilterKind};
 
 #[derive(clap::Parser)]
 pub struct BossCliArgs {
@@ -51,6 +49,7 @@ pub struct BossCliArgs {
     #[arg(name="filter", long, allow_hyphen_values(true))]
     pub filters: Vec<String>,
     //TODO: "The source/dest root is never checked against the filter - this is always considered as included." - test this (maybe already have a unit test actually!)
+    //TODO: this should override anything in the spec file, or merge with it somehow? Document & test
     
     /// Overrides the TCP port that any remote copy(s) of rjrssync on hostnames specified in src or dest
     /// will listen on, used for network communication between the local and remote copies.
@@ -128,6 +127,7 @@ pub struct BossCliArgs {
     #[arg(long)]
     pub all_destructive_behaviour: Option<AllDestructiveBehaviour>,
     //TODO: name is terrible?
+    //TODO: include in spec file?
 
     /// Outputs some additional statistics about the data copied.
     #[arg(long)]
@@ -251,6 +251,10 @@ pub enum AllDestructiveBehaviour {
     Proceed,
 }
 
+/// The hostname/usernames are fixed for the whole program (you can't set them differently for each
+/// sync like you can with the filters etc.), because this doesn't bring much benefit over just 
+/// running rjrssync multiple times with different arguments. We do allow syncing multiple folders
+/// between the same two hosts though because this saves the connecting/setup time.
 #[derive(Default, Debug, PartialEq)]
 struct Spec {
     src_hostname: String,
@@ -260,11 +264,30 @@ struct Spec {
     syncs: Vec<SyncSpec>,
 }
 
-#[derive(Default, Debug, PartialEq)]
-struct SyncSpec {
-    src: String,
-    dest: String,
-    filters: Vec<String>,
+#[derive(Debug, PartialEq)]
+pub struct SyncSpec {
+    pub src: String,
+    pub dest: String,
+    pub filters: Vec<String>,
+    pub dest_file_newer_behaviour: DestFileUpdateBehaviour,
+    pub dest_file_older_behaviour: DestFileUpdateBehaviour,
+    pub dest_entry_needs_deleting_behaviour: DestEntryNeedsDeletingBehaviour,
+    pub dest_root_needs_deleting_behaviour: DestRootNeedsDeletingBehaviour,
+}
+impl Default for SyncSpec {
+    //TODO: remove default values from cmd-line so that we don't duplicate them here?
+    // (maybe changed them to Option<>s?)
+    fn default() -> Self {
+        Self { 
+            src: String::new(),
+            dest: String::new(),
+            filters: vec![],
+            dest_file_newer_behaviour: DestFileUpdateBehaviour::Prompt,
+            dest_file_older_behaviour: DestFileUpdateBehaviour::Overwrite,
+            dest_entry_needs_deleting_behaviour: DestEntryNeedsDeletingBehaviour::Delete,
+            dest_root_needs_deleting_behaviour: DestRootNeedsDeletingBehaviour::Prompt, 
+        }
+    }
 }
 
 fn parse_string(yaml: &Yaml, key_name: &str) -> Result<String, String> {
@@ -275,6 +298,9 @@ fn parse_string(yaml: &Yaml, key_name: &str) -> Result<String, String> {
 }
 
 fn parse_sync_spec(yaml: &Yaml) -> Result<SyncSpec, String> {
+    //TODO: parse behaviour values
+    //TODO: allow them to be set at both per-sync level, and at the top level (to apply to all?)
+    //TODO: possibly the same should go for all settings, like filters too?
     let mut result = SyncSpec::default();
     for (root_key, root_value) in yaml.as_hash().ok_or("Sync value must be a dictionary")? {
         match root_key {
@@ -405,6 +431,7 @@ pub fn boss_main() -> ExitCode {
                 return ExitCode::from(18)
             }
         }
+        //TODO: some things in the spec file should be overridable by command line (behaviours, filters etc.)
     } else {
         let src = args.src.unwrap(); // Command-line parsing rules means these must be valid, if spec is not provided
         let dest = args.dest.unwrap();
@@ -412,7 +439,15 @@ pub fn boss_main() -> ExitCode {
         spec.src_username = src.username;
         spec.dest_hostname = dest.hostname;
         spec.dest_username = dest.username;
-        spec.syncs.push(SyncSpec { src: src.path, dest: dest.path, filters: args.filters });
+        spec.syncs.push(SyncSpec { 
+            src: src.path, 
+            dest: dest.path, 
+            filters: args.filters,
+            dest_file_newer_behaviour: args.dest_file_newer,
+            dest_file_older_behaviour: args.dest_file_older,
+            dest_entry_needs_deleting_behaviour: args.dest_entry_needs_deleting,
+            dest_root_needs_deleting_behaviour: args.dest_root_needs_deleting,
+        });
     }
 
     // The src and/or dest may be on another computer. We need to run a copy of rjrssync on the remote
@@ -465,42 +500,7 @@ pub fn boss_main() -> ExitCode {
             info!("{} => {}:", sync_spec.src, sync_spec.dest);
         }
 
-        // Parse and compile the filter strings
-        //TODO: move this filter parsing into the SyncSpec stuff?
-        let filters = {
-            let mut patterns = vec![];
-            let mut kinds = vec![];
-            for f in &sync_spec.filters {
-                // Check if starts with a + (include) or a - (exclude)
-                match f.chars().nth(0) {
-                    Some('+') => kinds.push(FilterKind::Include),
-                    Some('-') => kinds.push(FilterKind::Exclude),
-                    _ => {
-                        error!("Invalid filter '{}': Must start with a '+' or '-'", f);
-                        return ExitCode::from(18)
-                    }
-                }
-                let pattern = f.split_at(1).1.to_string();
-                // Wrap in ^...$ to make it match the whole string, otherwise it's too easy
-                // to make a mistake with filters that unintentionally match something else
-                let pattern = format!("^{pattern}$");
-                patterns.push(pattern);
-            }
-            let regex_set = match RegexSet::new(patterns) {
-                Ok(r) => r,
-                Err(e) => {
-                    // Note that the error reported by RegexSet includes the pattern being compiled, so we don't need to duplicate this
-                    error!("Invalid filter: {e}");
-                    return ExitCode::from(19)
-                }
-            };
-            Filters { regex_set, kinds }
-        };
-
-        let sync_result = sync(&sync_spec.src, &sync_spec.dest, filters,
-            args.dry_run, args.dest_file_newer, args.dest_file_older, args.dest_entry_needs_deleting,
-            args.dest_root_needs_deleting,
-            args.stats, &mut src_comms, &mut dest_comms);
+        let sync_result = sync(&sync_spec, args.dry_run, args.stats, &mut src_comms, &mut dest_comms);
 
         match sync_result {
             Ok(()) => (),
@@ -786,11 +786,13 @@ mod tests {
                     src: "T:\\Source1".to_string(),
                     dest: "T:\\Dest1".to_string(),
                     filters: vec![ "-exclude1".to_string(), "-exclude2".to_string() ],
+                    ..Default::default()
                 },
                 SyncSpec {
                     src: "T:\\Source2".to_string(),
                     dest: "T:\\Dest2".to_string(),
                     filters: vec![ "-exclude3".to_string(), "-exclude4".to_string() ],
+                    ..Default::default()
                 }
             ]
         };
@@ -818,6 +820,7 @@ mod tests {
                     src: "T:\\Source1".to_string(),
                     dest: "T:\\Dest1".to_string(),
                     filters: vec![], // Default - not specified in the YAML
+                    ..Default::default()
                 },
             ]
         };
