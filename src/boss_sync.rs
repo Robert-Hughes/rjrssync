@@ -97,7 +97,7 @@ fn format_root_relative(path: &RootRelativePath, root: &str) -> String {
     //TODO: include something that says whether this is the source or dest, rather than relying on outside code to do it?
     //TODO: limit length of string using ellipses e.g. "Copying T:\work\...\bob\folder\...\thing.txt to X:\backups\...\newbackup\folder\...\thing.txt"
     //TODO: the formatting here isn't quite right yet. e.g. the root might already end with a trailing slash, but we add another
-    //TODO: could use bold/italic/colors etc. to highlight the root, rather than brackets?
+    //TODO: could use bold/italic/colors etc. to highlight the root, rather than brackets? Need to see how that would interact with prompts though (which already have formatting)
     if path.is_root() {
         format!("'({root})'")
     } else {
