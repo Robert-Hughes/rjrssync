@@ -1,7 +1,7 @@
 // This file contains test utilities which is used by both the usage_tests binary
 // and the benchmarks binary.
 
-use std::{process::Stdio, sync::mpsc::{Sender, Receiver, self, SendError}, thread, fmt::{Display, self}, io::{BufReader, BufRead, stdout}};
+use std::{process::{Stdio, Command}, sync::mpsc::{Sender, Receiver, self, SendError}, thread, fmt::{Display, self}, io::{BufReader, BufRead, stdout}};
 use network_interface::NetworkInterface;
 use network_interface::NetworkInterfaceConfig;
 use network_interface::V4IfAddr;
@@ -24,6 +24,11 @@ pub struct ProcessOutput {
 /// and this version is slightly different, more suitable for tests (e.g. simpler error checking, logging printed with println).
 pub fn run_process_with_live_output(c: &mut std::process::Command) -> ProcessOutput {
     run_process_with_live_output_impl(c, false, false, false)
+}
+
+pub fn assert_process_with_live_output(c: &mut std::process::Command) {
+    let r = run_process_with_live_output_impl(c, false, false, false);
+    assert!(r.exit_status.success());
 }
 
 /// Runs a child processes and waits for it to exit. The stdout and stderr of the child process
