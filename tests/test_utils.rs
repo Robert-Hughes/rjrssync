@@ -276,9 +276,6 @@ fn get_remote_windows_config() -> (String, String) {
     };
     println!("Windows remote user and host: {user_and_host}");
 
-    // Confirm that we can connect to this remote host, to help debugging the test environment
-    confirm_remote_test_environment(&user_and_host, "Windows");
-
     let test_folder = match std::env::var("RJRSSYNC_TEST_REMOTE_TEST_FOLDER_WINDOWS") {
         Ok(x) => x,
         Err(std::env::VarError::NotPresent) => {
@@ -292,6 +289,9 @@ fn get_remote_windows_config() -> (String, String) {
     };
     println!("Windows remote test folder: {test_folder}");
     
+    // Confirm that we can connect to this remote host, to help debugging the test environment
+    confirm_remote_test_environment(&user_and_host, &test_folder, "Windows");
+
     (user_and_host, test_folder)
 }
 
@@ -326,9 +326,6 @@ fn get_remote_linux_config() -> (String, String) {
     };
     println!("Linux remote user and host: {user_and_host}");
 
-    // Confirm that we can connect to this remote host, to help debugging the test environment
-    confirm_remote_test_environment(&user_and_host, "Linux");
-
     let test_folder = match std::env::var("RJRSSYNC_TEST_REMOTE_TEST_FOLDER_LINUX") {
         Ok(x) => x,
         Err(std::env::VarError::NotPresent) => "/tmp/rjrssync-tests".to_string(),
@@ -336,14 +333,18 @@ fn get_remote_linux_config() -> (String, String) {
     };
     println!("Linux remote test folder: {test_folder}");
     
+    // Confirm that we can connect to this remote host, to help debugging the test environment
+    confirm_remote_test_environment(&user_and_host, &test_folder, "Linux");
+
     (user_and_host, test_folder)
 }
 
-fn confirm_remote_test_environment(remote_user_and_host: &str, expected_os: &str) {
+fn confirm_remote_test_environment(remote_user_and_host: &str, remote_folder: &str, expected_os: &str) {
     // Confirm that we can connect to this remote host, to help debugging the test environment
+    // And make sure that the folder specified exists, otherwise we'll run into other issues later one
     let test_command = match expected_os {
-        "Windows" => "echo Remote host is working && ver",
-        "Linux" => "echo Remote host is working && uname -a",
+        "Windows" => format!("echo Remote host is working && ver && dir {remote_folder}"),
+        "Linux" => format!("echo Remote host is working && uname -a && stat {remote_folder}"),
         _ => panic!("Unexpected OS"),
     };
 
