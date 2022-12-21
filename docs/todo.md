@@ -11,6 +11,7 @@ Interface
 * Ctrl-C doesn't seem to work very well at stopping rjrssync when it's running
 * Tab-completion for parameters, part of clap?
 * Tidy up --help output - maybe we need a short and long version?
+  - Things in the README or notes.md shouldn't be needed for a user as they won't necessarily have access to then. These would need to be in --help, so might need moving.
 * Errors aren't displayed in a very friendly way (it has all the logging prefixes)
 
 Remote launching
@@ -49,6 +50,7 @@ Syncing logic
    -  is this compatible between platforms, time zone changes, precision differences, etc. etc.
    - systems might have different precision, so we would think the timestamp has changed, when it hasn't really
    - can we safely serialize this on one platform and deserialize on another?
+   - maybe serde handles this already by serializing the difference from UNIX_EPOCH? (if not, we could!)
 * --dry-run isn't honoured when creating dest ancestors! It should instead say that it _would_ create the ancestors.
 * When splitting large files, the optimum chunk size might vary, we could adjust this dynamically.
 Right now I just picked an arbitrary value which could possibly be improved a lot!

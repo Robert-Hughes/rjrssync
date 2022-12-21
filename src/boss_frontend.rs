@@ -457,6 +457,8 @@ pub fn boss_main() -> ExitCode {
         });
     }
 
+    //TODO: if we move this stuff plus the above into some kind of "get_spec_to_use" function,
+    // then we can unit test that quite nicely
     for mut sync in &mut spec.syncs {
         if !args.filters.is_empty() {
             sync.filters = args.filters.clone();
