@@ -29,7 +29,7 @@ pub struct BossCliArgs {
     /// Instead of specifying SRC and DEST, this can be used to perform a sync defined by a config file.
     #[arg(long)]
     pub spec: Option<String>,
-    //TODO: clarify what happens if command-line options like filters are provided as well as a spec.
+    //TODO: clarify what happens if command-line options like filters are provided as well as a spec.  + test + docs
 
     /// If set, forces redeployment of rjrssync to any remote targets, even if they already have an
     /// up-to-date copy.
@@ -74,7 +74,7 @@ pub struct BossCliArgs {
     )]
     pub dest_file_newer: Option<DestFileUpdateBehaviour>,
     //TODO: equivalent for symlinks?
-    //TODO: include in spec file?
+    //TODO: include in spec file?  + test + docs
 
     /// Specifies behaviour when a file exists on both source and destination sides, but the 
     /// destination file has a older modified timestamp. This might indicate that data is about
@@ -90,7 +90,7 @@ pub struct BossCliArgs {
     )]
     pub dest_file_older: Option<DestFileUpdateBehaviour>,
     //TODO: equivalent for symlinks?
-    //TODO: include in spec file?
+    //TODO: include in spec file?  + test + docs
 
     /// Specifies behaviour when a file/folder/symlink on the destination side needs deleting.
     /// This might indicate that data is about to be unintentionally lost.
@@ -105,7 +105,7 @@ pub struct BossCliArgs {
     )]
     pub dest_entry_needs_deleting: Option<DestEntryNeedsDeletingBehaviour>,
     //TODO: name too long!
-    //TODO: include in spec file?
+    //TODO: include in spec file?  + test + docs
 
     /// Specifies behaviour when the entire root on the destination side needs deleting.
     /// This might indicate that data is about to be unintentionally lost.
@@ -123,7 +123,7 @@ pub struct BossCliArgs {
     )]
     pub dest_root_needs_deleting: Option<DestRootNeedsDeletingBehaviour>,
     //TODO: name too long?
-    //TODO: include in spec file?
+    //TODO: include in spec file?  + test + docs
 
     /// Specifies behaviour when any destructive action is required.
     /// This might indicate that data is about to be unintentionally lost.
@@ -138,7 +138,7 @@ pub struct BossCliArgs {
     #[arg(long)]
     pub all_destructive_behaviour: Option<AllDestructiveBehaviour>,
     //TODO: name is terrible?
-    //TODO: include in spec file?
+    //TODO: include in spec file?  + test + docs
 
     /// Outputs some additional statistics about the data copied.
     #[arg(long)]
@@ -307,9 +307,9 @@ fn parse_string(yaml: &Yaml, key_name: &str) -> Result<String, String> {
 }
 
 fn parse_sync_spec(yaml: &Yaml) -> Result<SyncSpec, String> {
-    //TODO: parse behaviour values
-    //TODO: allow them to be set at both per-sync level, and at the top level (to apply to all?)
-    //TODO: possibly the same should go for all settings, like filters too?
+    //TODO: parse behaviour values + test + docs
+    //TODO: allow them to be set at both per-sync level, and at the top level (to apply to all?) + test + docs
+    //TODO: possibly the same should go for all settings, like filters too?  + test + docs
     let mut result = SyncSpec::default();
     for (root_key, root_value) in yaml.as_hash().ok_or("Sync value must be a dictionary")? {
         match root_key {

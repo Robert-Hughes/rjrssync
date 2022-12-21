@@ -11,6 +11,7 @@ Interface
 * Should filters expect to see trailing slashes on folder names or not? What about folder symlinks? Tests for this
 * Ctrl-C doesn't seem to work very well at stopping rjrssync when it's running
 * Tab-completion for parameters, part of clap?
+* Tidy up --help output - maybe we need a short and long version?
 
 Remote launching
 ----------------
