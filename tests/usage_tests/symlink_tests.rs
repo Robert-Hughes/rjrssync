@@ -401,8 +401,6 @@ fn test_symlink_target_slashes() {
 #[cfg(unix)]
 fn test_unknown_symlink_unix_to_windows() {
     let src = symlink_generic("broken!");
-    let (remote_user_and_host, remote_test_folder) = RemotePlatform::Windows.get_config();
-    let dest = remote_test_folder.to_string() + "/test_unknown_symlink_unix_to_windows";
 
     run(TestDesc {
         setup_filesystem_nodes: vec![
@@ -410,7 +408,7 @@ fn test_unknown_symlink_unix_to_windows() {
         ],
         args: vec![
             "$TEMP/src".to_string(),
-            format!("{remote_user_and_host}:{dest}")
+            String::from("$REMOTE_WINDOWS_TEMP/dest")
         ],
         expected_exit_code: 12,
         expected_output_messages: vec! [
