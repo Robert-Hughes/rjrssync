@@ -123,8 +123,6 @@ fn test_invalid_filter_regex() {
     });
 }
 
-
-
 /// A folder that needs deleting on the destination has files which have been excluded, and so the folder can't be deleted.
 #[test]
 fn test_remove_dest_folder_with_excluded_files() {
@@ -161,3 +159,66 @@ fn test_remove_dest_folder_with_excluded_files() {
         ..Default::default()
     });
 }
+
+// "Tag" these tests as they require remote platforms (GitHub Actions differentiates these)
+mod remote {
+
+use super::*;
+
+/// Tests that filters operate on normalized (forward slash) relative paths on both doers,
+/// no matter the platform (Windows vs Linux).
+/// This also tests that (de-)serialization of the Filters struct works correctly.
+#[test]
+fn test_filter_normalized_paths() {
+    // Run this test between Linux and Windows remotes, so we cover both platforms, no matter what the native
+    // platform is.
+    let src_folder = folder! {
+        "Folder" => folder! {
+            "CopyMe" => file_with_modified("contents", SystemTime::UNIX_EPOCH),
+            "EXCLUDE" => folder! {
+                "exclude1" => file_with_modified("contents", SystemTime::UNIX_EPOCH),
+                "exclude2" => file_with_modified("contents", SystemTime::UNIX_EPOCH),
+            }
+        }
+    };
+    let dest_folder = folder! {
+        "Folder" => folder! {
+            "EXCLUDE" => folder! {
+                "exclude3" => file_with_modified("contents", SystemTime::UNIX_EPOCH),
+                "exclude4" => file_with_modified("contents", SystemTime::UNIX_EPOCH),
+            }
+        }
+    };
+    // Dest should have the CopyMe file added, but the EXCLUDE folder should remain untouched, as it was ignored
+    // for both the source (nothing new added) and dest sides (nothing removed)
+    let expected_dest = folder! {
+        "Folder" => folder! {
+            "CopyMe" => file_with_modified("contents", SystemTime::UNIX_EPOCH),
+            "EXCLUDE" => folder! {
+                "exclude3" => file_with_modified("contents", SystemTime::UNIX_EPOCH),
+                "exclude4" => file_with_modified("contents", SystemTime::UNIX_EPOCH),
+            }
+        }
+    };
+    run(TestDesc {
+        setup_filesystem_nodes: vec![
+            ("$REMOTE_WINDOWS_TEMP/src", &src_folder),
+            ("$REMOTE_LINUX_TEMP/dest", &dest_folder),
+        ],
+        args: vec![
+            "$REMOTE_WINDOWS_TEMP/src".to_string(),
+            "$REMOTE_LINUX_TEMP/dest".to_string(),
+            "--filter".to_string(),
+            "-Folder/EXCLUDE".to_string(), // note we use a forward slash - this should match the EXCLUDE subfolder on both Linux and Windows
+        ],
+        expected_exit_code: 0,
+        expected_filesystem_nodes: vec![
+            ("$REMOTE_WINDOWS_TEMP/src", Some(&src_folder)), // Source should always be unchanged
+            ("$REMOTE_LINUX_TEMP/dest", Some(&expected_dest)),
+        ],
+        ..Default::default()
+    }.with_expected_actions(copied_files(1)));
+}
+
+}
+

@@ -115,8 +115,6 @@ pub struct Filters {
     pub kinds: Vec<FilterKind>, 
 }
 
-//TODO: test for serialization/deserialization, e.g. using filter over remote doer (not just local!)
-
 /// Serializes a RegexSet by serializing the patterns (strings) that it was originally created from.
 /// This won't preserve any non-default creation options!
 fn serialize_regex_set_as_strings<S: Serializer>(r: &RegexSet, s: S) -> Result<S::Ok, S::Error> {
