@@ -236,7 +236,8 @@ pub fn setup_comms(
             } => {
                 // Start a background thread to print out log messages from the remote doer,
                 // which it can send over its stderr.
-                let stderr_reading_thread = std::thread::spawn(move || remote_doer_logging_thread(stderr));
+                let debug_name_clone = debug_name.clone();
+                let stderr_reading_thread = std::thread::spawn(move || remote_doer_logging_thread(stderr, debug_name_clone));
 
                 // Connect to the network port that the doer should be listening on
                 let addr = (remote_hostname, actual_port);
@@ -278,7 +279,7 @@ pub fn setup_comms(
     panic!("Unreachable code");
 }
 
-fn remote_doer_logging_thread(mut stderr: BufReader<ChildStderr>) {
+fn remote_doer_logging_thread(mut stderr: BufReader<ChildStderr>, debug_name: String) {
     loop {
         let mut l: String = "".to_string();
         match stderr.read_line(&mut l) {
@@ -287,14 +288,15 @@ fn remote_doer_logging_thread(mut stderr: BufReader<ChildStderr>) {
                 l.pop(); // Remove the trailing newline
                 // Use a custom target to indicate this is from a remote doer in the log output
                 // Preserve the log level of the remote messages if possible
-                match l.split_once(' ') {
-                    Some((level_str, msg)) => {
+                match &l.splitn(3, ' ').collect::<Vec<&str>>()[..] {
+                    [level_str, target, msg] => {
+                        let target = format!("remote {debug_name}: {target}");
                         match log::Level::from_str(level_str) {
-                            Ok(level) => log!(target: "remote doer", level, "{}", msg),
-                            Err(_) => debug!(target: "remote doer", "{}", l),
+                            Ok(level) => log!(target: &target, level, "{}", msg),
+                            Err(_) => debug!(target: &target, "{}", l),
                         }
                     }
-                    None => debug!(target: "remote doer", "{}", l),
+                    _ => debug!(target: &format!("remote {debug_name}"), "{}", l),
                 }
             }
             Err(_) => break,

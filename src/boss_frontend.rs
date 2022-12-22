@@ -436,32 +436,50 @@ pub fn boss_main() -> ExitCode {
         };
         let mut builder = env_logger::Builder::from_env(Env::default().default_filter_or(args_level));
         builder.format(|buf, record| {
-            let target_color = match record.target() {
-                "rjrssync::boss" => Color::Rgb(255, 64, 255), //TODO: module has been renamed!
-                "rjrssync::doer" => Color::Cyan,
-                "remote doer" => Color::Yellow,
-                _ => Color::Green,
+            // Strip "rjrssync::" prefix, as this doesn't add anything
+            let target = record.target().replace("rjrssync::", "");
+            let target_style = if target.contains("boss") {
+                buf.style().set_color(Color::Rgb(255, 64, 255)).clone()
+            } else if target.contains("remote") {
+                buf.style().set_color(Color::Yellow).clone()
+            } else if target.contains("doer") {
+                buf.style().set_color(Color::Cyan).clone()
+            } else {
+                buf.style()
             };
-            let target_style = buf.style().set_color(target_color).clone();
 
             let level_style = buf.default_level_style(record.level());
 
-            if record.level() == log::Level::Info {
-                // Info messages are intended for the average user, so format them plainly
-                //TODO: they should probably also be on stdout, not stderr as they are at the moment
-                writeln!(
-                    buf,
-                    "{}",
-                    record.args()
-                )
-            } else {
-                writeln!(
-                    buf,
-                    "{:5} | {}: {}",
-                    level_style.value(record.level()),
-                    target_style.value(record.target()),
-                    record.args()
-                )
+            match record.level() {
+                log::Level::Info => {
+                    // Info messages are intended for the average user, so format them plainly
+                    //TODO: they should probably also be on stdout, not stderr as they are at the moment
+                    writeln!(
+                        buf,
+                        "{}",
+                        record.args()
+                    )
+                }
+                log::Level::Warn | log::Level::Error => {
+                    // Warn/error messages are also for a regular user, but deserve a prefix indicating
+                    // that they are an error/warning
+                    writeln!(
+                        buf,
+                        "{}: {}",
+                        level_style.value(record.level()),
+                        record.args()
+                    )
+                }
+                log::Level::Debug | log::Level::Trace => {
+                    // Debug/trace messages are for developers or power-users, so have more detail
+                    writeln!(
+                        buf,
+                        "{:5} | {}: {}",
+                        level_style.value(record.level()),
+                        target_style.value(target),
+                        record.args()
+                    )
+                }
             }
         });
         builder.init();

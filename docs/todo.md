@@ -12,7 +12,6 @@ Interface
 * Tab-completion for parameters, part of clap?
 * Tidy up --help output - maybe we need a short and long version?
   - Things in the README or notes.md shouldn't be needed for a user as they won't necessarily have access to then. These would need to be in --help, so might need moving.
-* Errors aren't displayed in a very friendly way (it has all the logging prefixes)
 * The naming for the behaviour flags isn't great - too verbose and not clea renough?
 * In the spec file, could allow some settings to be set at both per-sync level, and at the top level (which would then apply to all syncs, but allowing overrides)
 

@@ -440,8 +440,9 @@ pub fn doer_main() -> ExitCode {
         builder.format(|buf, record| {
             writeln!(
                 buf,
-                "{} {}",
+                "{} {} {}",
                 record.level(),
+                record.target(),
                 record.args()
             )
         });
