@@ -90,6 +90,12 @@ impl RootRelativePath {
     pub fn regex_set_matches(&self, r: &RegexSet) -> SetMatches {
         r.matches(&self.inner)
     }
+
+    /// Puts the slashes back to what is requested, so that the path is appropriate for
+    /// another platform.
+    pub fn to_platform_path(&self, dir_separator: char) -> String {
+        self.inner.replace('/', &dir_separator.to_string())
+    }
 }
 impl Display for RootRelativePath {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -319,6 +325,8 @@ pub enum Response {
         /// Whether or not this platform differentiates between file and folder symlinks (e.g. Windows),
         /// vs. treating all symlinks the same (e.g. Linux).
         platform_differentiates_symlinks: bool,
+        /// Forward vs backwards slash.
+        platform_dir_separator: char,
     },
 
     // The result of GetEntries is split into lots of individual messages (rather than one big list)
@@ -353,7 +361,7 @@ impl std::fmt::Debug for Response {
         // Note that rust-analyzer can auto-generate the complete version of this for us (delete the function, then Ctrl+Space),
         // then we can make the tweaks that we need.
         match self {
-            Self::RootDetails { root_details, platform_differentiates_symlinks } => f.debug_struct("RootDetails").field("root_details", root_details).field("platform_differentiates_symlinks", platform_differentiates_symlinks).finish(),
+            Self::RootDetails { root_details, platform_differentiates_symlinks, platform_dir_separator } => f.debug_struct("RootDetails").field("root_details", root_details).field("platform_differentiates_symlinks", platform_differentiates_symlinks).field("platform_dir_separator", platform_dir_separator).finish(),
             Self::Entry(arg0) => f.debug_tuple("Entry").field(arg0).finish(),
             Self::EndOfEntries => write!(f, "EndOfEntries"),
             Self::FileContent { data: _, more_to_follow } => f.debug_struct("FileContent").field("data", &"...").field("more_to_follow", more_to_follow).finish(),
@@ -773,6 +781,7 @@ fn handle_set_root(comms: &mut Comms, context: &mut Option<DoerContext>, root: S
     let context = context.as_ref().unwrap();
 
     let platform_differentiates_symlinks = cfg!(windows);
+    let platform_dir_separator = std::path::MAIN_SEPARATOR;
 
     // Respond to the boss with what type of file/folder the root is, as it makes some decisions
     // based on this.
@@ -781,11 +790,11 @@ fn handle_set_root(comms: &mut Comms, context: &mut Option<DoerContext>, root: S
     match metadata {
         Ok(m) => {
             let entry_details = entry_details_from_metadata(m, &context.root)?;
-            comms.send_response(Response::RootDetails { root_details: Some(entry_details), platform_differentiates_symlinks });
+            comms.send_response(Response::RootDetails { root_details: Some(entry_details), platform_differentiates_symlinks, platform_dir_separator });
         },
         Err(e) if e.kind() == ErrorKind::NotFound => {
             // Report this as a special error, as we handle it differently on the boss side
-            comms.send_response(Response::RootDetails { root_details: None, platform_differentiates_symlinks });
+            comms.send_response(Response::RootDetails { root_details: None, platform_differentiates_symlinks, platform_dir_separator });
         }
         Err(e) => return Err(format!(
                     "root '{}' can't be read: {}", context.root.display(), e)),

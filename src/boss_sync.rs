@@ -3,6 +3,7 @@ use std::{
     fmt::{Display, Write}, time::{Instant, SystemTime, Duration}, collections::HashMap,
 };
 
+use console::{Style};
 use indicatif::{ProgressBar, ProgressStyle, HumanCount, HumanBytes};
 use log::{debug, info, trace};
 use regex::RegexSet;
@@ -91,17 +92,48 @@ struct Stats {
     pub copy_end_time: Option<Instant>,
 }
 
+enum Side {
+    Source,
+    Dest
+}
+
+/// For user-friendly display of a RootRelativePath on the source or dest.
 /// Formats a path which is relative to the root, so that it is easier to understand for the user.
 /// Especially if path is empty (i.e. referring to the root itself)
-fn format_root_relative(path: &RootRelativePath, root: &str) -> String {
-    //TODO: include something that says whether this is the source or dest, rather than relying on outside code to do it?
-    //TODO: limit length of string using ellipses e.g. "Copying T:\work\...\bob\folder\...\thing.txt to X:\backups\...\newbackup\folder\...\thing.txt"
-    //TODO: the formatting here isn't quite right yet. e.g. the root might already end with a trailing slash, but we add another
-    //TODO: could use bold/italic/colors etc. to highlight the root, rather than brackets? Need to see how that would interact with prompts though (which already have formatting)
-    if path.is_root() {
-        format!("'({root})'")
-    } else {
-        format!("'({root}/){path}'")
+struct PrettyPath<'a> {
+    side: Side,
+    dir_separator: char,
+    root: &'a str,
+    path: &'a RootRelativePath,
+    kind: &'static str, // e.g. 'folder', 'file'
+}
+impl<'a> Display for PrettyPath<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let side = match self.side {
+            Side::Source { .. } => "source",
+            Side::Dest { .. } => "dest",
+        };
+        let root = self.root;
+        let path = self.path;
+        let kind = self.kind;
+
+        // Use styling to highlight which part of the path is the root, and which is the root-relative path.
+        // We don't play with any characters in the path (e.g. adding brackets) so that the user can copy-paste the 
+        // full paths if they want
+        // The styling plays nicely with piping output to a file, as they are simply ignored (part of the `console` crate)
+        let root_style = Style::new().italic();
+        if self.path.is_root() {
+            write!(f, "{side} root {kind} '{}'", root_style.apply_to(root))
+        } else {
+            let root_with_trailing_slash = if root.ends_with(self.dir_separator) {
+                root.to_string()
+            } else {
+                root.to_string() + &self.dir_separator.to_string()
+            };
+            // Convert the path from normalized (forward slashes) to the native representation for that platform
+            let path_with_appropriate_slashes = path.to_platform_path(self.dir_separator);
+            write!(f, "{side} {kind} '{}{path_with_appropriate_slashes}'", root_style.apply_to(root_with_trailing_slash))
+        }
     }
 }
 
@@ -194,6 +226,34 @@ struct SyncContext<'a> {
     dest_root: String,
     progress_bar: ProgressBar,
     progress_count: u64,
+
+    // Used for debugging/display only, shouldn't be needed for any syncing logic
+    src_dir_separator: Option<char>,
+    dest_dir_separator: Option<char>,
+}
+impl<'a> SyncContext<'a> {
+    fn pretty_src<'b>(&'b self, path: &'b RootRelativePath, details: &'b EntryDetails) -> PrettyPath {
+        let kind = match details {
+            EntryDetails::File { .. } => "file",
+            EntryDetails::Folder => "folder",
+            EntryDetails::Symlink { .. } => "symlink",
+        };
+        self.pretty_src_kind(path, kind)
+    }
+    fn pretty_dest<'b>(&'b self, path: &'b RootRelativePath, details: &'b EntryDetails) -> PrettyPath {
+        let kind = match details {
+            EntryDetails::File { .. } => "file",
+            EntryDetails::Folder => "folder",
+            EntryDetails::Symlink { .. } => "symlink",
+        };
+        self.pretty_dest_kind(path, kind)
+    }
+    fn pretty_src_kind<'b>(&'b self, path: &'b RootRelativePath, kind: &'static str) -> PrettyPath {
+        PrettyPath { side: Side::Source, dir_separator: self.src_dir_separator.unwrap_or('/'), root: &self.src_root, path, kind }
+    }
+    fn pretty_dest_kind<'b>(&'b self, path: &'b RootRelativePath, kind: &'static str) -> PrettyPath {
+        PrettyPath { side: Side::Dest, dir_separator: self.dest_dir_separator.unwrap_or('/'), root: &self.dest_root, path, kind }
+    }
 }
 
 pub fn sync(
@@ -246,6 +306,8 @@ pub fn sync(
         dest_root: sync_spec.dest.clone(),
         progress_bar: ProgressBar::new_spinner().with_message("Querying..."),
         progress_count: 0,    
+        src_dir_separator: None,
+        dest_dir_separator: None,
     };
     // Call into separate function, to avoid the original function parameters being mis-used instead
     // of the context fields
@@ -266,13 +328,14 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), Vec<String>> {
     let timer = start_timer("SetRoot src");
     ctx.src_comms.send_command(Command::SetRoot { root: ctx.src_root.to_string() });
     let src_root_details = match ctx.src_comms.receive_response() {
-        Response::RootDetails { root_details, platform_differentiates_symlinks: _ } => {
+        Response::RootDetails { root_details, platform_differentiates_symlinks: _, platform_dir_separator } => {
             match &root_details {
                 None => return Err(vec![format!("src path '{}' doesn't exist!", ctx.src_root)]),
                 Some(d) => if let Err(e) = validate_trailing_slash(&ctx.src_root, &d) {
                     return Err(vec![format!("src path {}", e)]);
                 }
             };
+            ctx.src_dir_separator = Some(platform_dir_separator);
             root_details
         }
         r => return Err(vec![format!("Unexpected response getting root details from src: {:?}", r)]),
@@ -284,13 +347,14 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), Vec<String>> {
     let timer = start_timer("SetRoot dest");
     ctx.dest_comms.send_command(Command::SetRoot { root: ctx.dest_root.clone() });
     let (mut dest_root_details, dest_platform_differentiates_symlinks) = match ctx.dest_comms.receive_response() {
-        Response::RootDetails { root_details, platform_differentiates_symlinks } => {
+        Response::RootDetails { root_details, platform_differentiates_symlinks, platform_dir_separator } => {
             match &root_details {
                 None => (), // Dest root doesn't exist, but that's fine (we will create it later)
                 Some(d) => if let Err(e) = validate_trailing_slash(&ctx.dest_root, &d) {
                     return Err(vec![format!("dest path {}", e)]);
                 }
             }
+            ctx.dest_dir_separator = Some(platform_dir_separator);
             (root_details, platform_differentiates_symlinks)
         }
         r => return Err(vec![format!("Unexpected response getting root details from dest: {:?}", r)]),
@@ -314,7 +378,7 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), Vec<String>> {
 
             ctx.dest_comms.send_command(Command::SetRoot { root: ctx.dest_root.clone() });
             dest_root_details = match ctx.dest_comms.receive_response() {
-                Response::RootDetails { root_details, platform_differentiates_symlinks: _ } => root_details,
+                Response::RootDetails { root_details, platform_differentiates_symlinks: _, platform_dir_separator: _ } => root_details,
                 r => return Err(vec![format!("Unexpected response getting root details from dest: {:?}", r)]),
             }
         }
@@ -326,11 +390,13 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), Vec<String>> {
     // dest root folder before getting to the root itself, so the prompt/error would be too late!
     if let Some(d) = &dest_root_details {
         if should_delete(&src_root_details, d, dest_platform_differentiates_symlinks) {
+            let msg = format!(
+                "{} needs deleting as it is incompatible with {}",
+                ctx.pretty_dest(&RootRelativePath::root(), d),
+                ctx.pretty_src(&RootRelativePath::root(), &src_root_details));
             let resolved_behaviour = match ctx.dest_root_needs_deleting_behaviour {
                 DestRootNeedsDeletingBehaviour::Prompt => {
-                    let prompt_result = resolve_prompt(format!(
-                        "Dest root {} needs deleting as it is incompatible with the source. What do?",
-                        format_root_relative(&RootRelativePath::root(), &ctx.dest_root)),
+                    let prompt_result = resolve_prompt(format!("{msg}. What do?"),
                         &ctx.progress_bar, 
                         &[
                             ("Skip", DestRootNeedsDeletingBehaviour::Skip),
@@ -342,8 +408,7 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), Vec<String>> {
             };
             match resolved_behaviour {
                 DestRootNeedsDeletingBehaviour::Prompt => panic!("Should have been alredy resolved!"),
-                DestRootNeedsDeletingBehaviour::Error => return Err(vec![format!("Dest root {} needs deleting as it is incompatible with the source. Will not delete. See --dest-root-needs-deleting",
-                    format_root_relative(&RootRelativePath::root(), &ctx.dest_root))]),
+                DestRootNeedsDeletingBehaviour::Error => return Err(vec![format!("{msg}. Will not delete. See --dest-root-needs-deleting")]),
                 DestRootNeedsDeletingBehaviour::Skip => return Ok(()), // Don't raise an error, but we can't continue as it will fail, so skip the entire sync
                 DestRootNeedsDeletingBehaviour::Delete => (), // We will delete it anyway later on
             }
@@ -494,6 +559,9 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), Vec<String>> {
             match dest_details {
                 Some(dest_details) if !should_delete (&src_details, dest_details, dest_platform_differentiates_symlinks) => {
                     // Dest already has this entry - check if it is up-to-date
+                    let msg = format!("{} already exists at {}",
+                        ctx.pretty_src(&path, &src_details),
+                        ctx.pretty_dest(&path, dest_details));
                     match src_details {
                         EntryDetails::File { size, modified_time: src_modified_time } => {
                             let dest_modified_time = match dest_details {
@@ -505,26 +573,22 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), Vec<String>> {
                         },
                         EntryDetails::Folder => {
                             // Folders are always up-to-date
-                            trace!("Source folder {} already exists on dest {} - nothing to do",
-                                format_root_relative(&path, &ctx.src_root),
-                                format_root_relative(&path, &ctx.dest_root))
+                            trace!("{msg} - nothing to do");
                         },
                         EntryDetails::Symlink { .. } => {
                             // Symlinks are always up-to-date, if should_delete indicated that we shouldn't delete it
-                            trace!("Source symlink {} already exists on dest {} - nothing to do",
-                                format_root_relative(&path, &ctx.src_root),
-                                format_root_relative(&path, &ctx.dest_root))
+                            trace!("{msg} - nothing to do");
                         },
                     }
                 },
                 _ => match src_details {
                     EntryDetails::File { size, modified_time: src_modified_time } => {
-                        debug!("Source file {} file doesn't exist on dest - copying", format_root_relative(&path, &ctx.src_root));
+                        debug!("{} doesn't exist on dest - copying", ctx.pretty_src(&path, &src_details));
                         ctx.dest_comms.send_command(Command::Marker(ctx.progress_count));
                         copy_file(&path, size, src_modified_time, &mut ctx)?
                     }
                     EntryDetails::Folder => {
-                        debug!("Source folder {} doesn't exist on dest - creating", format_root_relative(&path, &ctx.src_root));
+                        debug!("{} doesn't exist on dest - creating", ctx.pretty_src(&path, &src_details));
                         ctx.stats.num_folders_created += 1;
                         if !ctx.dry_run {
                             ctx.dest_comms
@@ -533,22 +597,22 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), Vec<String>> {
                                 });
                         } else {
                             // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be copied
-                            info!("Would create dest folder {}", format_root_relative(&path, &ctx.dest_root));
+                            info!("Would create {}", ctx.pretty_dest_kind(&path, "folder"));
                         }
                     },
-                    EntryDetails::Symlink { kind, target } => {
-                        debug!("Source {} symlink doesn't exist on dest - copying", format_root_relative(&path, &ctx.src_root));
+                    EntryDetails::Symlink { ref kind, ref target } => {
+                        debug!("{} doesn't exist on dest - copying", ctx.pretty_src(&path, &src_details));
                         ctx.stats.num_symlinks_copied += 1;
                         if !ctx.dry_run {
                             ctx.dest_comms
                                 .send_command(Command::CreateSymlink {
                                     path: path.clone(),
-                                    kind,
-                                    target,
+                                    kind: *kind,
+                                    target: target.clone(),
                                 });
                         } else {
                             // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be copied
-                            info!("Would create dest symlink {}", format_root_relative(&path, &ctx.dest_root));
+                            info!("Would create {}", ctx.pretty_dest_kind(&path, "symlink"));
                         }
                     }
                 },
@@ -656,12 +720,14 @@ fn delete_dest_entry(ctx: &mut SyncContext, dest_details: &EntryDetails, dest_pa
         ctx.dest_comms.send_command(Command::Marker(ctx.progress_count));
     }
 
+    let msg = format!(
+        "{} needs deleting as it doesn't exist on the src (or is incompatible)",
+        ctx.pretty_dest(dest_path, dest_details));
+
     // Resolve any behaviour resulting from a prompt first
     let resolved_behaviour = match ctx.dest_entry_needs_deleting_behaviour {
         DestEntryNeedsDeletingBehaviour::Prompt => {
-            let prompt_result = resolve_prompt(format!(
-                "Dest entry {} needs deleting as it doesn't exist on the src. What do?",
-                format_root_relative(dest_path, &ctx.dest_root)),
+            let prompt_result = resolve_prompt(format!("{msg}. What do?"),
                 &ctx.progress_bar, 
                 &[
                     ("Skip", DestEntryNeedsDeletingBehaviour::Skip),
@@ -677,17 +743,14 @@ fn delete_dest_entry(ctx: &mut SyncContext, dest_details: &EntryDetails, dest_pa
     match resolved_behaviour {
         DestEntryNeedsDeletingBehaviour::Prompt => panic!("Should have already been resolved!"),
         DestEntryNeedsDeletingBehaviour::Error => return Err(vec![format!(
-            "Dest entry {} needs deleting as it doesn't exist on the src (or is incompatible). Will not delete. See --dest-entry-needs-deleting.",
-            format_root_relative(&dest_path, &ctx.dest_root),
+            "{msg}. Will not delete. See --dest-entry-needs-deleting.",
         )]),
         DestEntryNeedsDeletingBehaviour::Skip => {
-            trace!("Dest entry {} needs deleting as it doesn't exist on the src (or is incompatible). Skipping.",
-                format_root_relative(&dest_path, &ctx.dest_root));
+            trace!("{msg}. Skipping.");
             Ok(())
         }
         DestEntryNeedsDeletingBehaviour::Delete => {
-            trace!("Dest entry {} needs deleting as it doesn't exist on the src (or is incompatible). Deleting.",
-            format_root_relative(&dest_path, &ctx.dest_root));
+            trace!("{msg}. Deleting.");
             let c = match dest_details {
                 EntryDetails::File { size, .. } => {
                     ctx.stats.num_files_deleted += 1;
@@ -715,7 +778,7 @@ fn delete_dest_entry(ctx: &mut SyncContext, dest_details: &EntryDetails, dest_pa
                 process_dest_responses(ctx.dest_comms, &ctx.progress_bar, &mut ctx.stats, None)?;
             } else {
                 // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be deleted
-                info!("Would delete from dest {}", format_root_relative(&dest_path, &ctx.dest_root));
+                info!("Would delete {}", ctx.pretty_dest(dest_path, dest_details));
             })     
         }
     }
@@ -729,13 +792,14 @@ fn handle_existing_file(
 ) -> Result<(), Vec<String>> {
     let copy = match src_modified_time.cmp(&dest_modified_time) {
         Ordering::Less => {
+            let msg = format!(
+                "{} is newer than {}",
+                ctx.pretty_dest_kind(&path, "file"),
+                ctx.pretty_src_kind(&path, "file"));
             // Resolve any behaviour resulting from a prompt first
             let resolved_behaviour = match ctx.dest_file_newer_behaviour {
                 DestFileUpdateBehaviour::Prompt => {
-                    let prompt_result = resolve_prompt(format!(
-                        "Dest file {} is newer than src file {}. What do?",
-                        format_root_relative(&path, &ctx.dest_root),
-                        format_root_relative(&path, &ctx.src_root)),
+                    let prompt_result = resolve_prompt(format!("{msg}. What do?"),
                         &ctx.progress_bar, 
                         &[
                             ("Skip", DestFileUpdateBehaviour::Skip),
@@ -751,38 +815,33 @@ fn handle_existing_file(
             match resolved_behaviour {
                 DestFileUpdateBehaviour::Prompt => panic!("Should have already been resolved!"),
                 DestFileUpdateBehaviour::Error => return Err(vec![format!(
-                    "Dest file {} is newer than src file {}. Will not overwrite. See --dest-file-newer.",
-                    format_root_relative(&path, &ctx.dest_root),
-                    format_root_relative(&path, &ctx.src_root)
+                    "{msg}. Will not overwrite. See --dest-file-newer."
                 )]),
                 DestFileUpdateBehaviour::Skip => {
-                    trace!("Dest file {} is newer than src file {}. Skipping.",
-                    format_root_relative(&path, &ctx.dest_root),
-                    format_root_relative(&path, &ctx.src_root));
+                    trace!("{msg}. Skipping.");
                     false
                 }
                 DestFileUpdateBehaviour::Overwrite => {
-                    trace!("Dest file {} is newer than src file {}. Overwriting anyway.",
-                        format_root_relative(&path, &ctx.dest_root),
-                        format_root_relative(&path, &ctx.src_root));
+                    trace!("{msg}. Overwriting anyway.");
                     true
                 }
             }
         }
         Ordering::Equal => {
-            trace!("Dest file {} has same modified time as src file {}. Will not update.",
-                format_root_relative(&path, &ctx.dest_root),
-                format_root_relative(&path, &ctx.src_root));
+            trace!("{} has same modified time as {}. Will not update.",
+                ctx.pretty_dest_kind(&path, "file"),
+                ctx.pretty_src_kind(&path, "file"));
             false
         }
         Ordering::Greater => {
+            let msg = format!(
+                "{} is older than {}",
+                ctx.pretty_dest_kind(&path, "file"),
+                ctx.pretty_src_kind(&path, "file"));
             // Resolve any behaviour resulting from a prompt first
             let resolved_behaviour = match ctx.dest_file_older_behaviour {
                 DestFileUpdateBehaviour::Prompt => {
-                    let prompt_result = resolve_prompt(format!(
-                        "Dest file {} is older than src file {}. What do?",
-                        format_root_relative(&path, &ctx.dest_root),
-                        format_root_relative(&path, &ctx.src_root)),
+                    let prompt_result = resolve_prompt(format!("{msg}. What do?"),
                         &ctx.progress_bar, 
                         &[
                             ("Skip", DestFileUpdateBehaviour::Skip),
@@ -798,20 +857,14 @@ fn handle_existing_file(
             match resolved_behaviour {
                 DestFileUpdateBehaviour::Prompt => panic!("Should have already been resolved!"),
                 DestFileUpdateBehaviour::Error => return Err(vec![format!(
-                    "Source file {} is newer than dest file {}. Will not overwrite. See --dest-file-older.",
-                    format_root_relative(&path, &ctx.src_root),
-                    format_root_relative(&path, &ctx.dest_root)
+                    "{msg}. Will not overwrite. See --dest-file-older."
                 )]),
                 DestFileUpdateBehaviour::Skip => {
-                    trace!("Source file {} is newer than dest file {}. Skipping.",
-                        format_root_relative(&path, &ctx.src_root),
-                        format_root_relative(&path, &ctx.dest_root));
+                    trace!("{msg}. Skipping.");
                     false
                 }
                 DestFileUpdateBehaviour::Overwrite => {
-                    trace!("Source file {} is newer than dest file {}. Overwriting.",
-                        format_root_relative(&path, &ctx.src_root),
-                        format_root_relative(&path, &ctx.dest_root));
+                    trace!("{msg}. Overwriting.");
                     true
                 }
             }
@@ -878,8 +931,19 @@ fn resolve_prompt<B: Copy>(prompt: String, progress_bar: &ProgressBar,
                 debug!("Unattended terminal, behaving as if prompt cancelled");
                 items.len() - 1 // Last entry is always cancel
             } else {
+                // The prompt message provided as input to this function may have styling applied 
+                // (e.g. if it comes from our PrettyPath), which won't play nicely with the styling applied
+                // by the theme for the prompt. To work around this, we modify the provided prompt to append
+                // any occurences of the "reset" ANSI code with the code(s) that re-apply the theme used by 
+                // the whole prompt.
+                let theme = dialoguer::theme::ColorfulTheme::default();
+                // Figure out the ANSI code(s) needed to apply the prompt theme
+                let style_begin = theme.prompt_style.apply_to("").to_string().replace("\x1b[0m", "");
+                // Append these to any occurences of RESET on the original prompt string.
+                let prompt = prompt.replace("\x1b[0m", &format!("\x1b[0m{style_begin}"));
+
                 progress_bar.suspend(|| { // Hide the progress bar while showing this message, otherwise the background tick will redraw it over our prompt!
-                    let r = dialoguer::Select::with_theme(&dialoguer::theme::ColorfulTheme::default())
+                    let r = dialoguer::Select::with_theme(&theme)
                         .with_prompt(prompt)
                         .items(&items.iter().map(|i| &i.0).collect::<Vec<&String>>())
                         .default(0).interact_opt(); //TODO: remember default from previous time the same prompt was shown?
@@ -902,7 +966,7 @@ fn copy_file(
     modified_time: SystemTime,
     ctx: &mut SyncContext) -> Result<(), Vec<String>> {
     if !ctx.dry_run {
-        trace!("Fetching from src {}", format_root_relative(&path, &ctx.src_root));
+        trace!("Fetching from {}", ctx.pretty_src_kind(&path, "file"));
         ctx.src_comms
             .send_command(Command::GetFileContent {
                 path: path.clone(),
@@ -911,9 +975,11 @@ fn copy_file(
         loop {
             let (data, more_to_follow) = match ctx.src_comms.receive_response() {
                 Response::FileContent { data, more_to_follow } => (data, more_to_follow),
-                x => return Err(vec![format!("Unexpected response fetching {} from src: {:?}", format_root_relative(&path, &ctx.src_root), x)]),
+                x => return Err(vec![format!(
+                    "Unexpected response fetching {}: {:?}", ctx.pretty_src_kind(&path, "file"), x
+                )]),
             };
-            trace!("Create/update on dest {}", format_root_relative(&path, &ctx.dest_root));
+            trace!("Create/update {}", ctx.pretty_dest_kind(&path, "file"));
             ctx.dest_comms
                 .send_command(Command::CreateOrUpdateFile {
                     path: path.clone(),
@@ -933,8 +999,8 @@ fn copy_file(
     } else {
         // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be copied
         info!("Would copy {} => {}",
-            format_root_relative(&path, &ctx.src_root),
-            format_root_relative(&path, &ctx.dest_root));
+            ctx.pretty_src_kind(&path, "file"),
+            ctx.pretty_dest_kind(&path, "file"));
     }
 
     ctx.stats.num_files_copied += 1;
