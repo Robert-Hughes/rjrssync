@@ -2,7 +2,7 @@ use std::path::Path;
 use std::process::ExitCode;
 use std::io::Write;
 
-use clap::{Parser, ValueEnum};
+use clap::{Parser, ValueEnum, CommandFactory};
 use env_logger::{Env, fmt::Color};
 use indicatif::ProgressBar;
 use log::info;
@@ -18,12 +18,12 @@ pub struct BossCliArgs {
     /// The source path, which will be synced to the destination path.
     /// Optionally contains a username and hostname for specifying remote paths.
     /// Format: [[username@]hostname:]path
-    #[arg(required_unless_present="spec", conflicts_with="spec")]
+    #[arg(required_unless_present_any=["spec", "generate_auto_complete_script"], conflicts_with="spec")]
     pub src: Option<RemotePathDesc>,
     /// The destination path, which will be synced from the source path.
     /// Optionally contains a username and hostname for specifying remote paths.
     /// Format: [[username@]hostname:]path
-    #[arg(required_unless_present="spec", conflicts_with="spec")]
+    #[arg(required_unless_present_any=["spec", "generate_auto_complete_script"], conflicts_with="spec")]
     pub dest: Option<RemotePathDesc>,
 
     /// Instead of specifying SRC and DEST, this can be used to perform a sync defined by a config file.
@@ -161,6 +161,21 @@ pub struct BossCliArgs {
     /// Shows additional output.
     #[arg(short, long, group="verbosity")]
     pub verbose: bool,
+
+    /// If provided, outputs an auto-complete script for the provided shell.
+    /// For example, to configure auto-complete for bash:
+    /// ```
+    ///     rjrssync --generate-auto-complete-script=bash > /usr/share/bash-completion/completions/rjrssync.bash
+    /// ```
+    /// And for PowerShell:
+    /// 
+    /// Add the following line to the file "C:\Users\<USER>\Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1"
+    /// (create the file if it doesn't exist):
+    /// ```
+    ///     rjrssync --generate-auto-complete-script=powershell | Out-String | Invoke-Expression
+    /// ```
+    #[arg(long)]
+    generate_auto_complete_script: Option<clap_complete::Shell>,
 
     /// [Internal] Launches as a doer process, rather than a boss process.
     /// This shouldn't be needed for regular operation.
@@ -401,6 +416,13 @@ pub fn boss_main() -> ExitCode {
         profile_this!("Parsing cmd line");
         BossCliArgs::parse()
     };
+
+    if let Some(shell) = args.generate_auto_complete_script {
+        let mut cmd = BossCliArgs::command();
+        let name = cmd.get_name().to_string();
+        clap_complete::generate(shell, &mut cmd, name, &mut std::io::stdout());
+        return ExitCode::SUCCESS;
+    }
 
     // Configure logging, based on the user's --quiet/--verbose flag.
     // If the RUST_LOG env var is set though then this overrides everything, as this is useful for developers
