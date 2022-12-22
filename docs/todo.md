@@ -14,6 +14,7 @@ Interface
   - Things in the README or notes.md shouldn't be needed for a user as they won't necessarily have access to then. These would need to be in --help, so might need moving.
 * The naming for the behaviour flags isn't great - too verbose and not clear enough?
 * In the spec file, could allow some settings to be set at both per-sync level, and at the top level (which would then apply to all syncs, but allowing overrides)
+* Decide if info! (and other) log messages should be on stdout or stderr
 
 
 Remote launching

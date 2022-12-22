@@ -453,7 +453,6 @@ pub fn boss_main() -> ExitCode {
             match record.level() {
                 log::Level::Info => {
                     // Info messages are intended for the average user, so format them plainly
-                    //TODO: they should probably also be on stdout, not stderr as they are at the moment
                     writeln!(
                         buf,
                         "{}",

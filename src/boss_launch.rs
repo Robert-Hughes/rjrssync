@@ -126,7 +126,7 @@ impl Comms {
                 let _ = self.send_command(Command::Shutdown);
 
                 // Shutdown the comms cleanly, potentially getting profiling data at the same time
-                if let Comms::Remote { encrypted_comms, stderr_reading_thread, .. } = self { // This is always true, we just need a way of getting the fields
+                if let Comms::Remote { encrypted_comms, mut ssh_process, stdin, stdout, stderr_reading_thread, .. } = self { // This is always true, we just need a way of getting the fields
                     #[cfg(feature="profiling")]
                     {
                         // Wait for remote doers to send back any profiling data, if enabled
@@ -138,12 +138,17 @@ impl Comms {
                     #[cfg(not(feature="profiling"))]
                     encrypted_comms.shutdown(); // Simple clean shutdown
 
-                    if std::env::var("RJRSSYNC_TEST_DUMP_MEMORY_USAGE").is_ok() {
-                        // Wait for the doer to prints its memory usage on stderr
-                        //TODO: maybe we should be joining here in all cases, not just for memory usage?
-                        //TODO: and what about the doer process itself, are we ever joining that?
-                        stderr_reading_thread.join().expect("Failed to join stderr_reading_thread");
-                    }
+                    // Wait for the ssh process to cleanly shutdown.
+                    // We don't strictly need to do this for most cases, but it's nice to have a clean shutdown.
+                    // We do however need to do this when the doer is printing its memory usage, to make sure that we receive it
+                    // before closing down ourself.
+                    drop(stdin);
+                    drop(stdout);
+                    debug!("Waiting for stderr_reading_thread");
+                    stderr_reading_thread.join().expect("Failed to join stderr_reading_thread");
+                    debug!("Waiting for ssh child process");
+                    let result = ssh_process.wait();
+                    debug!("ssh child process wait result = {:?}", result);
                 }
             }
         }
