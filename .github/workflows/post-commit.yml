@@ -36,10 +36,8 @@ jobs:
     #TODO: This doesn't seem to actually be working? Based on the logs it is not using zstd
     - if: ${{ runner.os == 'Windows' }}
       name: Use GNU tar to speed up caching on Windows
-      shell: cmd
-      run: |
-        echo "Adding GNU tar to PATH"
-        echo "C:\Program Files\Git\usr\bin" >> "%GITHUB_PATH%"
+      shell: pwsh
+      run: echo "C:\Program Files\Git\usr\bin" >> $env:GITHUB_PATH
 
     # Cache the cargo registry (in user's home dir) and the rjrssync target folder, to speed up subsequent builds.
     # (see example at https://github.com/actions/cache/blob/main/examples.md#rust---cargo)
@@ -94,10 +92,8 @@ jobs:
     #TODO: This doesn't seem to actually be working? Based on the logs it is not using zstd
     - if: ${{ runner.os == 'Windows' }}
       name: Use GNU tar to speed up caching on Windows
-      shell: cmd
-      run: |
-        echo "Adding GNU tar to PATH"
-        echo "C:\Program Files\Git\usr\bin" >> "%GITHUB_PATH%"
+      shell: pwsh
+      run: echo "C:\Program Files\Git\usr\bin" >> $env:GITHUB_PATH
 
     # Cache the Windows and WSL cargo registry (from user's home dir) and the rjrssync target folder (both Windows and WSL),
     # to speed up subsequent builds.
