@@ -27,9 +27,33 @@ pub struct BossCliArgs {
     pub dest: Option<RemotePathDesc>,
 
     /// Instead of specifying SRC and DEST, this can be used to perform a sync defined by a config file.
+    /// The spec file is a YAML file with the following structure:
+    /// 
+    /// ```
+    ///     # Note that if no src_hostname is specified, then the respective src path is assumed to be local.
+    ///     # The same goes for dest.
+    ///     src_hostname: computer1
+    ///     src_username: root
+    ///     dest_hostname: computer2
+    ///     dest_username: myuser
+    ///     syncs:
+    ///       - src: D:/Source
+    ///         dest: D:/Dest
+    ///         # Filters are regular expressions with a leading '+' or '-', indicating includes or excludes.
+    ///         filter: [ "+.*\.txt", "-garbage\.txt" ]
+    ///         dest_file_newer_behaviour: error
+    ///         dest_file_older_behaviour: skip
+    ///         dest_entry_needs_deleting_behaviour: prompt
+    ///         dest_root_needs_deleting_behaviour: delete         
+    ///       # Multiple paths can be synced
+    ///       - src: D:/Source2
+    ///         dest: D:/Dest2
+    /// ```
+    /// 
+    /// In general, if parameters are provided in the both the spec file and then also as a command-line arg,
+    /// the command-line arg will 'override' the value set in the spec file.
     #[arg(long)]
     pub spec: Option<String>,
-    //TODO: clarify what happens if command-line options like filters are provided as well as a spec.  + test + docs
 
     /// If set, forces redeployment of rjrssync to any remote targets, even if they already have an
     /// up-to-date copy.
@@ -48,8 +72,6 @@ pub struct BossCliArgs {
     /// The regex must match the entire relative path for it to have an effect, not just part of it.
     #[arg(name="filter", long, allow_hyphen_values(true))]
     pub filters: Vec<String>,
-    //TODO: "The source/dest root is never checked against the filter - this is always considered as included." - test this (maybe already have a unit test actually!)
-    //TODO: this should override anything in the spec file, or merge with it somehow? Document & test
     
     /// Overrides the TCP port that any remote copy(s) of rjrssync on hostnames specified in src or dest
     /// will listen on, used for network communication between the local and remote copies.
@@ -73,8 +95,6 @@ pub struct BossCliArgs {
         default_value_if("all_destructive_behaviour", "proceed", "overwrite"),
     )]
     pub dest_file_newer: Option<DestFileUpdateBehaviour>,
-    //TODO: equivalent for symlinks?
-    //TODO: include in spec file?  + test + docs
 
     /// Specifies behaviour when a file exists on both source and destination sides, but the 
     /// destination file has a older modified timestamp. This might indicate that data is about
@@ -89,8 +109,6 @@ pub struct BossCliArgs {
         default_value_if("all_destructive_behaviour", "proceed", "overwrite"),
     )]
     pub dest_file_older: Option<DestFileUpdateBehaviour>,
-    //TODO: equivalent for symlinks?
-    //TODO: include in spec file?  + test + docs
 
     /// Specifies behaviour when a file/folder/symlink on the destination side needs deleting.
     /// This might indicate that data is about to be unintentionally lost.
@@ -104,8 +122,6 @@ pub struct BossCliArgs {
         default_value_if("all_destructive_behaviour", "proceed", "delete"),
     )]
     pub dest_entry_needs_deleting: Option<DestEntryNeedsDeletingBehaviour>,
-    //TODO: name too long!
-    //TODO: include in spec file?  + test + docs
 
     /// Specifies behaviour when the entire root on the destination side needs deleting.
     /// This might indicate that data is about to be unintentionally lost.
@@ -122,8 +138,6 @@ pub struct BossCliArgs {
         default_value_if("all_destructive_behaviour", "proceed", "delete"),
     )]
     pub dest_root_needs_deleting: Option<DestRootNeedsDeletingBehaviour>,
-    //TODO: name too long?
-    //TODO: include in spec file?  + test + docs
 
     /// Specifies behaviour when any destructive action is required.
     /// This might indicate that data is about to be unintentionally lost.
@@ -137,8 +151,6 @@ pub struct BossCliArgs {
     /// or in an unattended "--yes" mode (set this to 'proceed').
     #[arg(long)]
     pub all_destructive_behaviour: Option<AllDestructiveBehaviour>,
-    //TODO: name is terrible?
-    //TODO: include in spec file?  + test + docs
 
     /// Outputs some additional statistics about the data copied.
     #[arg(long)]
@@ -307,9 +319,6 @@ fn parse_string(yaml: &Yaml, key_name: &str) -> Result<String, String> {
 }
 
 fn parse_sync_spec(yaml: &Yaml) -> Result<SyncSpec, String> {
-    //TODO: parse behaviour values + test + docs
-    //TODO: allow them to be set at both per-sync level, and at the top level (to apply to all?) + test + docs
-    //TODO: possibly the same should go for all settings, like filters too?  + test + docs
     let mut result = SyncSpec::default();
     for (root_key, root_value) in yaml.as_hash().ok_or("Sync value must be a dictionary")? {
         match root_key {
@@ -328,6 +337,14 @@ fn parse_sync_spec(yaml: &Yaml) -> Result<SyncSpec, String> {
                     x => return Err(format!("Unexpected value for 'filters'. Expected an array, but got {:?}", x)),
                 }
             },
+            Yaml::String(x) if x == "dest_file_newer_behaviour" => 
+                result.dest_file_newer_behaviour = DestFileUpdateBehaviour::from_str(&parse_string(root_value, "dest")?, true)?,
+            Yaml::String(x) if x == "dest_file_older_behaviour" => 
+                result.dest_file_older_behaviour = DestFileUpdateBehaviour::from_str(&parse_string(root_value, "dest")?, true)?,
+            Yaml::String(x) if x == "dest_entry_needs_deleting_behaviour" => 
+                result.dest_entry_needs_deleting_behaviour = DestEntryNeedsDeletingBehaviour::from_str(&parse_string(root_value, "dest")?, true)?,
+            Yaml::String(x) if x == "dest_root_needs_deleting_behaviour" => 
+                result.dest_root_needs_deleting_behaviour = DestRootNeedsDeletingBehaviour::from_str(&parse_string(root_value, "dest")?, true)?,
             x => return Err(format!("Unexpected key in 'syncs' entry: {:?}", x)),
         }
     }
@@ -431,51 +448,13 @@ pub fn boss_main() -> ExitCode {
     debug!("Running as boss");
 
     // Decide what to sync - defined either on the command line or in a spec file if provided
-    let mut spec = Spec::default();
-    if let Some(s) = args.spec {
-        spec = match parse_spec_file(Path::new(&s)) {
-            Ok(s) => s,
-            Err(e) => {
-                error!("Failed to parse spec file at '{}': {}", s, e);
-                return ExitCode::from(18)
-            }
+    let spec = match resolve_spec(&args) {
+        Ok(s) => s,
+        Err(e) => {
+            error!("{}", e);
+            return ExitCode::from(18);
         }
-        // Some things in the spec file are overridable by command line equivalents (behaviours, filters etc.)
-        // which is done below
-        //TODO: test & document this
-    } else {
-        let src = args.src.unwrap(); // Command-line parsing rules means these must be valid, if spec is not provided
-        let dest = args.dest.unwrap();
-        spec.src_hostname = src.hostname;
-        spec.src_username = src.username;
-        spec.dest_hostname = dest.hostname;
-        spec.dest_username = dest.username;
-        spec.syncs.push(SyncSpec { 
-            src: src.path, 
-            dest: dest.path,
-            ..Default::default()
-        });
-    }
-
-    //TODO: if we move this stuff plus the above into some kind of "get_spec_to_use" function,
-    // then we can unit test that quite nicely
-    for mut sync in &mut spec.syncs {
-        if !args.filters.is_empty() {
-            sync.filters = args.filters.clone();
-        }
-        if let Some(b) = args.dest_file_newer {
-            sync.dest_file_newer_behaviour = b;
-        }
-        if let Some(b) = args.dest_file_older {
-            sync.dest_file_older_behaviour = b;
-        }
-        if let Some(b) = args.dest_entry_needs_deleting {
-            sync.dest_entry_needs_deleting_behaviour = b;
-        }
-        if let Some(b) = args.dest_root_needs_deleting {
-            sync.dest_root_needs_deleting_behaviour = b;
-        }
-    }
+    };
 
     // The src and/or dest may be on another computer. We need to run a copy of rjrssync on the remote
     // computer(s) and set up network commmunication.
@@ -556,6 +535,60 @@ pub fn boss_main() -> ExitCode {
     }
 
     ExitCode::SUCCESS
+}
+
+/// Figures out the Spec that we should execute, from a combination of the command-line args
+/// and a --spec file (if provided)
+fn resolve_spec(args: &BossCliArgs) -> Result<Spec, String> {
+    let mut spec = Spec::default();
+    match &args.spec {
+        Some(s) => {
+            // If --spec was provided, use that as the starting point
+            spec = match parse_spec_file(Path::new(&s)) {
+                Ok(s) => s,
+                Err(e) => return Err(format!("Failed to parse spec file at '{}': {}", s, e)),
+            }
+            // Some things in the spec file are overridable by command line equivalents (behaviours, filters etc.)
+            // which is done below
+        },
+        None => {
+            // No spec - the command-line must have the src and dest specified
+            let src = args.src.as_ref().unwrap(); // Command-line parsing rules means these must be valid, if spec is not provided
+            let dest = args.dest.as_ref().unwrap();
+            spec.src_hostname = src.hostname.clone();
+            spec.src_username = src.username.clone();
+            spec.dest_hostname = dest.hostname.clone();
+            spec.dest_username = dest.username.clone();
+            spec.syncs.push(SyncSpec { 
+                src: src.path.clone(), 
+                dest: dest.path.clone(),
+                ..Default::default()
+            });
+            // The rest of the command-line arguments are applied below (as they are also relevant
+            // when a spec file is used).
+        }
+    }
+
+    // Apply additional command-line args, which may override/augment what's in the spec file.
+    for mut sync in &mut spec.syncs {
+        if !args.filters.is_empty() {
+            sync.filters = args.filters.clone();
+        }
+        if let Some(b) = args.dest_file_newer {
+            sync.dest_file_newer_behaviour = b;
+        }
+        if let Some(b) = args.dest_file_older {
+            sync.dest_file_older_behaviour = b;
+        }
+        if let Some(b) = args.dest_entry_needs_deleting {
+            sync.dest_entry_needs_deleting_behaviour = b;
+        }
+        if let Some(b) = args.dest_root_needs_deleting {
+            sync.dest_root_needs_deleting_behaviour = b;
+        }
+    }
+
+    Ok(spec)
 }
 
 #[cfg(test)]
@@ -798,9 +831,17 @@ mod tests {
             - src: T:\Source1
               dest: T:\Dest1
               filters: [ "-exclude1", "-exclude2" ]
+              dest_file_newer_behaviour: error
+              dest_file_older_behaviour: skip
+              dest_entry_needs_deleting_behaviour: prompt
+              dest_root_needs_deleting_behaviour: delete         
             - src: T:\Source2
               dest: T:\Dest2
               filters: [ "-exclude3", "-exclude4" ]
+              dest_file_newer_behaviour: prompt
+              dest_file_older_behaviour: overwrite
+              dest_entry_needs_deleting_behaviour: error
+              dest_root_needs_deleting_behaviour: skip         
         "#).unwrap();
 
         let expected_result = Spec {
@@ -813,13 +854,19 @@ mod tests {
                     src: "T:\\Source1".to_string(),
                     dest: "T:\\Dest1".to_string(),
                     filters: vec![ "-exclude1".to_string(), "-exclude2".to_string() ],
-                    ..Default::default()
+                    dest_file_newer_behaviour: DestFileUpdateBehaviour::Error,
+                    dest_file_older_behaviour: DestFileUpdateBehaviour::Skip,
+                    dest_entry_needs_deleting_behaviour: DestEntryNeedsDeletingBehaviour::Prompt,
+                    dest_root_needs_deleting_behaviour: DestRootNeedsDeletingBehaviour::Delete,
                 },
                 SyncSpec {
                     src: "T:\\Source2".to_string(),
                     dest: "T:\\Dest2".to_string(),
                     filters: vec![ "-exclude3".to_string(), "-exclude4".to_string() ],
-                    ..Default::default()
+                    dest_file_newer_behaviour: DestFileUpdateBehaviour::Prompt,
+                    dest_file_older_behaviour: DestFileUpdateBehaviour::Overwrite,
+                    dest_entry_needs_deleting_behaviour: DestEntryNeedsDeletingBehaviour::Error,
+                    dest_root_needs_deleting_behaviour: DestRootNeedsDeletingBehaviour::Skip,
                 }
             ]
         };
@@ -945,5 +992,107 @@ mod tests {
             - filters: [ 9 ]
         "#).unwrap();
         assert!(parse_spec_file(s.path()).unwrap_err().contains("Unexpected value in 'filters' array"));
+    }
+
+    /// Checks that an invalid enum value for dest_file_newer_behaviour is rejected.
+    /// We don't bother to test all the different behaviours in the same way, just this one.
+    #[test]
+    fn test_parse_spec_file_invalid_behaviour_value() {
+        let mut s = NamedTempFile::new().unwrap();
+        write!(s, r#"
+            syncs:
+            - dest_file_newer_behaviour: notallowed
+        "#).unwrap();
+        assert!(parse_spec_file(s.path()).unwrap_err().contains("Invalid variant: notallowed"));
+    }
+
+    /// Tests that command-line args can be used to override things set in the spec file.
+    #[test]
+    fn resolve_spec_overrides() {
+        let mut spec_file = NamedTempFile::new().unwrap();
+        write!(spec_file, r#"
+            syncs:
+            - src: a
+              dest: b
+              filters: [ +hello ]
+              dest_file_newer_behaviour: skip
+              dest_root_needs_deleting_behaviour: error
+            - src: c
+              dest: d
+
+        "#).unwrap();
+
+        let args = BossCliArgs::try_parse_from(&["rjrssync", 
+            "--spec", spec_file.path().to_str().unwrap(),
+            "--filter", "-meow",
+            "--dest-file-newer", "error",
+        ]).unwrap();
+        let spec = resolve_spec(&args).unwrap();
+        assert_eq!(spec, Spec { 
+            syncs: vec![
+                SyncSpec {
+                    src: "a".to_string(),
+                    dest: "b".to_string(),
+                    filters: vec!["-meow".into()], // Overriden by command-line args
+                    dest_file_newer_behaviour: DestFileUpdateBehaviour::Error,  // Overriden by command-line args
+                    dest_root_needs_deleting_behaviour: DestRootNeedsDeletingBehaviour::Error, // From the spec file, not overriden by command-line args
+                    ..Default::default()
+                },
+                SyncSpec {
+                    src: "c".to_string(),
+                    dest: "d".to_string(),
+                    filters: vec!["-meow".into()], // Set by command-line args
+                    dest_file_newer_behaviour: DestFileUpdateBehaviour::Error,  // Set by command-line args
+                    ..Default::default()
+                }
+            ],
+            ..Default::default() 
+        });
+    }
+
+    /// Tests that --all-destructive-behaviour overrides things set in the spec file.
+    #[test]
+    fn all_destructive_behaviour_override() {
+        let mut spec_file = NamedTempFile::new().unwrap();
+        write!(spec_file, r#"
+            syncs:
+            - src: a
+              dest: b
+              dest_file_newer_behaviour: skip
+              dest_root_needs_deleting_behaviour: prompt
+            - src: c
+              dest: d
+        "#).unwrap();
+
+        let args = BossCliArgs::try_parse_from(&["rjrssync", 
+            "--spec", spec_file.path().to_str().unwrap(),
+            "--all-destructive-behaviour", "error",
+        ]).unwrap();
+        let spec = resolve_spec(&args).unwrap();
+        assert_eq!(spec, Spec { 
+            syncs: vec![
+                SyncSpec {
+                    src: "a".to_string(),
+                    dest: "b".to_string(),
+                    // Overriden by command-line args
+                    dest_file_newer_behaviour: DestFileUpdateBehaviour::Error,
+                    dest_file_older_behaviour: DestFileUpdateBehaviour::Error,
+                    dest_entry_needs_deleting_behaviour: DestEntryNeedsDeletingBehaviour::Error,
+                    dest_root_needs_deleting_behaviour: DestRootNeedsDeletingBehaviour::Error,
+                    ..Default::default()
+                },
+                SyncSpec {
+                    src: "c".to_string(),
+                    dest: "d".to_string(),
+                    // Overriden by command-line args
+                    dest_file_newer_behaviour: DestFileUpdateBehaviour::Error,
+                    dest_file_older_behaviour: DestFileUpdateBehaviour::Error,
+                    dest_entry_needs_deleting_behaviour: DestEntryNeedsDeletingBehaviour::Error,
+                    dest_root_needs_deleting_behaviour: DestRootNeedsDeletingBehaviour::Error,
+                    ..Default::default()
+                }
+            ],
+            ..Default::default() 
+        });
     }
 }

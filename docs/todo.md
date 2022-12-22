@@ -13,6 +13,9 @@ Interface
 * Tidy up --help output - maybe we need a short and long version?
   - Things in the README or notes.md shouldn't be needed for a user as they won't necessarily have access to then. These would need to be in --help, so might need moving.
 * Errors aren't displayed in a very friendly way (it has all the logging prefixes)
+* The naming for the behaviour flags isn't great - too verbose and not clea renough?
+* In the spec file, could allow some settings to be set at both per-sync level, and at the top level (which would then apply to all syncs, but allowing overrides)
+
 
 Remote launching
 ----------------
@@ -56,6 +59,7 @@ Syncing logic
 Right now I just picked an arbitrary value which could possibly be improved a lot!
 Also the same buffer size this is used for both the filesystem read() buffer size, _and_ the size of data we send to the boss, _and_
 // the size of data written on the other doer. The same size might not be optimal for all of these!
+* We could check the modified timestamp of symlinks, and use this to (potentially) raise an error/prompt if the dest one is newer. Currently we always overwrite as we never check the timestamp.
 
 Performance
 ------------
@@ -81,6 +85,7 @@ Testing
 * Clarify if filters should expect to see trailing slashes on folder names or not? What about folder symlinks? Tests + docs for this
 * Run benchmark tests on GitHub actions?
 * Various tests are leaving behind temporary folders, filling up with disk space!
+* "The source/dest root is never checked against the filter - this is always considered as included." - test this (maybe already have a unit test actually!)
 
 Misc
 -----
