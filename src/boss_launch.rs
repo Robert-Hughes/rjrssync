@@ -247,8 +247,6 @@ pub fn setup_comms(
                 // Connect to the network port that the doer should be listening on
                 let addr = (remote_hostname, actual_port);
                 debug!("Connecting to doer over network at {:?}", addr);
-                //TODO: this has a delay ~1 sec even when connecting to localhost, apparently because it first tries connecting to the
-                // IPv6 local address, and it has to wait for this to fail before trying IPv4. Maybe can skip this?
                 let tcp_connection = {
                     profile_this!("Connecting");
                     match TcpStream::connect(addr) {
@@ -568,8 +566,6 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str, remote_port_for
                         remote_version, VERSION
                     );
                     // Note the stdin of the ssh will be dropped and this will tidy everything up nicely
-                    //TODO: i'm not so sure - we seem to be leaving 'orphaned' doers running on the remote side!
-                    // Remote process not closing when stdin is closed because we're now waiting for tcp connection, whereas before we were reading from stdin so when it was closed, we errored and exited
                     return SshDoerLaunchResult::HandshakeIncompatibleVersion;
                 }
 
