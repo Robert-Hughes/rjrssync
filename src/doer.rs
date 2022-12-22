@@ -154,6 +154,8 @@ pub enum Command {
         path: RootRelativePath,
         #[serde(with = "serde_bytes")] // Make serde fast
         data: Vec<u8>,
+        // Note that SystemTime is safe to serialize across platforms, because Serde serializes this 
+        // as the elapsed time since UNIX_EPOCH, so it is platform-independent.        
         set_modified_time: Option<SystemTime>,
         /// If set, there is more data for this same file being sent in a following Command.
         /// This is used to split up large files so that we don't send them all in one huge message.
@@ -240,6 +242,8 @@ pub enum SymlinkTarget {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum EntryDetails {
     File {
+        // Note that SystemTime is safe to serialize across platforms, because Serde serializes this 
+        // as the elapsed time since UNIX_EPOCH, so it is platform-independent.
         modified_time: SystemTime,
         size: u64
     },

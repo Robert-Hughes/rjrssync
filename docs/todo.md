@@ -12,7 +12,7 @@ Interface
 * Tab-completion for parameters, part of clap?
 * Tidy up --help output - maybe we need a short and long version?
   - Things in the README or notes.md shouldn't be needed for a user as they won't necessarily have access to then. These would need to be in --help, so might need moving.
-* The naming for the behaviour flags isn't great - too verbose and not clea renough?
+* The naming for the behaviour flags isn't great - too verbose and not clear enough?
 * In the spec file, could allow some settings to be set at both per-sync level, and at the top level (which would then apply to all syncs, but allowing overrides)
 
 
@@ -35,10 +35,6 @@ Syncing logic
 -------------
 
 * Compare and sync file permissions?
-* Modified time:
-    - need to account for time zone differences etc. between source and dest when updating the timestamp
-    - would this play nicely with other tools (e.g. build systems) that check timestamps - it might think that it doesn't need to rebuild anything, as the new timestamp for this file is still really old?
-    - Maybe instead we could store something else, like a hash or our own marker to indicate when this file was synced, so that the timestamp is "correct", but we know not to sync it again next time.
 * Progress bar
   - can format the bar with number of bytes, or number of files, and it provides e.t.a. and rate of progress
   - when copying large files, the progress bar won't move. Maybe have a sub-bar per-file for large files? Or change
@@ -48,12 +44,8 @@ Syncing logic
   - hide progress bar for --no-progress?
 * What happens if src and dest both point to the same place?
    - Either directly, or via symlink(s)?
-* Use of SystemTime
-   -  is this compatible between platforms, time zone changes, precision differences, etc. etc.
-   - systems might have different precision, so we would think the timestamp has changed, when it hasn't really
-   - can we safely serialize this on one platform and deserialize on another?
-   - maybe serde handles this already by serializing the difference from UNIX_EPOCH? (if not, we could!)
 * --dry-run isn't honoured when creating dest ancestors! It should instead say that it _would_ create the ancestors.
+* CreateDestAncestors doesn't honour any of the behaviour flags to make it non-destructive?
 * When splitting large files, the optimum chunk size might vary, we could adjust this dynamically.
 Right now I just picked an arbitrary value which could possibly be improved a lot!
 Also the same buffer size this is used for both the filesystem read() buffer size, _and_ the size of data we send to the boss, _and_
