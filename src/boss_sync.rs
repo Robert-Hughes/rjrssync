@@ -164,7 +164,7 @@ fn validate_trailing_slash(root_path: &str, entry_details: &EntryDetails) -> Res
 /// If block_until_marker_value is set, then this function will keep processing messages (blocking as necessary)
 /// until it finds a response with the given marker. If not set, this function won't block and will return
 /// once it's processed all pending responses from the doer.
-fn process_dest_responses(dest_comms: &mut Comms, progress: &ProgressBar, stats: &mut Stats, 
+fn process_dest_responses(dest_comms: &mut Comms, progress_bar: &ProgressBar, stats: &mut Stats, 
     block_until_marker_value: Option<u64>) -> Result<(), Vec<String>> 
 {
     // To make the rest of this function consistent for both cases of block_until_marker_value,
@@ -184,19 +184,20 @@ fn process_dest_responses(dest_comms: &mut Comms, progress: &ProgressBar, stats:
         match x {
             Response::Error(e) => errors.push(e),
             Response::Marker(m) => {
-                //TODO: This is a bit yucky
-                // Update the progress bar
+                // Update the progress bar based on the progress that the dest doer has made.
+                // The marker value counts from 0..d for deletes, and then d..d+c for copies
                 if m < stats.num_dest_entries as u64 {
-                    progress.set_position(m);
+                    // Still on deletes
+                    progress_bar.set_position(m);
                 } else {
-                    if progress.message().contains("Deleting") {
-                        // Replace the first progress bar with the second one
-                        progress.set_message("Copying...");
-                        progress.set_length(stats.num_src_entries as u64);
+                    // On copies. Change the progress bar from Deleting to Copying if it hasn't been already.
+                    if progress_bar.message().contains("Deleting") {
+                        progress_bar.set_message("Copying...");
+                        progress_bar.set_length(stats.num_src_entries as u64);
                         stats.delete_end_time = Some(Instant::now());
                         stats.copy_start_time = Some(Instant::now());
                     }
-                    progress.set_position(m - stats.num_dest_entries as u64);
+                    progress_bar.set_position(m - stats.num_dest_entries as u64);
                 }
             }
             _ => errors.push(format!("Unexpected response (expected Error or Marker): {:?}", x)),
@@ -322,7 +323,9 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), Vec<String>> {
     // First get details of the root file/folder etc. of each side, as this might affect the sync
     // before we start it (e.g. errors, or changing the dest root)
 
-    ctx.progress_bar.enable_steady_tick(Duration::from_millis(250)); // So that the progress bar gets redrawn after any log messages, even if no progress has been made in the meantime
+    // So that the progress bar gets redrawn after any log messages, even if no progress has been made in the meantime.
+    // It also keeps the elapsed time ticking and the animation going
+    ctx.progress_bar.enable_steady_tick(Duration::from_millis(250)); 
 
     // Source SetRoot
     let timer = start_timer("SetRoot src");
@@ -536,7 +539,7 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), Vec<String>> {
     // see test_remove_dest_folder_with_excluded_files())
     ctx.progress_bar = ProgressBar::new(dest_entries.len() as u64).with_message("Deleting...")
         .with_style(ProgressStyle::with_template("[{elapsed}] {bar:40.green/black} {human_pos:>7}/{human_len:7} {msg}").unwrap());
-        ctx.progress_bar.enable_steady_tick(Duration::from_millis(250));
+    ctx.progress_bar.enable_steady_tick(Duration::from_millis(250));
 
     {
         profile_this!("Sending delete commands");
