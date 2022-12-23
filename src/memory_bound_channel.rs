@@ -82,3 +82,12 @@ impl<T> Receiver<T> {
         Ok(msg)
     }
 }
+
+/// Limited version of crossbeam::Select. We can't expose the underlying crossbeam channels
+/// as it wouldn't maintain our memory usage counters, so instead we wrap it.
+pub fn select_ready<R> (r1: &Receiver<R>, r2: &Receiver<R>) -> usize {
+    let mut s = crossbeam::channel::Select::new();
+    s.recv(&r1.inner);
+    s.recv(&r2.inner);
+    s.ready()
+}

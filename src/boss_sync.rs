@@ -461,11 +461,9 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), Vec<String>> {
     }
 
     while !src_done || !dest_done {
-        if !src_done {
-            //TODO: receive_response will block, perhaps should check it instead (try_receive_response), 
-            // so we can service the other src/dest
-            //TODO: if we use crossbeam, then we can select() on both channels rather than busy-waiting
-            match ctx.src_comms.receive_response() {
+        // Wait for either src or dest to send us a response with an entry
+        match memory_bound_channel::select_ready(ctx.src_comms.get_receiver(), ctx.dest_comms.get_receiver()) {
+            0 => match ctx.src_comms.receive_response() {
                 Response::Entry((p, d)) => {
                     trace!("Source entry '{}': {:?}", p, d);
                     match d {
@@ -482,10 +480,8 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), Vec<String>> {
                 }
                 Response::EndOfEntries => src_done = true,
                 r => return Err(vec![format!("Unexpected response getting entries from src: {:?}", r)]),
-            }    
-        }
-        if !dest_done {
-            match ctx.dest_comms.receive_response() {
+            },
+            1 => match ctx.dest_comms.receive_response() {
                 Response::Entry((p, d)) => {
                     trace!("Dest entry '{}': {:?}", p, d);
                     match d {
@@ -501,7 +497,8 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), Vec<String>> {
                 }
                 Response::EndOfEntries => dest_done = true,
                 r => return Err(vec![format!("Unexpected response getting entries from dest: {:?}", r)]),
-            }    
+            },
+            _ => panic!("Invalid index"),
         }
     }
     ctx.stats.num_src_entries = src_entries.len() as u32;
