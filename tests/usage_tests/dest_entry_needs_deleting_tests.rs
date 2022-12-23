@@ -34,10 +34,10 @@ fn prompt_skip_then_delete() {
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
-            Regex::new("Dest entry .*c1.* needs deleting").unwrap(),
-            Regex::new("Dest entry .*c2.* needs deleting").unwrap(),
+            Regex::new("dest file .*c1.* needs deleting").unwrap(),
+            Regex::new("dest file .*c2.* needs deleting").unwrap(),
             // Note that we need this last check, to make sure that the second prompt response only affects one file, not all remaining files
-            Regex::new("Dest entry .*c3.* needs deleting").unwrap(), 
+            Regex::new("dest file .*c3.* needs deleting").unwrap(), 
             Regex::new(&regex::escape("Deleted 1 file(s)")).unwrap(), // 1 file deleted the other two skipped
         ],
         expected_filesystem_nodes: vec![
@@ -76,11 +76,11 @@ fn prompt_skip_all() {
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
-            Regex::new("Dest entry .*c2.* needs deleting").unwrap(), // Note that we're prompted about the 2nd file first, because we delete in reverse order
+            Regex::new("dest file .*c2.* needs deleting").unwrap(), // Note that we're prompted about the 2nd file first, because we delete in reverse order
             Regex::new(&regex::escape("Nothing to do")).unwrap(), // Both files skipped
         ],
         unexpected_output_messages: vec![
-            Regex::new("Dest entry .*c1.* needs deleting").unwrap(), // We'll never be prompted about c1, because we choose to "skip all"
+            Regex::new("dest file .*c1.* needs deleting").unwrap(), // We'll never be prompted about c1, because we choose to "skip all"
         ],
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&src)), // Unchanged
@@ -115,11 +115,11 @@ fn prompt_delete_all() {
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
-            Regex::new("Dest entry .*c2.* needs deleting").unwrap(),  // Note that we're prompted about the 2nd file first, because we delete in reverse order
+            Regex::new("dest file .*c2.* needs deleting").unwrap(),  // Note that we're prompted about the 2nd file first, because we delete in reverse order
             Regex::new(&regex::escape("Deleted 2 file(s)")).unwrap(), // Both files deleted
         ],
         unexpected_output_messages: vec![
-            Regex::new("Dest entry .*c1.* needs deleting").unwrap(), // We'll never be prompted about c1, because we choose to "delete all"
+            Regex::new("dest file .*c1.* needs deleting").unwrap(), // We'll never be prompted about c1, because we choose to "delete all"
         ],
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&src)), // Unchanged
@@ -153,7 +153,7 @@ fn prompt_cancel() {
         ],
         expected_exit_code: 12,
         expected_output_messages: vec![
-            Regex::new("Dest entry .*c1.* needs deleting").unwrap(),
+            Regex::new("dest file .*c1.* needs deleting").unwrap(),
             Regex::new(&regex::escape("Will not delete")).unwrap(), // Cancelled
         ],
         expected_filesystem_nodes: vec![

@@ -33,7 +33,7 @@ fn prompt_cancel() {
         ],
         expected_exit_code: 12,
         expected_output_messages: vec![
-            Regex::new("Dest root .* needs deleting").unwrap(),
+            Regex::new("dest root folder .* needs deleting").unwrap(),
             Regex::new(&regex::escape("Will not delete")).unwrap(), // skipped
         ],
         expected_filesystem_nodes: vec![
@@ -66,7 +66,7 @@ fn prompt_delete() {
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
-            Regex::new("Dest root .* needs deleting").unwrap(),
+            Regex::new("dest root folder .* needs deleting").unwrap(),
             Regex::new(&regex::escape("Deleted 0 file(s), 1 folder(s)")).unwrap(), // The root folder is deleted
         ],
         expected_filesystem_nodes: vec![
@@ -99,7 +99,7 @@ fn prompt_skip() {
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
-            Regex::new("Dest root .* needs deleting").unwrap(),
+            Regex::new("dest root folder .* needs deleting").unwrap(),
         ],
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&src)), // Unchanged
