@@ -81,6 +81,7 @@ Testing
 * Run benchmark tests on GitHub actions?
 * Various tests are leaving behind temporary folders, filling up with disk space!
 * "The source/dest root is never checked against the filter - this is always considered as included." - test this (maybe already have a unit test actually!)
+* Using tar for remote filesytem nodes messes about with symlinks when extracting on a different platform (Windows vs Linux)
 
 Misc
 -----

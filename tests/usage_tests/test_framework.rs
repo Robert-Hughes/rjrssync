@@ -143,7 +143,6 @@ fn save_filesystem_node_to_disk_remote(node: &FilesystemNode, remote_host_and_pa
     save_filesystem_node_to_disk_local(node, &local_node_path);
 
     // Pack into tar
-    //TODO: tar messes about with symlinks when extracting on a different platform (Windows vs Linux)
     let tar_file_local = local_temp_folder.join("stuff.tar");
     // Important to use --format=posix so that modified timestamps are preserved at higher precision (the default is just 1 second)
     assert_process_with_live_output(Command::new("tar").arg("--format=posix") 
@@ -218,7 +217,6 @@ fn load_filesystem_node_from_disk_remote(remote_host_and_path: &str) -> Option<F
     let local_temp_folder = local_temp_folder.path();
 
     // Pack into tar
-    //TODO: tar messes about with symlinks when extracting on a different platform (Windows vs Linux)
     let tar_file_remote = String::from(remote_path) + ".tar";
     let r = run_process_with_live_output(Command::new("ssh").arg(remote_host)
         // Important to use --format=posix so that modified timestamps are preserved at higher precision (the default is just 1 second)
