@@ -444,8 +444,6 @@ pub fn doer_main() -> ExitCode {
         // from the boss.
         // Note that we can't use stdout as that is our communication channel with the boss.
         // We use stderr instead, which the boss will read from and echo for easier debugging.
-        // TODO: We could additionally log to a file, which might be useful for cases where the logs don't
-        // make it back to the boss (e.g. communication errors)
         let mut builder = env_logger::Builder::from_env(Env::default().default_filter_or(args.log_filter));
         builder.target(env_logger::Target::Stderr);
         // Configure format so that the boss can parse and re-log it

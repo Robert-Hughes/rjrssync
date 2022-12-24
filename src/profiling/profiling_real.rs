@@ -256,7 +256,6 @@ impl GlobalProfilingData {
 }
 
 // Only to be called by main.
-// TODO: Assert for this somehow?
 pub fn dump_all_profiling() {
     // Create the profiling_data directory again if somehow no other threads are launched on this side
     // Maybe some case where the doers are both on remotes?
@@ -273,6 +272,7 @@ pub fn dump_all_profiling() {
 
 fn get_all_profiling() -> GlobalProfilingData {
     trace!("get_all_profiling");
+    assert_eq!(std::thread::current().name(), Some("main"));
     // As main is the only thread to not be joined (and thus the ProfilingData dropped)
     // we drop it manually here, and it will be added to the global data
     PROFILING_DATA.with(|p| p.take());

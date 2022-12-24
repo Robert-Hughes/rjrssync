@@ -15,6 +15,7 @@ Interface
 * The naming for the behaviour flags isn't great - too verbose and not clear enough?
 * In the spec file, could allow some settings to be set at both per-sync level, and at the top level (which would then apply to all syncs, but allowing overrides)
 * Decide if info! (and other) log messages should be on stdout or stderr
+* When showing multiple prompts, could remember the selection from previous time the same prompt was shown and use that as the default for the next one?
 
 
 Remote launching
@@ -67,6 +68,8 @@ Performance
 * Profiling events like send/receive could show the message type?
 * --no-encryption option, might be faster?
    - Possibly want to keep the authentication aspects, but drop the encryption?
+* Investigate different values of BOSS_DOER_CHANNEL_MEMORY_CAPACITY using profiling
+   - could this be set based on e.g. 10% of the system memory?
 
 Testing
 -------

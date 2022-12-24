@@ -38,8 +38,6 @@ pub const REMOTE_TEMP_WINDOWS: &str = r"%TEMP%\";
 /// other and this would take up too much memory. If set too small, then we won't buffer enough
 /// and this could lead to reduced performance.
 pub const BOSS_DOER_CHANNEL_MEMORY_CAPACITY : usize = 100*1024*1024;
-//TODO: investigate different values of this using profiling?
-//TODO: could this be set based on e.g. 10% of the system memory?
 
 fn main() -> ExitCode {
     // The process can run as either a CLI which takes input from command line arguments, performs

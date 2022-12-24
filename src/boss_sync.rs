@@ -946,7 +946,7 @@ fn resolve_prompt<B: Copy>(prompt: String, progress_bar: &ProgressBar,
                     let r = dialoguer::Select::with_theme(&theme)
                         .with_prompt(prompt)
                         .items(&items.iter().map(|i| &i.0).collect::<Vec<&String>>())
-                        .default(0).interact_opt(); //TODO: remember default from previous time the same prompt was shown?
+                        .default(0).interact_opt();
                     let response = match r {
                         Ok(Some(i)) => i,
                         _ => items.len() - 1 // Last entry is always cancel, e.g. if user presses q or Esc
