@@ -207,7 +207,7 @@ fn load_filesystem_node_from_disk_local(path: &Path) -> Option<FilesystemNode> {
 }
 
 /// Creates an in-memory representation of the file/folder and its descendents at the given path, which includes a remote prefix
-/// Returns None if the path doesn't point to anything. //TODO: no it will probably error!
+/// Returns None if the path doesn't point to anything.
 /// Tar up the folder structure remotely, copy it locally and read it
 /// We use tar to preserve symlinks (as scp would otherwise follow these and we would lose them).
 fn load_filesystem_node_from_disk_remote(remote_host_and_path: &str) -> Option<FilesystemNode> {
@@ -220,9 +220,14 @@ fn load_filesystem_node_from_disk_remote(remote_host_and_path: &str) -> Option<F
     // Pack into tar
     //TODO: tar messes about with symlinks when extracting on a different platform (Windows vs Linux)
     let tar_file_remote = String::from(remote_path) + ".tar";
-    assert_process_with_live_output(Command::new("ssh").arg(remote_host)
+    let r = run_process_with_live_output(Command::new("ssh").arg(remote_host)
         // Important to use --format=posix so that modified timestamps are preserved at higher precision (the default is just 1 second)
         .arg(format!("tar --format=posix -cf {tar_file_remote} -C {remote_parent_folder} {node_name}")));
+    if r.stderr.contains("No such file or directory") {
+        return None;
+    } else {
+        assert!(r.exit_status.success());
+    }
 
     // Copy tar from remote
     let tar_file_local = local_temp_folder.join("stuff.tar");
