@@ -1,20 +1,17 @@
 use json::JsonValue;
 use log::{trace, info};
-use serde::{Serialize, Deserialize};
 use std::{
     cell::RefCell,
     collections::HashMap,
     fs::File,
     sync::Mutex,
-    time::{Duration, Instant}, ops::DerefMut, io::{Write},
+    time::{Duration}, ops::DerefMut, io::{Write},
 };
 
 use lazy_static::{lazy_static};
+use super::*;
 
 lazy_static! {
-    // Only initialize profiling when the first entry is added.
-    pub static ref PROFILING_START: Instant = Instant::now();
-
     static ref GLOBAL_PROFILING_DATA: Mutex<GlobalProfilingData> = Mutex::new(GlobalProfilingData::default());
 }
 
@@ -39,16 +36,6 @@ macro_rules! profile_this {
     };
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
-pub struct ProfilingEntry {
-    scope_name: String,
-    // start and end are durations since the start of profiling because Instant cannot be serialized by default.
-    start: Duration,
-    end: Duration,
-    // duration could just be calculated offline, for now keep it here as it's sometimes useful.
-    duration: Duration,
-}
-
 #[derive(Default)]
 struct ThreadRecorder {
     entries: Vec<ProfilingEntry>,
@@ -64,17 +51,6 @@ impl Drop for ThreadRecorder {
     }
 }
 
-
-#[derive(Serialize, Deserialize, Clone, Default, Debug)]
-pub struct ThreadProfilingData {
-    entries: Vec<ProfilingEntry>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
-pub struct ProcessProfilingData {
-    timestamp_offset: Duration,
-    threads: HashMap<String, ThreadProfilingData>,
-}
 
 #[derive(Default)]
 pub struct GlobalProfilingData {

@@ -188,7 +188,6 @@ pub enum Command {
         kind: SymlinkKind,
     },
 
-    #[cfg(feature = "profiling")]
     ProfilingTimeSync,
 
     /// Used to mark a position in the sequence of commands, which the doer will echo back 
@@ -216,7 +215,6 @@ impl std::fmt::Debug for Command {
             Self::DeleteFile { path } => f.debug_struct("DeleteFile").field("path", path).finish(),
             Self::DeleteFolder { path } => f.debug_struct("DeleteFolder").field("path", path).finish(),
             Self::DeleteSymlink { path, kind } => f.debug_struct("DeleteSymlink").field("path", path).field("kind", kind).finish(),
-            #[cfg(feature = "profiling")]
             Self::ProfilingTimeSync => write!(f, "ProfilingTimeSync"),
             Self::Marker(arg0) => f.debug_tuple("Marker").field(arg0).finish(),
             Self::Shutdown => write!(f, "Shutdown"),
@@ -346,9 +344,7 @@ pub enum Response {
         more_to_follow: bool,
     },
 
-    #[cfg(feature = "profiling")]
     ProfilingTimeSync(std::time::Duration),
-    #[cfg(feature = "profiling")]
     ProfilingData(ProcessProfilingData),
 
     /// The doer echoes back Marker commands, so the boss can keep track of the doer's progress.
@@ -366,9 +362,7 @@ impl std::fmt::Debug for Response {
             Self::Entry(arg0) => f.debug_tuple("Entry").field(arg0).finish(),
             Self::EndOfEntries => write!(f, "EndOfEntries"),
             Self::FileContent { data, more_to_follow } => f.debug_struct("FileContent").field("data", &format!("... ({})", HumanBytes(data.len() as u64))).field("more_to_follow", more_to_follow).finish(),
-            #[cfg(feature = "profiling")]
             Self::ProfilingTimeSync(arg0) => f.debug_tuple("ProfilingTimeSync").field(arg0).finish(),
-            #[cfg(feature = "profiling")]
             Self::ProfilingData(_) => f.debug_tuple("ProfilingData").finish(),
             Self::Marker(arg0) => f.debug_tuple("Marker").field(arg0).finish(),
             Self::Error(arg0) => f.debug_tuple("Error").field(arg0).finish(),
@@ -548,11 +542,8 @@ pub fn doer_main() -> ExitCode {
     stop_timer(main_timer);
 
     if let Comms::Remote{ encrypted_comms } = comms { // This is always true, we just need a way of getting the fields
-        #[cfg(feature="profiling")]
         // Send our profiling data (if enabled) back to the boss process so it can combine it with its own
         encrypted_comms.shutdown_with_final_message_sent_after_threads_joined(|| Response::ProfilingData(get_local_process_profiling()));
-        #[cfg(not(feature="profiling"))]
-        encrypted_comms.shutdown(); // Simple clean shutdown
     }
 
     // Dump memory usage figures when used for benchmarking. There isn't a good way of determining this from the benchmarking app
@@ -763,7 +754,6 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut Option<DoerCo
                 comms.send_response(Response::Error(format!("Error deleting symlink '{}': {e}", full_path.display())))?;
             }
         },
-        #[cfg(feature="profiling")]
         Command::ProfilingTimeSync => {
             comms.send_response(Response::ProfilingTimeSync(PROFILING_START.elapsed()))?;
         },

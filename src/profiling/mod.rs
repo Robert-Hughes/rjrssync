@@ -1,3 +1,12 @@
+use std::time::Instant;
+use serde::{Serialize, Deserialize};
+use std::{
+    collections::HashMap,
+    time::{Duration},
+};
+
+use lazy_static::{lazy_static};
+
 #[macro_export]
 macro_rules! function_name {
     () => {{
@@ -8,6 +17,32 @@ macro_rules! function_name {
         let name = type_name_of(f);
         &name[..name.len() - 3].split("::").last().unwrap()
     }};
+}
+
+lazy_static! {
+    // Only initialize profiling when the first entry is added.
+    pub static ref PROFILING_START: Instant = Instant::now();
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct ProfilingEntry {
+    scope_name: String,
+    // start and end are durations since the start of profiling because Instant cannot be serialized by default.
+    start: Duration,
+    end: Duration,
+    // duration could just be calculated offline, for now keep it here as it's sometimes useful.
+    duration: Duration,
+}
+
+#[derive(Serialize, Deserialize, Clone, Default, Debug)]
+pub struct ThreadProfilingData {
+    entries: Vec<ProfilingEntry>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct ProcessProfilingData {
+    timestamp_offset: Duration,
+    threads: HashMap<String, ThreadProfilingData>,
 }
 
 #[cfg(feature = "profiling")]

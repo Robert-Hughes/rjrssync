@@ -10,6 +10,7 @@ use std::str::FromStr;
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
+use std::time::Duration;
 use std::{
     fmt::{self, Display},
     io::{BufRead, BufReader, Write},
@@ -102,8 +103,7 @@ impl Comms {
                 // Synchronise the profiling clocks between local and remote profiling.
                 // Do this by sending a special Command which the doer responds to immediately with its local 
                 // profiling timer. We then compare that value with our own profiling clock to work out the offset.
-                #[cfg(feature="profiling")]
-                let profiling_offset = {
+                let profiling_offset = if cfg!(feature="profiling") {
                     // Do this a couple of times and take the average
                     let mut samples = vec![];
                     for i in 0..5 {
@@ -126,6 +126,8 @@ impl Comms {
                     let average = samples.iter().sum::<std::time::Duration>() / samples.len() as u32;
                     trace!("Profiling sync average: {:?}", average);
                     average
+                } else {
+                    Duration::new(0, 0)
                 };
 
                 // There's not much we can do about an error here, other than log it, which send_command already does, so we ignore any error.
@@ -133,16 +135,11 @@ impl Comms {
 
                 // Shutdown the comms cleanly, potentially getting profiling data at the same time
                 if let Comms::Remote { encrypted_comms, mut ssh_process, stdin, stdout, stderr_reading_thread, .. } = self { // This is always true, we just need a way of getting the fields
-                    #[cfg(feature="profiling")]
-                    {
-                        // Wait for remote doers to send back any profiling data, if enabled
-                        match encrypted_comms.shutdown_with_final_message_received_after_closing_send() {
-                            Response::ProfilingData(x) => add_remote_profiling(x, _debug_name, profiling_offset),
-                            _ => panic!("Unexpected response as final message (expected ProfilingData)"),
-                        }
+                    // Wait for remote doers to send back any profiling data, if enabled
+                    match encrypted_comms.shutdown_with_final_message_received_after_closing_send() {
+                        Response::ProfilingData(x) => add_remote_profiling(x, _debug_name, profiling_offset),
+                        _ => error!("Unexpected response as final message (expected ProfilingData)"),
                     }
-                    #[cfg(not(feature="profiling"))]
-                    encrypted_comms.shutdown(); // Simple clean shutdown
 
                     // Wait for the ssh process to cleanly shutdown.
                     // We don't strictly need to do this for most cases, but it's nice to have a clean shutdown.

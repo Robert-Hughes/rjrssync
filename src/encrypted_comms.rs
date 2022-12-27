@@ -97,29 +97,9 @@ impl<S: Serialize + Send + 'static, R: for<'a> Deserialize<'a> + Serialize + Sen
 
     /// Clean shutdown which joins the background threads, making sure all messages are flushed etc.
     /// Prefer this to simply dropping the object, which will leave the threads to exit on their own.
-    #[allow(unused)]
-    pub fn shutdown(self) {
-        trace!("AsyncEncryptedComms::shutdown");
-        // The order here is important, so that both sides of the conenction exit cleanly and we don't deadlock.
-
-        drop(self.sender);
-        trace!("Waiting for sending thread");
-        join_with_err_log(self.sending_thread);
-        trace!("Closing TCP write");
-        self.tcp_connection.shutdown(std::net::Shutdown::Write).expect("Failed to shutdown TCP write");
-
-        drop(self.receiver);
-        trace!("Waiting for receiving thread");
-        join_with_err_log(self.receiving_thread);
-        trace!("Closing TCP read");
-        // This might fail if the other end has already closed the connection (at least it does on Linux)
-        let _ = self.tcp_connection.shutdown(std::net::Shutdown::Read);
-    }
-
-    /// Alternative clean shutdown, which provides an opportunity for the caller to generate and send
+    /// This version of shutdown provides an opportunity for the caller to generate and send
     /// one final message _after_ both background threads have finished. This is used for profiling,
     /// as the profiling data is only flushed from the thread-local storage once these threads have finished.
-    #[allow(unused)]
     pub fn shutdown_with_final_message_sent_after_threads_joined<F: FnOnce() -> S>(mut self, message_generating_func: F) {
         trace!("AsyncEncryptedComms::shutdown_with_send_final_message_after_threads_joined");
         // The order here is important, so that both sides of the conenction exit cleanly and we don't deadlock.
@@ -150,11 +130,12 @@ impl<S: Serialize + Send + 'static, R: for<'a> Deserialize<'a> + Serialize + Sen
         self.tcp_connection.shutdown(std::net::Shutdown::Write).expect("Failed to shutdown TCP write");
     }
 
-    /// Alternative clean shutdown, which receives one final message after closing down the sending half 
+    /// Clean shutdown which joins the background threads, making sure all messages are flushed etc.
+    /// Prefer this to simply dropping the object, which will leave the threads to exit on their own.
+    /// This version of shutdown receives one final message after closing down the sending half 
     /// of the TCP connection. This is necessary for profiling, where the boss needs to wait for profiling
     /// data from the remote doer, but needs to close its sending connection first so that the doer can join
     /// its receiving thread to collect profiling data from it, before it can send the profiling data.
-    #[allow(unused)]
     pub fn shutdown_with_final_message_received_after_closing_send(self) -> R {
         trace!("AsyncEncryptedComms::shutdown_with_final_message_received_after_closing_send");
         // The order here is important, so that both sides of the conenction exit cleanly and we don't deadlock.
