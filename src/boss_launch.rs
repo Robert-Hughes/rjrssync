@@ -136,10 +136,12 @@ impl Comms {
                 // Shutdown the comms cleanly, potentially getting profiling data at the same time
                 if let Comms::Remote { encrypted_comms, mut ssh_process, stdin, stdout, stderr_reading_thread, .. } = self { // This is always true, we just need a way of getting the fields
                     // Wait for remote doers to send back any profiling data, if enabled
-                    match encrypted_comms.shutdown_with_final_message_received_after_closing_send() {
-                        Some(Response::ProfilingData(x)) => add_remote_profiling(x, _debug_name, profiling_offset),
+                    match encrypted_comms.receiver.recv() {
+                        Ok(Response::ProfilingData(x)) => add_remote_profiling(x, _debug_name, profiling_offset),
                         x => error!("Unexpected response as final message (expected ProfilingData): {:?}", x),
                     }
+
+                    encrypted_comms.shutdown();
 
                     // Wait for the ssh process to cleanly shutdown.
                     // We don't strictly need to do this for most cases, but it's nice to have a clean shutdown.

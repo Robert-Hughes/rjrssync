@@ -199,6 +199,14 @@ pub enum Command {
 
     Shutdown,
 }
+impl encrypted_comms::IsFinalMessage for Command {
+    fn is_final_message(&self) -> bool {
+        match self {
+            Self::Shutdown => true,
+            _ => false
+        }
+    }
+}
 // The default Debug implementation prints all the file data, which is way too much, so we have to override this :(
 impl std::fmt::Debug for Command {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -351,6 +359,14 @@ pub enum Response {
     Marker(u64),
 
     Error(String),
+}
+impl encrypted_comms::IsFinalMessage for Response {
+    fn is_final_message(&self) -> bool {
+        match self {
+            Self::ProfilingData{..} => true,
+            _ => false
+        }
+    }
 }
 // The default Debug implementation prints all the file data, which is way too much, so we have to override this :(
 impl std::fmt::Debug for Response {

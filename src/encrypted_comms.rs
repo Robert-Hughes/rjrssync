@@ -1,4 +1,4 @@
-use std::{net::TcpStream, io::{Write, Read, ErrorKind}, thread::{JoinHandle, self}, fmt::{Display, Debug}};
+use std::{net::TcpStream, io::{Write, Read}, thread::{JoinHandle, self}, fmt::{Display, Debug}};
 
 use aead::{Key, KeyInit};
 use bytes::{BytesMut, BufMut};
@@ -7,6 +7,10 @@ use log::{trace, error};
 use serde::{Deserialize, Serialize};
 
 use crate::{profile_this, memory_bound_channel::{Sender, Receiver, self}, BOSS_DOER_CHANNEL_MEMORY_CAPACITY};
+
+pub trait IsFinalMessage {
+    fn is_final_message(&self) -> bool;
+}
 
 /// Provides asynchronous, encrypted communication over a TcpStream, sending messages of type S
 /// and receiving messages of type R.
@@ -25,7 +29,7 @@ pub struct AsyncEncryptedComms<S: Serialize, R: for<'a> Deserialize<'a>> {
     receiving_thread: JoinHandle<Result<(), String>>,
     pub receiver: Receiver<R>,
 }
-impl<S: Serialize + Send + 'static + Debug, R: for<'a> Deserialize<'a> + Serialize + Send + 'static + Debug> AsyncEncryptedComms<S, R> {
+impl<S: Serialize + Send + 'static + Debug, R: for<'a> Deserialize<'a> + Serialize + Send + 'static + Debug + IsFinalMessage> AsyncEncryptedComms<S, R> {
     pub fn new(tcp_connection: TcpStream, secret_key: Key<Aes128Gcm>, sending_nonce_lsb: u64, receiving_nonce_lsb: u64,
         debug_local_remote_name: (&str, &str)) -> AsyncEncryptedComms<S, R> 
     {
@@ -68,15 +72,9 @@ impl<S: Serialize + Send + 'static + Debug, R: for<'a> Deserialize<'a> + Seriali
                 let mut receiving_nonce_counter = receiving_nonce_lsb;
                 let cipher = Aes128Gcm::new(&secret_key);
                 loop {
-                    let r = match receive(&mut tcp_connection_clone2, &cipher, &mut receiving_nonce_counter, receiving_nonce_lsb) {
+                    let r: R = match receive(&mut tcp_connection_clone2, &cipher, &mut receiving_nonce_counter, receiving_nonce_lsb) {
                         Ok(r) => r,
-                        Err(ReceiveError::TcpStreamClosed) => {
-                            // The TCP connection was closed cleanly and there was nothing more to read from it.
-                            // This is the expected clean shutdown path.
-                            trace!("Receiving thread '{receiving_thread_name}' shutting down due to end of TCP stream");
-                            return Ok(());
-                        }
-                        Err(ReceiveError::Other(e)) => {
+                        Err(e) => {
                             // There was an error receiving a message, which shouldn't happen in normal operation.
                             // Log an error, and stop this background thread, which will close the sending side of the 
                             // channel. The main thread will detect this as a closed channel.
@@ -84,15 +82,39 @@ impl<S: Serialize + Send + 'static + Debug, R: for<'a> Deserialize<'a> + Seriali
                             return Err(e);
                         }
                     };
+                    let is_final_message = r.is_final_message();
                     if thread_sender.send(r).is_err() {
                         // The main thread receiver has been dropped, which shouldn't happen during normal operation
                         error!("Receiving thread '{receiving_thread_name}' shutting down due to closed channel");
                         return Err("Communications with main thread broken".to_string());
                     };
+                    // Stop this thread cleanly if that was the final message
+                    if is_final_message {
+                        trace!("Receiving thread '{receiving_thread_name}' shutting down due to receiving final message");
+                        return Ok(());
+                    }
                 }
             }).expect("Failed to spawn thread");
 
         AsyncEncryptedComms { tcp_connection, sending_thread, sender, receiving_thread, receiver }
+    }
+
+    /// Clean shutdown which joins the background threads, making sure all messages are flushed etc.
+    /// Prefer this to simply dropping the object, which will leave the threads to exit on their own.
+    pub fn shutdown(self) {
+        trace!("AsyncEncryptedComms::shutdown");
+        // The order here is important, so that both sides of the conenction exit cleanly and we don't deadlock.
+        // I had some issues with windows -> remote linux when shutting down the writing half of the connection
+        // from windows. The new approach of stopping the receiving thread using IsFinalMessage seems to be working better.
+
+        // Stop the sending thread, which will be blocked on the channel waiting for a new message to send.
+        drop(self.sender);
+        trace!("Waiting for sending thread");
+        join_with_err_log(self.sending_thread);
+
+        // The receiving thread should already have been stopped once it saw the final message   
+        trace!("Waiting for receiving thread");
+        join_with_err_log(self.receiving_thread);
     }
 
     /// Clean shutdown which joins the background threads, making sure all messages are flushed etc.
@@ -104,7 +126,7 @@ impl<S: Serialize + Send + 'static + Debug, R: for<'a> Deserialize<'a> + Seriali
         trace!("AsyncEncryptedComms::shutdown_with_send_final_message_after_threads_joined");
         // The order here is important, so that both sides of the conenction exit cleanly and we don't deadlock.
         // I had some issues with windows -> remote linux when shutting down the writing half of the connection
-        // from windows.
+        // from windows. The new approach of stopping the receiving thread using IsFinalMessage seems to be working better.
 
         // Stop the sending thread, which will be blocked on the channel waiting for a new message to send,
         // and retrieve the cipher etc. needed to send one more final message
@@ -112,11 +134,7 @@ impl<S: Serialize + Send + 'static + Debug, R: for<'a> Deserialize<'a> + Seriali
         trace!("Waiting for sending thread");
         let sending_thread_result = join_with_err_log(self.sending_thread);
 
-        // Stop the receiving thread, which will be blocked on reading from the TCP connection
-        drop(self.receiver);
-        trace!("Closing TCP read");
-        // Unblock the TCP read, note that this might fail if the other end has already closed the connection (at least it can on Linux), so we ignore the result
-        let _ = self.tcp_connection.shutdown(std::net::Shutdown::Read);
+        // The receiving thread should already have been stopped once it saw the final message   
         trace!("Waiting for receiving thread");
         join_with_err_log(self.receiving_thread);
 
@@ -131,36 +149,6 @@ impl<S: Serialize + Send + 'static + Debug, R: for<'a> Deserialize<'a> + Seriali
         } else {
             error!("Unable to send final message as sending thread didn't complete successfully");
         }
-    }
-
-    /// Clean shutdown which joins the background threads, making sure all messages are flushed etc.
-    /// Prefer this to simply dropping the object, which will leave the threads to exit on their own.
-    /// This version of shutdown receives one final message after closing down the sending half 
-    /// of the TCP connection. This is necessary for profiling, where the boss needs to wait for profiling
-    /// data from the remote doer, but needs to close its sending connection first so that the doer can join
-    /// its receiving thread to collect profiling data from it, before it can send the profiling data.
-    pub fn shutdown_with_final_message_received_after_closing_send(self) -> Option<R> {
-        trace!("AsyncEncryptedComms::shutdown_with_final_message_received_after_closing_send");
-        // The order here is important, so that both sides of the conenction exit cleanly and we don't deadlock.
-        // I had some issues with windows -> remote linux when shutting down the writing half of the connection
-        // from windows.
-
-        // Stop the sending thread, which will be blocked on the channel waiting for a new message to send.
-        drop(self.sender);
-        trace!("Waiting for sending thread");
-        join_with_err_log(self.sending_thread);
-
-        trace!("Waiting for final message");
-        let r = self.receiver.recv().ok();
-
-        // Stop the receiving thread, which might be blocked on reading from the TCP connection
-        drop(self.receiver);
-        // Unblock the TCP read, note that this might fail if the other end has already closed the connection (at least it can on Linux), so we ignore the result
-        let _ = self.tcp_connection.shutdown(std::net::Shutdown::Read);
-        trace!("Waiting for receiving thread");
-        join_with_err_log(self.receiving_thread);
-
-        r
     }
 }
 
@@ -219,18 +207,8 @@ fn send<T>(x: T, tcp_connection: &mut TcpStream, cipher: &Aes128Gcm,
     Ok(())
 }
 
-enum ReceiveError {
-    TcpStreamClosed,
-    Other(String)
-}
-impl From<String> for ReceiveError { // So that the '?' operator works nicely below
-    fn from(s: String) -> Self {
-        ReceiveError::Other(s)
-    }
-}
-
 fn receive<T>(tcp_connection: &mut TcpStream, cipher: &Aes128Gcm,
-    receiving_nonce_counter: &mut u64, nonce_lsb: u64) -> Result<T, ReceiveError>
+    receiving_nonce_counter: &mut u64, nonce_lsb: u64) -> Result<T, String>
     where T : for<'a> Deserialize<'a>
 {
     profile_this!();
@@ -239,12 +217,7 @@ fn receive<T>(tcp_connection: &mut TcpStream, cipher: &Aes128Gcm,
         profile_this!("Tcp Read");
 
         let mut len_buf = [0_u8; 8];
-        match tcp_connection.read_exact(&mut len_buf) {
-            Ok(()) => (),
-            // Distinguish an EOF error when reading the first part of a new message, as this is the expected clean shutdown path
-            Err(e) if e.kind() == ErrorKind::UnexpectedEof => return Err(ReceiveError::TcpStreamClosed),
-            Err(e) => return Err(ReceiveError::Other("Error reading len: ".to_string() + &e.to_string())),
-        }
+        tcp_connection.read_exact(&mut len_buf).map_err(|e| "Error reading len: ".to_string() + &e.to_string())?;
         let encrypted_len = usize::from_le_bytes(len_buf);
 
         let mut encrypted_data = vec![0_u8; encrypted_len];
