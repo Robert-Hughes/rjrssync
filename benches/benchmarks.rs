@@ -263,13 +263,13 @@ fn run_benchmarks_using_program(cli_args: &CliArgs, program: &str, program_args:
         if program.contains("rjrssync") {
             // For rjrssync, parse the output to get the instrumented memory usage for both boss (local) and doer (remote, if relevant for this test)
             PeakMemoryUsage { 
-                local: Some(result.stdout.lines().filter(|l| l.starts_with("Boss peak memory usage")).next().expect("Couldn't find line")
-                    .split_once(':').expect("Failed to parse line").1.trim()
+                local: Some(result.stdout.lines().filter(|l| l.contains("Boss peak memory usage")).next().expect("Couldn't find line")
+                    .rsplit_once(':').expect("Failed to parse line").1.trim()
                     .parse::<usize>().expect("Failed to parse number")),
                 remote: match &target {
                     Target::Local(_) => None,
-                    Target::Remote { .. } => Some(result.stderr.lines().filter(|l| l.starts_with("Doer peak memory usage")).next().expect("Couldn't find line")
-                        .split_once(':').expect("Failed to parse line").1.trim()
+                    Target::Remote { .. } => Some(result.stderr.lines().filter(|l| l.contains("Doer peak memory usage")).next().expect("Couldn't find line")
+                        .rsplit_once(':').expect("Failed to parse line").1.trim()
                         .parse::<usize>().expect("Failed to parse number")),
                 } 
             }
