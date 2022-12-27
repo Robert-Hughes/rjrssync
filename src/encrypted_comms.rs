@@ -1,4 +1,4 @@
-use std::{net::TcpStream, io::{Write, Read, ErrorKind}, thread::{JoinHandle, self}, fmt::Display};
+use std::{net::TcpStream, io::{Write, Read, ErrorKind}, thread::{JoinHandle, self}, fmt::{Display, Debug}};
 
 use aead::{Key, KeyInit};
 use bytes::{BytesMut, BufMut};
@@ -25,7 +25,7 @@ pub struct AsyncEncryptedComms<S: Serialize, R: for<'a> Deserialize<'a>> {
     receiving_thread: JoinHandle<Result<(), String>>,
     pub receiver: Receiver<R>,
 }
-impl<S: Serialize + Send + 'static, R: for<'a> Deserialize<'a> + Serialize + Send + 'static> AsyncEncryptedComms<S, R> {
+impl<S: Serialize + Send + 'static + Debug, R: for<'a> Deserialize<'a> + Serialize + Send + 'static + Debug> AsyncEncryptedComms<S, R> {
     pub fn new(tcp_connection: TcpStream, secret_key: Key<Aes128Gcm>, sending_nonce_lsb: u64, receiving_nonce_lsb: u64,
         debug_local_remote_name: (&str, &str)) -> AsyncEncryptedComms<S, R> 
     {
@@ -103,31 +103,34 @@ impl<S: Serialize + Send + 'static, R: for<'a> Deserialize<'a> + Serialize + Sen
     pub fn shutdown_with_final_message_sent_after_threads_joined<F: FnOnce() -> S>(mut self, message_generating_func: F) {
         trace!("AsyncEncryptedComms::shutdown_with_send_final_message_after_threads_joined");
         // The order here is important, so that both sides of the conenction exit cleanly and we don't deadlock.
+        // I had some issues with windows -> remote linux when shutting down the writing half of the connection
+        // from windows.
 
-        // Stop the sending thread, but don't shutdown the sending half of the TCP connection yet,
-        // as we'll need that to send the final message.
+        // Stop the sending thread, which will be blocked on the channel waiting for a new message to send,
+        // and retrieve the cipher etc. needed to send one more final message
         drop(self.sender);
         trace!("Waiting for sending thread");
         let sending_thread_result = join_with_err_log(self.sending_thread);
 
-        // Stop the receiving thread
+        // Stop the receiving thread, which will be blocked on reading from the TCP connection
         drop(self.receiver);
+        trace!("Closing TCP read");
+        // Unblock the TCP read, note that this might fail if the other end has already closed the connection (at least it can on Linux), so we ignore the result
+        let _ = self.tcp_connection.shutdown(std::net::Shutdown::Read);
         trace!("Waiting for receiving thread");
         join_with_err_log(self.receiving_thread);
-        trace!("Closing TCP read");
-        self.tcp_connection.shutdown(std::net::Shutdown::Read).expect("Failed to shutdown TCP read");
 
         if let Some((cipher, mut sending_nonce_counter, sending_nonce_lsb)) = sending_thread_result {
             let s = message_generating_func();
-            trace!("Sending final mesage");
+
+            trace!("Sending final mesage {:?}", s);
             // There's not much we can do with an error here, as we're closing everything down anyway
-            send(s, &mut self.tcp_connection, &cipher, &mut sending_nonce_counter, sending_nonce_lsb).expect("Failed to send final message");
+            if let Err(e) = send(s, &mut self.tcp_connection, &cipher, &mut sending_nonce_counter, sending_nonce_lsb) {
+                error!("Error sending final message: {e}");
+            }
         } else {
             error!("Unable to send final message as sending thread didn't complete successfully");
         }
-
-        trace!("Closing TCP write");
-        self.tcp_connection.shutdown(std::net::Shutdown::Write).expect("Failed to shutdown TCP write");
     }
 
     /// Clean shutdown which joins the background threads, making sure all messages are flushed etc.
@@ -136,23 +139,26 @@ impl<S: Serialize + Send + 'static, R: for<'a> Deserialize<'a> + Serialize + Sen
     /// of the TCP connection. This is necessary for profiling, where the boss needs to wait for profiling
     /// data from the remote doer, but needs to close its sending connection first so that the doer can join
     /// its receiving thread to collect profiling data from it, before it can send the profiling data.
-    pub fn shutdown_with_final_message_received_after_closing_send(self) -> R {
+    pub fn shutdown_with_final_message_received_after_closing_send(self) -> Option<R> {
         trace!("AsyncEncryptedComms::shutdown_with_final_message_received_after_closing_send");
         // The order here is important, so that both sides of the conenction exit cleanly and we don't deadlock.
+        // I had some issues with windows -> remote linux when shutting down the writing half of the connection
+        // from windows.
 
+        // Stop the sending thread, which will be blocked on the channel waiting for a new message to send.
         drop(self.sender);
         trace!("Waiting for sending thread");
         join_with_err_log(self.sending_thread);
-        trace!("Closing TCP write");
-        self.tcp_connection.shutdown(std::net::Shutdown::Write).expect("Failed to shutdown TCP write");
 
-        let r = self.receiver.recv().expect("Failed to receive final message");
+        trace!("Waiting for final message");
+        let r = self.receiver.recv().ok();
 
+        // Stop the receiving thread, which might be blocked on reading from the TCP connection
         drop(self.receiver);
+        // Unblock the TCP read, note that this might fail if the other end has already closed the connection (at least it can on Linux), so we ignore the result
+        let _ = self.tcp_connection.shutdown(std::net::Shutdown::Read);
         trace!("Waiting for receiving thread");
         join_with_err_log(self.receiving_thread);
-        trace!("Closing TCP read");
-        self.tcp_connection.shutdown(std::net::Shutdown::Read).expect("Failed to shutdown TCP read");
 
         r
     }
