@@ -550,9 +550,7 @@ pub fn boss_main() -> ExitCode {
         match sync_result {
             Ok(()) => (),
             Err(e) => {
-                for e in e {
-                    error!("Sync error: {}", e);
-                }
+                error!("Sync error: {}", e);
                 return ExitCode::from(12);
             }
         }

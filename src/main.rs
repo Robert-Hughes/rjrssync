@@ -16,7 +16,7 @@ use profiling::*;
 
 // We include the profiling config in the version number, as profiling and non-profiling builds are not compatible
 // (both because the Command struct is different and because a non-profiling doer won't record any events).
-pub const VERSION: &str = concatcp!("112", if cfg!(feature="profiling") { "+profiling"} else { "" });
+pub const VERSION: &str = concatcp!("113", if cfg!(feature="profiling") { "+profiling"} else { "" });
 
 // Message printed by a doer copy of the program to indicate that it has loaded and is ready
 // to receive data over its stdin. Once the boss receives this, it knows that ssh has connected

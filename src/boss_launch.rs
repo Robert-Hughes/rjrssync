@@ -61,21 +61,25 @@ impl Comms {
 
     /// This will block if there is not enough capacity in the channel, so
     /// that we don't use up infinite memory if the doer is being slow.
-    pub fn send_command(&self, c: Command) {
+    pub fn send_command(&self, c: Command) -> Result<(), &'static str> {
         trace!("Sending command {:?} to {}", c, &self);
-        self.get_sender().send(c).expect("Error sending on channel");
+        self.get_sender().send(c).map_err(|_| ("Communications channel broken"))
     }
 
     /// Blocks until a response is received, if none if buffered in the channel.
-    pub fn receive_response(&self) -> Response {
+    pub fn receive_response(&self) -> Result<Response, &'static str> {
         trace!("Waiting for response from {}", &self);
-        self.get_receiver().recv().expect("Error receiving from channel")
+        self.get_receiver().recv().map_err(|_| ("Communications channel broken"))
     }
 
     /// Never blocks, will return None if the channel is empty.
-    pub fn try_receive_response(&self) -> Option<Response> {
+    pub fn try_receive_response(&self) -> Result<Option<Response>, &'static str>  {
         trace!("Checking for response from {}", &self);
-        self.get_receiver().try_recv().ok()
+        match self.get_receiver().try_recv() {
+            Ok(r) => Ok(Some(r)),
+            Err(crossbeam::channel::TryRecvError::Empty) => Ok(None),
+            Err(crossbeam::channel::TryRecvError::Disconnected) => Err("Communications channel broken")
+        }
     }
 
     // Tell the other end (thread or process over network) to shutdown once we're finished.
@@ -88,7 +92,7 @@ impl Comms {
                 let _ = self.send_command(Command::Shutdown);
                 // Join threads so that they're properly cleaned up including the profiling data
                 if let Comms::Local { thread, .. } = self { // Always true, just need to extract the fields
-                    thread.join().expect("Failed to join local doer thread");
+                    thread.join().expect("Failed to join local doer thread"); //TODO: check return value of the thread main?
                 }
             }
             Comms::Remote { ref debug_name, .. } => {
@@ -104,7 +108,7 @@ impl Comms {
                         let start = PROFILING_START.elapsed();
                         self.send_command(Command::ProfilingTimeSync);
                         match self.receive_response() {
-                            Response::ProfilingTimeSync(remote_timestamp) => {
+                            Ok(Response::ProfilingTimeSync(remote_timestamp)) => {
                                 let end = PROFILING_START.elapsed();
                                 trace!("Profiling sync: start: {:?}, end: {:?}, diff: {:?}, remote: {:?}", start, end, end-start, remote_timestamp);
                                 if i >= 2 { // Skip the first two to make sure the doer is ready to go (e.g. code cached)

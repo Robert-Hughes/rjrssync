@@ -390,26 +390,26 @@ enum Comms {
 impl Comms {
     /// This will block if there is not enough capacity in the channel, so
     /// that we don't use up infinite memory if the boss is being slow.
-    pub fn send_response(&mut self, r: Response) {
+    pub fn send_response(&mut self, r: Response) -> Result<(), &'static str> {
         trace!("Sending response {:?} to {}", r, &self);
         let sender = match self {
             Comms::Local { sender, .. } => sender,
             Comms::Remote { encrypted_comms, .. } => &mut encrypted_comms.sender,
         };
-        sender.send(r).expect("Error sending on channel");
+        sender.send(r).map_err(|_| ("Communications channel broken"))
     }
 
     /// Blocks until a command is received. If the channel is closed (i.e. the boss has disconnected),
-    /// then returns None. Note that normally the boss should send us a Shutdown command rather than
+    /// then returns Err. Note that normally the boss should send us a Shutdown command rather than
     /// just disconnecting, but in the case of errors, this may not happen so we want to deal with this 
     /// cleanly too.
-    pub fn receive_command(&mut self) -> Option<Command> {
+    pub fn receive_command(&mut self) -> Result<Command, &'static str> {
         trace!("Waiting for command from {}", &self);
         let receiver = match self {
             Comms::Local { receiver, .. } => receiver,
             Comms::Remote { encrypted_comms, .. } => &mut encrypted_comms.receiver,
         };
-        receiver.recv().ok()
+        receiver.recv().map_err(|_| ("Communications channel broken"))
     }
 }
 impl Display for Comms {
@@ -592,7 +592,7 @@ fn message_loop(comms: &mut Comms) -> Result<(), ()> {
     let mut context : Option<DoerContext> = None;
     loop {
         match comms.receive_command() {
-            Some(c) => {
+            Ok(c) => {
                 match exec_command(c, comms, &mut context) {
                     Ok(false) => {
                         debug!("Shutdown command received - finishing message_loop");
@@ -605,7 +605,7 @@ fn message_loop(comms: &mut Comms) -> Result<(), ()> {
                     }
                 }
             }
-            None => {
+            Err(_) => {
                 // Boss has disconnected
                 debug!("Boss disconnected - finishing message loop");
                 return Ok(());
@@ -624,13 +624,13 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut Option<DoerCo
     match command {
         Command::SetRoot { root } => {
             if let Err(e) = handle_set_root(comms, context, root) {
-                comms.send_response(Response::Error(e));
+                comms.send_response(Response::Error(e))?;
             }
         }
         Command::GetEntries { filters } => {
             profile_this!("GetEntries");
             if let Err(e) = handle_get_entries(comms, context.as_mut().unwrap(), filters) {
-                comms.send_response(Response::Error(e));
+                comms.send_response(Response::Error(e))?;
             }
         }
         Command::CreateRootAncestors => {
@@ -639,7 +639,7 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut Option<DoerCo
             if let Some(p) = path_to_create {
                 profile_this!(format!("CreateRootAncestors {}", p.to_str().unwrap().to_string()));
                 if let Err(e) = std::fs::create_dir_all(p) {
-                    comms.send_response(Response::Error(format!("Error creating folder and ancestors for '{}': {e}", p.display())));
+                    comms.send_response(Response::Error(format!("Error creating folder and ancestors for '{}': {e}", p.display())))?;
                 }
             }
         }
@@ -647,7 +647,7 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut Option<DoerCo
             let full_path = path.get_full_path(&context.as_ref().unwrap().root);
             profile_this!(format!("GetFileContent {}", path.to_string()));
             if let Err(e) = handle_get_file_contents(comms, &full_path) {
-                comms.send_response(Response::Error(e));
+                comms.send_response(Response::Error(e))?;
             }
         }
         Command::CreateOrUpdateFile {
@@ -667,14 +667,14 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut Option<DoerCo
                     if in_progress_path == path {
                         f
                     } else {
-                        comms.send_response(Response::Error(format!("Unexpected continued file transfer!")));
+                        comms.send_response(Response::Error(format!("Unexpected continued file transfer!")))?;
                         return Ok(true);
                     }
                 },
                 None => match std::fs::File::create(&full_path) {
                     Ok(f) => f,
                     Err(e) => {
-                        comms.send_response(Response::Error(format!("Error writing file contents to '{}': {e}", full_path.display())));
+                        comms.send_response(Response::Error(format!("Error writing file contents to '{}': {e}", full_path.display())))?;
                         return Ok(true);
                     }
                 }
@@ -682,7 +682,7 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut Option<DoerCo
 
             let r = f.write_all(&data);
             if let Err(e) = r {
-                comms.send_response(Response::Error(format!("Error writing file contents to '{}': {e}", full_path.display())));
+                comms.send_response(Response::Error(format!("Error writing file contents to '{}': {e}", full_path.display())))?;
                 return Ok(true);
             }
 
@@ -700,7 +700,7 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut Option<DoerCo
                 let r =
                     filetime::set_file_mtime(&full_path, filetime::FileTime::from_system_time(t));
                 if let Err(e) = r {
-                    comms.send_response(Response::Error(format!("Error setting modified time of '{}': {e}", full_path.display())));
+                    comms.send_response(Response::Error(format!("Error setting modified time of '{}': {e}", full_path.display())))?;
                     return Ok(true);
                 }
             }
@@ -710,12 +710,12 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut Option<DoerCo
             trace!("Creating folder '{}'", full_path.display());
             profile_this!(format!("CreateFolder {}", full_path.to_str().unwrap().to_string()));
             if let Err(e) = std::fs::create_dir(&full_path) {
-                comms.send_response(Response::Error(format!("Error creating folder '{}': {e}", full_path.display())));
+                comms.send_response(Response::Error(format!("Error creating folder '{}': {e}", full_path.display())))?;
             }
         }
         Command::CreateSymlink { path, kind, target } => {
             if let Err(e) = handle_create_symlink(path, context.as_mut().unwrap(), kind, target) {
-                comms.send_response(Response::Error(e));
+                comms.send_response(Response::Error(e))?;
             }
         },
         Command::DeleteFile { path } => {
@@ -723,7 +723,7 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut Option<DoerCo
             trace!("Deleting file '{}'", full_path.display());
             profile_this!(format!("DeleteFile {}", path.to_string()));
             if let Err(e) = std::fs::remove_file(&full_path) {
-                comms.send_response(Response::Error(format!("Error deleting file '{}': {e}", full_path.display())));
+                comms.send_response(Response::Error(format!("Error deleting file '{}': {e}", full_path.display())))?;
             }
         }
         Command::DeleteFolder { path } => {
@@ -731,7 +731,7 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut Option<DoerCo
             trace!("Deleting folder '{}'", full_path.display());
             profile_this!(format!("DeleteFolder {}", path.to_string()));
             if let Err(e) = std::fs::remove_dir(&full_path) {
-                comms.send_response(Response::Error(format!("Error deleting folder '{}': {e}", full_path.display())));
+                comms.send_response(Response::Error(format!("Error deleting folder '{}': {e}", full_path.display())))?;
             }
         }
         Command::DeleteSymlink { path, kind } => {
@@ -744,7 +744,7 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut Option<DoerCo
                     SymlinkKind::Folder => std::fs::remove_dir(&full_path),
                     // We should never be asked to delete an Unknown symlink on Windows, but just in case:
                     SymlinkKind::Unknown => {
-                        comms.send_response(Response::Error(format!("Can't delete symlink of unknown type '{}'", full_path.display())));
+                        comms.send_response(Response::Error(format!("Can't delete symlink of unknown type '{}'", full_path.display())))?;
                         return Ok(true);
                     }
                 }
@@ -753,15 +753,15 @@ fn exec_command(command: Command, comms: &mut Comms, context: &mut Option<DoerCo
                 std::fs::remove_file(&full_path)
             };
             if let Err(e) = res {
-                comms.send_response(Response::Error(format!("Error deleting symlink '{}': {e}", full_path.display())));
+                comms.send_response(Response::Error(format!("Error deleting symlink '{}': {e}", full_path.display())))?;
             }
         },
         #[cfg(feature="profiling")]
         Command::ProfilingTimeSync => {
-            comms.send_response(Response::ProfilingTimeSync(PROFILING_START.elapsed()));
+            comms.send_response(Response::ProfilingTimeSync(PROFILING_START.elapsed()))?;
         },
         Command::Marker(x) => {
-            comms.send_response(Response::Marker(x));
+            comms.send_response(Response::Marker(x))?;
         }
         Command::Shutdown => {
             return Ok(false);
@@ -788,11 +788,11 @@ fn handle_set_root(comms: &mut Comms, context: &mut Option<DoerContext>, root: S
     match metadata {
         Ok(m) => {
             let entry_details = entry_details_from_metadata(m, &context.root)?;
-            comms.send_response(Response::RootDetails { root_details: Some(entry_details), platform_differentiates_symlinks, platform_dir_separator });
+            comms.send_response(Response::RootDetails { root_details: Some(entry_details), platform_differentiates_symlinks, platform_dir_separator })?;
         },
         Err(e) if e.kind() == ErrorKind::NotFound => {
             // Report this as a special error, as we handle it differently on the boss side
-            comms.send_response(Response::RootDetails { root_details: None, platform_differentiates_symlinks, platform_dir_separator });
+            comms.send_response(Response::RootDetails { root_details: None, platform_differentiates_symlinks, platform_dir_separator })?;
         }
         Err(e) => return Err(format!(
                     "root '{}' can't be read: {}", context.root.display(), e)),
@@ -896,14 +896,14 @@ fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, filters: Fil
 
                 let d = entry_details_from_metadata(metadata, e.path())?;
 
-                comms.send_response(Response::Entry((path, d)));
+                comms.send_response(Response::Entry((path, d)))?;
             }
         }
         count += 1;
     }
 
     let elapsed = start.elapsed().as_millis();
-    comms.send_response(Response::EndOfEntries);
+    comms.send_response(Response::EndOfEntries)?;
     debug!(
         "Walked {} in {}ms ({}/s)",
         count,
@@ -940,14 +940,14 @@ fn handle_get_file_contents(comms: &mut Comms, full_path: &Path) -> Result<(), S
             Ok(n) if n == 0 => {
                 // End of file - send the data that we got previously, and report that there is no more data to follow.
                 prev_buf.truncate(prev_buf_valid);
-                comms.send_response(Response::FileContent { data: prev_buf, more_to_follow: false });
+                comms.send_response(Response::FileContent { data: prev_buf, more_to_follow: false })?;
                 return Ok(());
             },
             Ok(n) => {
                 // Some data read - send any previously retrieved data, and report that there is more data to follow
                 if prev_buf_valid > 0 {
                     prev_buf.truncate(prev_buf_valid);
-                    comms.send_response(Response::FileContent { data: prev_buf, more_to_follow: true });
+                    comms.send_response(Response::FileContent { data: prev_buf, more_to_follow: true })?;
                 }
 
                 // The data we just retrieved will be sent in the next iteration (once we know if there is more data to follow or not)

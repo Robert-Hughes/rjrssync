@@ -163,27 +163,38 @@ fn validate_trailing_slash(root_path: &str, entry_details: &EntryDetails) -> Res
 /// It also handles progress bar updates, based on Marker commands that we send and the doer echoes back.
 /// If block_until_marker_value is set, then this function will keep processing messages (blocking as necessary)
 /// until it finds a response with the given marker. If not set, this function won't block and will return
-/// once it's processed all pending responses from the doer.
+/// once it's processed all pending responses from the doer. If an error is encountered though, it will return
+/// rather than blocking.
 fn process_dest_responses(dest_comms: &mut Comms, progress_bar: &ProgressBar, stats: &mut Stats, 
-    block_until_marker_value: Option<u64>) -> Result<(), Vec<String>> 
+    mut block_until_marker_value: Option<u64>) -> Result<(), String> 
 {
     // To make the rest of this function consistent for both cases of block_until_marker_value,
     // this helper function will block or not as appropriate.
-    let next_fn = || {
+    // It acts as an iterator, so returns None or Some.
+    let next_fn = |block_until_marker_value| {
         match block_until_marker_value {
             Some(m) => match dest_comms.receive_response() { // Blocking, as we need to wait until we find the requested marker value
-                Response::Marker(m2) if m == m2 => None, // Marker found, stop iterating and return
+                Ok(Response::Marker(m2)) if m == m2 => None, // Marker found, stop iterating and return
                 x => Some(x), // Something else - needs processing
             },
-            None => dest_comms.try_receive_response() // Non-blocking
+            None => match dest_comms.try_receive_response() { // Non-blocking
+                Ok(Some(r)) => Some(Ok(r)),
+                Ok(None) => None,
+                Err(e) => Some(Err(e))
+            }
         }
     };
 
     let mut errors = vec![]; // There might be multiple errors reported before we get round to checking for them
-    while let Some(x) = next_fn() {
+    while let Some(x) = next_fn(block_until_marker_value) {
         match x {
-            Response::Error(e) => errors.push(e),
-            Response::Marker(m) => {
+            Ok(Response::Error(e)) => {
+                errors.push(e);
+                // If an error was encountered, don't block - just process the remaining messages to see if there 
+                // were any other errors to report, then return the error(s)
+                block_until_marker_value = None; 
+            }
+            Ok(Response::Marker(m)) => {
                 // Update the progress bar based on the progress that the dest doer has made.
                 // The marker value counts from 0..d for deletes, and then d..d+c for copies
                 if m < stats.num_dest_entries as u64 {
@@ -200,13 +211,19 @@ fn process_dest_responses(dest_comms: &mut Comms, progress_bar: &ProgressBar, st
                     progress_bar.set_position(m - stats.num_dest_entries as u64);
                 }
             }
+            Err(e) => {
+                // Communications error - return immediately as we won't be able to receive any more messages and doing
+                // so might lead to an infinite loop
+                errors.push(format!("{}", e));
+                break;
+            }
             _ => errors.push(format!("Unexpected response (expected Error or Marker): {:?}", x)),
         }
     }
     if errors.is_empty() {
         Ok(())
     } else {
-        Err(errors)
+        Err(errors.join(", "))
     }
 }
 
@@ -263,7 +280,7 @@ pub fn sync(
     show_stats: bool,
     src_comms: &mut Comms,
     dest_comms: &mut Comms,
-) -> Result<(), Vec<String>> {
+) -> Result<(), String> {
     // Parse and compile the filter strings
     let filters = {
         let mut patterns = vec![];
@@ -273,7 +290,7 @@ pub fn sync(
             match f.chars().nth(0) {
                 Some('+') => kinds.push(FilterKind::Include),
                 Some('-') => kinds.push(FilterKind::Exclude),
-                _ => return Err(vec![format!("Invalid filter '{}': Must start with a '+' or '-'", f)]),
+                _ => return Err(format!("Invalid filter '{}': Must start with a '+' or '-'", f)),
             }
             let pattern = f.split_at(1).1.to_string();
             // Wrap in ^...$ to make it match the whole string, otherwise it's too easy
@@ -285,7 +302,7 @@ pub fn sync(
             Ok(r) => r,
             Err(e) => {
                 // Note that the error reported by RegexSet includes the pattern being compiled, so we don't need to duplicate this
-                return Err(vec![format!("Invalid filter: {e}")]);
+                return Err(format!("Invalid filter: {e}"));
             }
         };
         Filters { regex_set, kinds }
@@ -315,7 +332,7 @@ pub fn sync(
     sync_impl(context)
 }
 
-fn sync_impl(mut ctx: SyncContext) -> Result<(), Vec<String>> {
+fn sync_impl(mut ctx: SyncContext) -> Result<(), String> {
     profile_this!();
 
     let sync_start = Instant::now();
@@ -329,38 +346,38 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), Vec<String>> {
 
     // Source SetRoot
     let timer = start_timer("SetRoot src");
-    ctx.src_comms.send_command(Command::SetRoot { root: ctx.src_root.to_string() });
-    let src_root_details = match ctx.src_comms.receive_response() {
+    ctx.src_comms.send_command(Command::SetRoot { root: ctx.src_root.to_string() })?;
+    let src_root_details = match ctx.src_comms.receive_response()? {
         Response::RootDetails { root_details, platform_differentiates_symlinks: _, platform_dir_separator } => {
             match &root_details {
-                None => return Err(vec![format!("src path '{}' doesn't exist!", ctx.src_root)]),
+                None => return Err(format!("src path '{}' doesn't exist!", ctx.src_root)),
                 Some(d) => if let Err(e) = validate_trailing_slash(&ctx.src_root, &d) {
-                    return Err(vec![format!("src path {}", e)]);
+                    return Err(format!("src path {}", e));
                 }
             };
             ctx.src_dir_separator = Some(platform_dir_separator);
             root_details
         }
-        r => return Err(vec![format!("Unexpected response getting root details from src: {:?}", r)]),
+        r => return Err(format!("Unexpected response getting root details from src: {:?}", r)),
     };
     let src_root_details = src_root_details.unwrap();
     stop_timer(timer);
 
     // Dest SetRoot
     let timer = start_timer("SetRoot dest");
-    ctx.dest_comms.send_command(Command::SetRoot { root: ctx.dest_root.clone() });
-    let (mut dest_root_details, dest_platform_differentiates_symlinks) = match ctx.dest_comms.receive_response() {
+    ctx.dest_comms.send_command(Command::SetRoot { root: ctx.dest_root.clone() })?;
+    let (mut dest_root_details, dest_platform_differentiates_symlinks) = match ctx.dest_comms.receive_response()? {
         Response::RootDetails { root_details, platform_differentiates_symlinks, platform_dir_separator } => {
             match &root_details {
                 None => (), // Dest root doesn't exist, but that's fine (we will create it later)
                 Some(d) => if let Err(e) = validate_trailing_slash(&ctx.dest_root, &d) {
-                    return Err(vec![format!("dest path {}", e)]);
+                    return Err(format!("dest path {}", e));
                 }
             }
             ctx.dest_dir_separator = Some(platform_dir_separator);
             (root_details, platform_differentiates_symlinks)
         }
-        r => return Err(vec![format!("Unexpected response getting root details from dest: {:?}", r)]),
+        r => return Err(format!("Unexpected response getting root details from dest: {:?}", r)),
     };
     stop_timer(timer);
 
@@ -379,10 +396,10 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), Vec<String>> {
             ctx.dest_root = ctx.dest_root + c;
             debug!("Modified dest path to {}", ctx.dest_root);
 
-            ctx.dest_comms.send_command(Command::SetRoot { root: ctx.dest_root.clone() });
-            dest_root_details = match ctx.dest_comms.receive_response() {
+            ctx.dest_comms.send_command(Command::SetRoot { root: ctx.dest_root.clone() })?;
+            dest_root_details = match ctx.dest_comms.receive_response()? {
                 Response::RootDetails { root_details, platform_differentiates_symlinks: _, platform_dir_separator: _ } => root_details,
-                r => return Err(vec![format!("Unexpected response getting root details from dest: {:?}", r)]),
+                r => return Err(format!("Unexpected response getting root details from dest: {:?}", r)),
             }
         }
     }
@@ -411,7 +428,7 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), Vec<String>> {
             };
             match resolved_behaviour {
                 DestRootNeedsDeletingBehaviour::Prompt => panic!("Should have been alredy resolved!"),
-                DestRootNeedsDeletingBehaviour::Error => return Err(vec![format!("{msg}. Will not delete. See --dest-root-needs-deleting")]),
+                DestRootNeedsDeletingBehaviour::Error => return Err(format!("{msg}. Will not delete. See --dest-root-needs-deleting")),
                 DestRootNeedsDeletingBehaviour::Skip => return Ok(()), // Don't raise an error, but we can't continue as it will fail, so skip the entire sync
                 DestRootNeedsDeletingBehaviour::Delete => (), // We will delete it anyway later on
             }
@@ -422,7 +439,7 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), Vec<String>> {
     // If the dest doesn't yet exist, make sure that all its ancestors are created, so that
     // when we come to create the dest path itself, it can succeed
     if dest_root_details.is_none() {
-        ctx.dest_comms.send_command(Command::CreateRootAncestors);
+        ctx.dest_comms.send_command(Command::CreateRootAncestors)?;
     }
 
     // Fetch all the entries for the source path and the dest path, if they are folders
@@ -440,7 +457,7 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), Vec<String>> {
     src_entries_lookup.insert(RootRelativePath::root(), src_root_details.clone());
 
     if matches!(src_root_details, EntryDetails::Folder) {
-        ctx.src_comms.send_command(Command::GetEntries { filters: ctx.filters.clone() });
+        ctx.src_comms.send_command(Command::GetEntries { filters: ctx.filters.clone() })?;
         src_done = false;
     }
 
@@ -456,14 +473,14 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), Vec<String>> {
     }
 
     if matches!(dest_root_details, Some(EntryDetails::Folder)) {
-        ctx.dest_comms.send_command(Command::GetEntries { filters: ctx.filters.clone() });
+        ctx.dest_comms.send_command(Command::GetEntries { filters: ctx.filters.clone() })?;
         dest_done = false;
     }
 
     while !src_done || !dest_done {
         // Wait for either src or dest to send us a response with an entry
         match memory_bound_channel::select_ready(ctx.src_comms.get_receiver(), ctx.dest_comms.get_receiver()) {
-            0 => match ctx.src_comms.receive_response() {
+            0 => match ctx.src_comms.receive_response()? {
                 Response::Entry((p, d)) => {
                     trace!("Source entry '{}': {:?}", p, d);
                     match d {
@@ -479,9 +496,9 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), Vec<String>> {
                     src_entries_lookup.insert(p, d);
                 }
                 Response::EndOfEntries => src_done = true,
-                r => return Err(vec![format!("Unexpected response getting entries from src: {:?}", r)]),
+                r => return Err(format!("Unexpected response getting entries from src: {:?}", r)),
             },
-            1 => match ctx.dest_comms.receive_response() {
+            1 => match ctx.dest_comms.receive_response()? {
                 Response::Entry((p, d)) => {
                     trace!("Dest entry '{}': {:?}", p, d);
                     match d {
@@ -496,7 +513,7 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), Vec<String>> {
                     dest_entries_lookup.insert(p, d);
                 }
                 Response::EndOfEntries => dest_done = true,
-                r => return Err(vec![format!("Unexpected response getting entries from dest: {:?}", r)]),
+                r => return Err(format!("Unexpected response getting entries from dest: {:?}", r)),
             },
             _ => panic!("Invalid index"),
         }
@@ -548,7 +565,7 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), Vec<String>> {
             }
             ctx.progress_count += 1;
         }
-        ctx.dest_comms.send_command(Command::Marker(ctx.progress_count)); // Mark the exact end of deletion, rather then having to wait for the first file to be copied
+        ctx.dest_comms.send_command(Command::Marker(ctx.progress_count))?; // Mark the exact end of deletion, rather then having to wait for the first file to be copied
     }
 
     // Copy entries that don't exist, or do exist but are out-of-date.
@@ -584,7 +601,7 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), Vec<String>> {
                 _ => match src_details {
                     EntryDetails::File { size, modified_time: src_modified_time } => {
                         debug!("{} doesn't exist on dest - copying", ctx.pretty_src(&path, &src_details));
-                        ctx.dest_comms.send_command(Command::Marker(ctx.progress_count));
+                        ctx.dest_comms.send_command(Command::Marker(ctx.progress_count))?;
                         copy_file(&path, size, src_modified_time, &mut ctx)?
                     }
                     EntryDetails::Folder => {
@@ -594,7 +611,7 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), Vec<String>> {
                             ctx.dest_comms
                                 .send_command(Command::CreateFolder {
                                     path: path.clone(),
-                                });
+                                })?;
                         } else {
                             // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be copied
                             info!("Would create {}", ctx.pretty_dest_kind(&path, "folder"));
@@ -609,7 +626,7 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), Vec<String>> {
                                     path: path.clone(),
                                     kind: *kind,
                                     target: target.clone(),
-                                });
+                                })?;
                         } else {
                             // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be copied
                             info!("Would create {}", ctx.pretty_dest_kind(&path, "symlink"));
@@ -625,7 +642,7 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), Vec<String>> {
 
     // Wait for the dest doer to finish processing all its Commands so that everything is finished.
     // We don't need to wait for the src doer, because the dest doer is always last to finish.
-    ctx.dest_comms.send_command(Command::Marker(u64::MAX));
+    ctx.dest_comms.send_command(Command::Marker(u64::MAX))?;
     {
         profile_this!("Waiting for dest to finish");
         process_dest_responses(ctx.dest_comms, &ctx.progress_bar, &mut ctx.stats, Some(u64::MAX))?;
@@ -714,10 +731,10 @@ pub fn should_delete(src: &EntryDetails, dest: &EntryDetails, dest_platform_diff
     }
 }
 
-fn delete_dest_entry(ctx: &mut SyncContext, dest_details: &EntryDetails, dest_path: &RootRelativePath) -> Result<(), Vec<String>> {
+fn delete_dest_entry(ctx: &mut SyncContext, dest_details: &EntryDetails, dest_path: &RootRelativePath) -> Result<(), String> {
     if ctx.progress_count % 100 == 0 {
         // Deletes are quite quick, so reduce the overhead of marking progress by only marking it occasionally
-        ctx.dest_comms.send_command(Command::Marker(ctx.progress_count));
+        ctx.dest_comms.send_command(Command::Marker(ctx.progress_count))?;
     }
 
     let msg = format!(
@@ -742,9 +759,9 @@ fn delete_dest_entry(ctx: &mut SyncContext, dest_details: &EntryDetails, dest_pa
     };
     match resolved_behaviour {
         DestEntryNeedsDeletingBehaviour::Prompt => panic!("Should have already been resolved!"),
-        DestEntryNeedsDeletingBehaviour::Error => return Err(vec![format!(
+        DestEntryNeedsDeletingBehaviour::Error => return Err(format!(
             "{msg}. Will not delete. See --dest-entry-needs-deleting.",
-        )]),
+        )),
         DestEntryNeedsDeletingBehaviour::Skip => {
             trace!("{msg}. Skipping.");
             Ok(())
@@ -774,7 +791,7 @@ fn delete_dest_entry(ctx: &mut SyncContext, dest_details: &EntryDetails, dest_pa
                 }
             };
             Ok(if !ctx.dry_run {
-                ctx.dest_comms.send_command(c);
+                ctx.dest_comms.send_command(c)?;
                 process_dest_responses(ctx.dest_comms, &ctx.progress_bar, &mut ctx.stats, None)?;
             } else {
                 // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be deleted
@@ -789,7 +806,7 @@ fn handle_existing_file(
     size: u64,
     ctx: &mut SyncContext,
     src_modified_time: SystemTime, dest_modified_time: SystemTime,
-) -> Result<(), Vec<String>> {
+) -> Result<(), String> {
     let copy = match src_modified_time.cmp(&dest_modified_time) {
         Ordering::Less => {
             let msg = format!(
@@ -814,9 +831,9 @@ fn handle_existing_file(
             };
             match resolved_behaviour {
                 DestFileUpdateBehaviour::Prompt => panic!("Should have already been resolved!"),
-                DestFileUpdateBehaviour::Error => return Err(vec![format!(
+                DestFileUpdateBehaviour::Error => return Err(format!(
                     "{msg}. Will not overwrite. See --dest-file-newer."
-                )]),
+                )),
                 DestFileUpdateBehaviour::Skip => {
                     trace!("{msg}. Skipping.");
                     false
@@ -856,9 +873,9 @@ fn handle_existing_file(
             };
             match resolved_behaviour {
                 DestFileUpdateBehaviour::Prompt => panic!("Should have already been resolved!"),
-                DestFileUpdateBehaviour::Error => return Err(vec![format!(
+                DestFileUpdateBehaviour::Error => return Err(format!(
                     "{msg}. Will not overwrite. See --dest-file-older."
-                )]),
+                )),
                 DestFileUpdateBehaviour::Skip => {
                     trace!("{msg}. Skipping.");
                     false
@@ -871,7 +888,7 @@ fn handle_existing_file(
         }
     };
     if copy {                    
-        ctx.dest_comms.send_command(Command::Marker(ctx.progress_count));
+        ctx.dest_comms.send_command(Command::Marker(ctx.progress_count))?;
         copy_file(&path, size, src_modified_time, ctx)?
     }
     Ok(())
@@ -964,20 +981,20 @@ fn copy_file(
     path: &RootRelativePath,
     size: u64,
     modified_time: SystemTime,
-    ctx: &mut SyncContext) -> Result<(), Vec<String>> {
+    ctx: &mut SyncContext) -> Result<(), String> {
     if !ctx.dry_run {
         trace!("Fetching from {}", ctx.pretty_src_kind(&path, "file"));
         ctx.src_comms
             .send_command(Command::GetFileContent {
                 path: path.clone(),
-            });
+            })?;
         // Large files are split into chunks, loop until all chunks are transferred.
         loop {
-            let (data, more_to_follow) = match ctx.src_comms.receive_response() {
+            let (data, more_to_follow) = match ctx.src_comms.receive_response()? {
                 Response::FileContent { data, more_to_follow } => (data, more_to_follow),
-                x => return Err(vec![format!(
+                x => return Err(format!(
                     "Unexpected response fetching {}: {:?}", ctx.pretty_src_kind(&path, "file"), x
-                )]),
+                )),
             };
             trace!("Create/update {}", ctx.pretty_dest_kind(&path, "file"));
             ctx.dest_comms
@@ -986,7 +1003,7 @@ fn copy_file(
                     data,
                     set_modified_time: if more_to_follow { None } else { Some(modified_time) }, // Only set the modified time after the final chunk
                     more_to_follow,
-                });
+                })?;
 
             // For large files, it might be a while before process_dest_responses is called in the main sync function,
             // so check it periodically here too. 

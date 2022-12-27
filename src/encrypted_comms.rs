@@ -1,9 +1,9 @@
-use std::{net::TcpStream, io::{Write, Read}, thread::{JoinHandle, self}};
+use std::{net::TcpStream, io::{Write, Read, ErrorKind}, thread::{JoinHandle, self}, fmt::Display};
 
 use aead::{Key, KeyInit};
 use bytes::{BytesMut, BufMut};
 use aes_gcm::{Aes128Gcm, aead::{Nonce, Aead}, AeadInPlace};
-use log::{trace};
+use log::{trace, error};
 use serde::{Deserialize, Serialize};
 
 use crate::{profile_this, memory_bound_channel::{Sender, Receiver, self}, BOSS_DOER_CHANNEL_MEMORY_CAPACITY};
@@ -19,10 +19,10 @@ use crate::{profile_this, memory_bound_channel::{Sender, Receiver, self}, BOSS_D
 pub struct AsyncEncryptedComms<S: Serialize, R: for<'a> Deserialize<'a>> {
     tcp_connection: TcpStream,
 
-    sending_thread: JoinHandle<(Aes128Gcm, u64, u64)>,
+    sending_thread: JoinHandle<Result<(Aes128Gcm, u64, u64), String>>,
     pub sender: Sender<S>,
 
-    receiving_thread: JoinHandle<()>,
+    receiving_thread: JoinHandle<Result<(), String>>,
     pub receiver: Receiver<R>,
 }
 impl<S: Serialize + Send + 'static, R: for<'a> Deserialize<'a> + Serialize + Send + 'static> AsyncEncryptedComms<S, R> {
@@ -43,19 +43,21 @@ impl<S: Serialize + Send + 'static, R: for<'a> Deserialize<'a> + Serialize + Sen
                     let s = match thread_receiver.recv() {
                         Ok(s) => s,
                         Err(_) => {
+                            // The sender on the main thread has been dropped, which means that there are no more messages to send, 
+                            // so we finish this background thread successfully (this is the expected clean shutdown process)
                             trace!("Sending thread '{sending_thread_name}' shutting down due to closed channel");
-                            break; // The sender must have been dropped, so stop this background thread
+                            // Return stuff needed to send one more message from the main thread (needed for profiling)
+                            return Ok((cipher, sending_nonce_counter, sending_nonce_lsb)); 
                         }
                     };
                     if let Err(e) = send(s, &mut tcp_connection_clone1, &cipher, &mut sending_nonce_counter, sending_nonce_lsb) {
-                        //TODO: handle errors
-                        trace!("Sending thread '{sending_thread_name}' shutting down due to error sending on TCP: {e}");
-                        break;
+                        // There was an error sending a message, which shouldn't happen in normal operation.
+                        // Log an error, and stop this background thread, which will close the receiving side of the 
+                        // channel. The main thread will detect this as a closed channel.
+                        error!("Sending thread '{sending_thread_name}' shutting down due to error sending on TCP: {e}");
+                        return Err(e);
                     }                    
                 }
-
-                // Return stuff needed to send one more message from the main thread (needed for profiling)
-                (cipher, sending_nonce_counter, sending_nonce_lsb)
             }).expect("Failed to spawn thread");
 
         let receiving_thread_name = format!("{} -> {}", debug_local_remote_name.1, debug_local_remote_name.0);
@@ -68,15 +70,24 @@ impl<S: Serialize + Send + 'static, R: for<'a> Deserialize<'a> + Serialize + Sen
                 loop {
                     let r = match receive(&mut tcp_connection_clone2, &cipher, &mut receiving_nonce_counter, receiving_nonce_lsb) {
                         Ok(r) => r,
-                        Err(e) => {
-                            //TODO: handle errors
-                            trace!("Receiving thread '{receiving_thread_name}' shutting down due to error receiving from TCP: {e}");
-                            break;
+                        Err(ReceiveError::TcpStreamClosed) => {
+                            // The TCP connection was closed cleanly and there was nothing more to read from it.
+                            // This is the expected clean shutdown path.
+                            trace!("Receiving thread '{receiving_thread_name}' shutting down due to end of TCP stream");
+                            return Ok(());
+                        }
+                        Err(ReceiveError::Other(e)) => {
+                            // There was an error receiving a message, which shouldn't happen in normal operation.
+                            // Log an error, and stop this background thread, which will close the sending side of the 
+                            // channel. The main thread will detect this as a closed channel.
+                            error!("Receiving thread '{receiving_thread_name}' shutting down due to error receiving from TCP: {e}");
+                            return Err(e);
                         }
                     };
                     if thread_sender.send(r).is_err() {
-                        trace!("Receiving thread '{receiving_thread_name}' shutting down due to closed channel");
-                        break; // The sender must have been dropped, so stop this background thread
+                        // The main thread receiver has been dropped, which shouldn't happen during normal operation
+                        error!("Receiving thread '{receiving_thread_name}' shutting down due to closed channel");
+                        return Err("Communications with main thread broken".to_string());
                     };
                 }
             }).expect("Failed to spawn thread");
@@ -93,13 +104,13 @@ impl<S: Serialize + Send + 'static, R: for<'a> Deserialize<'a> + Serialize + Sen
 
         drop(self.sender);
         trace!("Waiting for sending thread");
-        self.sending_thread.join().expect("Failed to join sending thread");
+        join_with_err_log(self.sending_thread);
         trace!("Closing TCP write");
         self.tcp_connection.shutdown(std::net::Shutdown::Write).expect("Failed to shutdown TCP write");
 
         drop(self.receiver);
         trace!("Waiting for receiving thread");
-        self.receiving_thread.join().expect("Failed to join receiving thread");
+        join_with_err_log(self.receiving_thread);
         trace!("Closing TCP read");
         self.tcp_connection.shutdown(std::net::Shutdown::Read);//.expect("Failed to shutdown TCP read"); //TODO: fails on Linux
     }
@@ -116,19 +127,23 @@ impl<S: Serialize + Send + 'static, R: for<'a> Deserialize<'a> + Serialize + Sen
         // as we'll need that to send the final message.
         drop(self.sender);
         trace!("Waiting for sending thread");
-        let (cipher, mut sending_nonce_counter, sending_nonce_lsb) = self.sending_thread.join().expect("Failed to join sending thread");
+        let sending_thread_result = join_with_err_log(self.sending_thread);
 
         // Stop the receiving thread
         drop(self.receiver);
         trace!("Waiting for receiving thread");
-        self.receiving_thread.join().expect("Failed to join receiving thread");
+        join_with_err_log(self.receiving_thread);
         trace!("Closing TCP read");
         self.tcp_connection.shutdown(std::net::Shutdown::Read).expect("Failed to shutdown TCP read");
 
-        let s = message_generating_func();
-        trace!("Sending final mesage");
-        // There's not much we can do with an error here, as we're closing everything down anyway
-        send(s, &mut self.tcp_connection, &cipher, &mut sending_nonce_counter, sending_nonce_lsb).expect("Failed to send final message");
+        if let Some((cipher, mut sending_nonce_counter, sending_nonce_lsb)) = sending_thread_result {
+            let s = message_generating_func();
+            trace!("Sending final mesage");
+            // There's not much we can do with an error here, as we're closing everything down anyway
+            send(s, &mut self.tcp_connection, &cipher, &mut sending_nonce_counter, sending_nonce_lsb).expect("Failed to send final message");
+        } else {
+            error!("Unable to send final message as sending thread didn't complete successfully");
+        }
 
         trace!("Closing TCP write");
         self.tcp_connection.shutdown(std::net::Shutdown::Write).expect("Failed to shutdown TCP write");
@@ -145,7 +160,7 @@ impl<S: Serialize + Send + 'static, R: for<'a> Deserialize<'a> + Serialize + Sen
 
         drop(self.sender);
         trace!("Waiting for sending thread");
-        let _ = self.sending_thread.join().expect("Failed to join sending thread");
+        join_with_err_log(self.sending_thread);
         trace!("Closing TCP write");
         self.tcp_connection.shutdown(std::net::Shutdown::Write).expect("Failed to shutdown TCP write");
 
@@ -153,11 +168,23 @@ impl<S: Serialize + Send + 'static, R: for<'a> Deserialize<'a> + Serialize + Sen
 
         drop(self.receiver);
         trace!("Waiting for receiving thread");
-        self.receiving_thread.join().expect("Failed to join receiving thread");
+        join_with_err_log(self.receiving_thread);
         trace!("Closing TCP read");
         self.tcp_connection.shutdown(std::net::Shutdown::Read).expect("Failed to shutdown TCP read");
 
         r
+    }
+}
+
+/// Helper func to join on a thread that returns a Result<T>, and log any errors
+fn join_with_err_log<T, E: Display>(t: JoinHandle<Result<T, E>>) -> Option<T> {
+    let name = t.thread().name().expect("Failed to get thread name").to_string();
+    match t.join().expect(&format!("Failed to join thread '{}'", name)) {
+        Ok(x) => Some(x),
+        Err(e) => {
+            error!("Thread '{name}' failed with error: {e}");
+            None
+        }
     }
 }
 
@@ -204,8 +231,18 @@ fn send<T>(x: T, tcp_connection: &mut TcpStream, cipher: &Aes128Gcm,
     Ok(())
 }
 
+enum ReceiveError {
+    TcpStreamClosed,
+    Other(String)
+}
+impl From<String> for ReceiveError { // So that the '?' operator works nicely below
+    fn from(s: String) -> Self {
+        ReceiveError::Other(s)
+    }
+}
+
 fn receive<T>(tcp_connection: &mut TcpStream, cipher: &Aes128Gcm,
-    receiving_nonce_counter: &mut u64, nonce_lsb: u64) -> Result<T, String>
+    receiving_nonce_counter: &mut u64, nonce_lsb: u64) -> Result<T, ReceiveError>
     where T : for<'a> Deserialize<'a>
 {
     profile_this!();
@@ -214,7 +251,12 @@ fn receive<T>(tcp_connection: &mut TcpStream, cipher: &Aes128Gcm,
         profile_this!("Tcp Read");
 
         let mut len_buf = [0_u8; 8];
-        tcp_connection.read_exact(&mut len_buf).map_err(|e| "Error reading len: ".to_string() + &e.to_string())?;
+        match tcp_connection.read_exact(&mut len_buf) {
+            Ok(()) => (),
+            // Distinguish an EOF error when reading the first part of a new message, as this is the expected clean shutdown path
+            Err(e) if e.kind() == ErrorKind::UnexpectedEof => return Err(ReceiveError::TcpStreamClosed),
+            Err(e) => return Err(ReceiveError::Other("Error reading len: ".to_string() + &e.to_string())),
+        }
         let encrypted_len = usize::from_le_bytes(len_buf);
 
         let mut encrypted_data = vec![0_u8; encrypted_len];

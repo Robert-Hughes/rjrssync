@@ -57,7 +57,7 @@ Also the same buffer size this is used for both the filesystem read() buffer siz
 Performance
 ------------
 
-* Investigate if parallelising some stages would speed it up, e.g. walking the dir structure on multiple threads, or sending data across network on multiple threads
+* Investigate if parallelising some stages would speed it up, e.g. walking the dir structure on multiple threads (use a pool of workers, all fetching and adding jobs to a common queue (channel), whenever they encounter a directory that needs recursing into, and sending results onto a channel where a receiver can collect them), or sending data across network on multiple threads
    - Maybe check if WalkDir is slow, by comparing its performance with direct std::fs stuff or even native OS stuff?
 * Investigate if pipelining some stages would speed it up, e.g. encrypting and serialization at same time
 * Probably better to batch together File() Responses, to avoid overhead from sending loads of messages
@@ -93,4 +93,3 @@ ERROR | rjrssync::boss_frontend: Sync error: Unexpected response from dest GetEn
 * Warning if filter doesn't match anything, possibly after GetEntries but before actually doing anything (to prevent mistaken filter?)
 * Would be nice to automatically detect cases where the version number hasn't been updated, e.g. if we
 could see that the Command/Response struct layout has changed.
-* Async comms might not be handling errors properly - the threads can stop early due to either the tcp connection or the channel being closed, and might need propagating somehow?
