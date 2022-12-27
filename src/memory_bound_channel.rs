@@ -1,6 +1,7 @@
 use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
 
 use crossbeam::utils::Backoff;
+use log::trace;
 use serde::Serialize;
 
 /// A cross-thread communications channel built on Crossbeam's Sender and Receiver,
@@ -46,6 +47,7 @@ impl<T: Serialize> Sender<T> {
         // we will always send it. Otherwise a large message might block forever waiting for space that can never
         // be available! This does mean that we can exceed the capacity, but we don't need a hard limit so this is fine.
         if old_usage > self.memory_capacity {
+            trace!("Blocking to wait for memory capacity");
             let backoff = Backoff::new();
             while self.channel_memory_usage.load(Ordering::Relaxed) - memory_usage > self.memory_capacity {
                 backoff.snooze();

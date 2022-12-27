@@ -1,6 +1,7 @@
 use aes_gcm::aead::generic_array::GenericArray;
 use clap::Parser;
 use env_logger::Env;
+use indicatif::HumanBytes;
 use log::{debug, error, trace, info};
 use regex::{RegexSet, SetMatches};
 use serde::{Deserialize, Serialize, Serializer, Deserializer, de::Error};
@@ -209,7 +210,7 @@ impl std::fmt::Debug for Command {
             Self::GetEntries { filters } => f.debug_struct("GetEntries").field("filters", filters).finish(),
             Self::CreateRootAncestors => write!(f, "CreateRootAncestors"),
             Self::GetFileContent { path } => f.debug_struct("GetFileContent").field("path", path).finish(),
-            Self::CreateOrUpdateFile { path, data: _, set_modified_time, more_to_follow } => f.debug_struct("CreateOrUpdateFile").field("path", path).field("data", &"...").field("set_modified_time", set_modified_time).field("more_to_follow", more_to_follow).finish(),
+            Self::CreateOrUpdateFile { path, data, set_modified_time, more_to_follow } => f.debug_struct("CreateOrUpdateFile").field("path", path).field("data", &format!("... ({})", HumanBytes(data.len() as u64))).field("set_modified_time", set_modified_time).field("more_to_follow", more_to_follow).finish(),
             Self::CreateSymlink { path, kind, target } => f.debug_struct("CreateSymlink").field("path", path).field("kind", kind).field("target", target).finish(),
             Self::CreateFolder { path } => f.debug_struct("CreateFolder").field("path", path).finish(),
             Self::DeleteFile { path } => f.debug_struct("DeleteFile").field("path", path).finish(),
@@ -364,7 +365,7 @@ impl std::fmt::Debug for Response {
             Self::RootDetails { root_details, platform_differentiates_symlinks, platform_dir_separator } => f.debug_struct("RootDetails").field("root_details", root_details).field("platform_differentiates_symlinks", platform_differentiates_symlinks).field("platform_dir_separator", platform_dir_separator).finish(),
             Self::Entry(arg0) => f.debug_tuple("Entry").field(arg0).finish(),
             Self::EndOfEntries => write!(f, "EndOfEntries"),
-            Self::FileContent { data: _, more_to_follow } => f.debug_struct("FileContent").field("data", &"...").field("more_to_follow", more_to_follow).finish(),
+            Self::FileContent { data, more_to_follow } => f.debug_struct("FileContent").field("data", &format!("... ({})", HumanBytes(data.len() as u64))).field("more_to_follow", more_to_follow).finish(),
             #[cfg(feature = "profiling")]
             Self::ProfilingTimeSync(arg0) => f.debug_tuple("ProfilingTimeSync").field(arg0).finish(),
             #[cfg(feature = "profiling")]

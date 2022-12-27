@@ -16,6 +16,7 @@ Interface
 * In the spec file, could allow some settings to be set at both per-sync level, and at the top level (which would then apply to all syncs, but allowing overrides)
 * Decide if info! (and other) log messages should be on stdout or stderr
 * When showing multiple prompts, could remember the selection from previous time the same prompt was shown and use that as the default for the next one?
+* Maybe could make "Connecting" spinner actually spin, until the first message from ssh?
 
 
 Remote launching
