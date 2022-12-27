@@ -294,11 +294,11 @@ fn remote_doer_logging_thread(mut stderr: BufReader<ChildStderr>, debug_name: St
                 l.pop(); // Remove the trailing newline
                 // Use a custom target to indicate this is from a remote doer in the log output
                 // Preserve the log level of the remote messages if possible
-                match &l.splitn(3, ' ').collect::<Vec<&str>>()[..] {
-                    [level_str, target, msg] => {
+                match &l.splitn(4, ' ').collect::<Vec<&str>>()[..] {
+                    [timestamp, level_str, target, msg] => {
                         let target = format!("remote {debug_name}: {target}");
                         match log::Level::from_str(level_str) {
-                            Ok(level) => log!(target: &target, level, "{}", msg),
+                            Ok(level) => log!(target: &target, level, "{} {}", timestamp, msg),
                             Err(_) => debug!(target: &target, "{}", l),
                         }
                     }

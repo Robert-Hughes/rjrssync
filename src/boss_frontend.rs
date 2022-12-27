@@ -473,7 +473,8 @@ pub fn boss_main() -> ExitCode {
                     // Debug/trace messages are for developers or power-users, so have more detail
                     writeln!(
                         buf,
-                        "{:5} | {}: {}",
+                        "{} {:5} | {}: {}",
+                        buf.timestamp_nanos(),
                         level_style.value(record.level()),
                         target_style.value(target),
                         record.args()

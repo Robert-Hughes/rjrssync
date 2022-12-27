@@ -445,7 +445,8 @@ pub fn doer_main() -> ExitCode {
         builder.format(|buf, record| {
             writeln!(
                 buf,
-                "{} {} {}",
+                "{} {} {} {}",
+                buf.timestamp_nanos(),
                 record.level(),
                 record.target(),
                 record.args()
