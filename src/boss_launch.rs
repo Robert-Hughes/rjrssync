@@ -28,7 +28,7 @@ use crate::encrypted_comms::AsyncEncryptedComms;
 pub enum Comms {
     Local {
         debug_name: String, // To identify this Comms against others for debugging, when there are several
-        thread: JoinHandle<()>,
+        thread: JoinHandle<Result<(), String>>,
         sender: memory_bound_channel::Sender<Command>,
         receiver: memory_bound_channel::Receiver<Response>,
     },
@@ -92,7 +92,9 @@ impl Comms {
                 let _ = self.send_command(Command::Shutdown);
                 // Join threads so that they're properly cleaned up including the profiling data
                 if let Comms::Local { thread, .. } = self { // Always true, just need to extract the fields
-                    thread.join().expect("Failed to join local doer thread"); //TODO: check return value of the thread main?
+                    if let Err(e) = thread.join().expect("Failed to join local doer thread") {
+                        error!("Local doer thread exited with error: {e}");
+                    }
                 }
             }
             Comms::Remote { ref debug_name, .. } => {
@@ -106,7 +108,7 @@ impl Comms {
                     let mut samples = vec![];
                     for i in 0..5 {
                         let start = PROFILING_START.elapsed();
-                        self.send_command(Command::ProfilingTimeSync);
+                        self.send_command(Command::ProfilingTimeSync).expect("Failed to send profiling time sync");
                         match self.receive_response() {
                             Ok(Response::ProfilingTimeSync(remote_timestamp)) => {
                                 let end = PROFILING_START.elapsed();

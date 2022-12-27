@@ -566,12 +566,18 @@ pub fn doer_main() -> ExitCode {
 
 // When the source and/or dest is local, the doer is run as a thread in the boss process,
 // rather than over ssh.
-pub fn doer_thread_running_on_boss(receiver: Receiver<Command>, sender: Sender<Response>) {
+pub fn doer_thread_running_on_boss(receiver: Receiver<Command>, sender: Sender<Response>) -> Result<(), String> {
     debug!("doer thread running");
     profile_this!();
     match message_loop(&mut Comms::Local { sender, receiver }) {
-        Ok(_) => debug!("doer thread finished successfully!"),
-        Err(e) => debug!("doer thread finished with error: {:?}", e),
+        Ok(_) => {
+            debug!("doer thread finished successfully!");
+            Ok(())
+        }
+        Err(e) => {
+            error!("doer thread finished with error: {:?}", e);
+            Err(format!("doer thread finished with error: {:?}", e))
+        } 
     }
 }
 
