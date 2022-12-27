@@ -62,24 +62,24 @@ impl Comms {
 
     /// This will block if there is not enough capacity in the channel, so
     /// that we don't use up infinite memory if the doer is being slow.
-    pub fn send_command(&self, c: Command) -> Result<(), &'static str> {
+    pub fn send_command(&self, c: Command) -> Result<(), String> {
         trace!("Sending command {:?} to {}", c, &self);
-        self.get_sender().send(c).map_err(|_| ("Communications channel broken"))
+        self.get_sender().send(c).map_err(|_| format!("Lost communication with {}", &self))
     }
 
     /// Blocks until a response is received, if none if buffered in the channel.
-    pub fn receive_response(&self) -> Result<Response, &'static str> {
+    pub fn receive_response(&self) -> Result<Response, String> {
         trace!("Waiting for response from {}", &self);
-        self.get_receiver().recv().map_err(|_| ("Communications channel broken"))
+        self.get_receiver().recv().map_err(|_| format!("Lost communication with {}", &self))
     }
 
     /// Never blocks, will return None if the channel is empty.
-    pub fn try_receive_response(&self) -> Result<Option<Response>, &'static str>  {
+    pub fn try_receive_response(&self) -> Result<Option<Response>, String>  {
         trace!("Checking for response from {}", &self);
         match self.get_receiver().try_recv() {
             Ok(r) => Ok(Some(r)),
             Err(crossbeam::channel::TryRecvError::Empty) => Ok(None),
-            Err(crossbeam::channel::TryRecvError::Disconnected) => Err("Communications channel broken")
+            Err(crossbeam::channel::TryRecvError::Disconnected) => Err(format!("Lost communication with {}", &self))
         }
     }
 

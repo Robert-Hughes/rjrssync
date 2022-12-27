@@ -401,26 +401,26 @@ enum Comms {
 impl Comms {
     /// This will block if there is not enough capacity in the channel, so
     /// that we don't use up infinite memory if the boss is being slow.
-    pub fn send_response(&mut self, r: Response) -> Result<(), &'static str> {
+    pub fn send_response(&mut self, r: Response) -> Result<(), String> {
         trace!("Sending response {:?} to {}", r, &self);
         let sender = match self {
             Comms::Local { sender, .. } => sender,
             Comms::Remote { encrypted_comms, .. } => &mut encrypted_comms.sender,
         };
-        sender.send(r).map_err(|_| ("Communications channel broken"))
+        sender.send(r).map_err(|_| format!("Lost communication with {}", &self))
     }
 
     /// Blocks until a command is received. If the channel is closed (i.e. the boss has disconnected),
     /// then returns Err. Note that normally the boss should send us a Shutdown command rather than
     /// just disconnecting, but in the case of errors, this may not happen so we want to deal with this 
     /// cleanly too.
-    pub fn receive_command(&mut self) -> Result<Command, &'static str> {
+    pub fn receive_command(&mut self) -> Result<Command, String> {
         trace!("Waiting for command from {}", &self);
         let receiver = match self {
             Comms::Local { receiver, .. } => receiver,
             Comms::Remote { encrypted_comms, .. } => &mut encrypted_comms.receiver,
         };
-        receiver.recv().map_err(|_| ("Communications channel broken"))
+        receiver.recv().map_err(|_| format!("Lost communication with {}", &self))
     }
 }
 impl Display for Comms {
