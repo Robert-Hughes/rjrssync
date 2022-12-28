@@ -146,7 +146,9 @@ fn worker_main<T, F: Fn(&std::fs::DirEntry) -> Result<FilterResult<T>, String>>(
                         additional_data,
                     }))?;
 
-                    // Recurse into child directories by adding a job that other threads could pick up
+                    // Recurse into child directories by adding a job that other threads could pick up.
+                    // Note that it's important that we do this _after_ sending the entry as a result, so that
+                    // the children of this folder are always after the folder itself in the results.
                     if let Some(x) = child_dir_to_recurse {
                         num_unfinished_jobs.fetch_add(1, Ordering::SeqCst);
                         job_sender.send(Job::Dir(x)).expect("Job channel disconnected");
