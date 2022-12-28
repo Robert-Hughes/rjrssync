@@ -52,7 +52,7 @@ fn parallel_walk_dir(root: &str, num_threads: u32) -> Vec<PathBuf> {
     let start = Instant::now();
     let mut result = vec![];
 
-    let (job_sender, job_receiver) = crossbeam::channel::unbounded();
+    let (job_sender, job_receiver) = crossbeam::channel::unbounded(); //TODO: boudned, to prevent too high memory usage!
     let (result_sender, result_receiver) = crossbeam::channel::unbounded();
     let busy_worker_count = Arc::new(AtomicUsize::new(0));
     for _ in 0..num_threads {
@@ -117,7 +117,7 @@ fn worker_main(job_sender: Sender<Job>, job_receiver: Receiver<Job>,
         }
 
         let prev_count = busy_worker_count.fetch_sub(1, Ordering::SeqCst);
-        if prev_count == 1 && job_receiver.len() == 0 { //TODO: almost certainly this is wrong, use condition var or something instead?
+        if prev_count == 1 && job_receiver.len() == 0 { //TODO: almost certainly this is wrong, use condition var or something instead?. Counter of "job not done"
             for _ in 0..num_threads {
                 job_sender.send(Job::Done).unwrap();
             }

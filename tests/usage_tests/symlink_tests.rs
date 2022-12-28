@@ -249,7 +249,7 @@ fn test_symlink_delete_from_dest() {
 }
 
 /// Tests that syncing a symlink as the root which is a broken symlink works.
-/// This is relevant because the WalkDir crate doesn't handle this.
+/// This is relevant because the WalkDir crate (and our new parallel replacement) doesn't handle this.
 #[test]
 fn test_symlink_root_broken() {
     let src = symlink_file("target doesn't exist");

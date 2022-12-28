@@ -11,7 +11,6 @@ env_logger = "*"
 log="*"
 rust-embed = { version = "=6.4.2", features = [ "debug-embed", "include-exclude" ] } # debug-embed Otherwise the behaviour is different in debug vs release builds
 tempdir="*"
-walkdir="*"
 serde = { version = "1.0", features = ["derive"] }
 serde_bytes = "=0.11.7"
 bincode = "1.2.1"
@@ -29,12 +28,14 @@ dialoguer = "=0.10.2"
 console = "=0.15.2"
 winapi = { version = "=0.3.9", features=["psapi"] }
 crossbeam = "=0.8.2"
+num_cpus = "=1.15.0"
 
 # Profiling-only dependencies
 json = { version = "0.12.4", optional = true }
 
 # Dependencies needed for tests/benchmarks, which aren't needed for building on a remote
 #if NonRemote
+walkdir="=2.3.2"
 tempfile = "=3.3.0"
 map-macro = "=0.2.4"
 network-interface = "=0.1.5"

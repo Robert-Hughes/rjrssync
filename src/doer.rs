@@ -13,11 +13,11 @@ use std::{
     path::{Path, PathBuf},
     time::{Instant, SystemTime}, net::{TcpListener},
 };
-use walkdir::WalkDir;
 
 use crate::*;
 use crate::encrypted_comms::AsyncEncryptedComms;
 use crate::memory_bound_channel::{Sender, Receiver};
+use crate::parallel_walk_dir::parallel_walk_dir;
 
 #[derive(clap::Parser)]
 struct DoerCliArgs {
@@ -853,67 +853,62 @@ fn apply_filters(path: &RootRelativePath, filters: &Filters) -> FilterResult {
     result
 }
 
+/// Filter callback used when iterating over directory contents.
+fn filter_func(entry: &std::fs::DirEntry, root: &Path, filters: &Filters) -> Result<parallel_walk_dir::FilterResult<RootRelativePath>, String> {
+    // First normalize the path to our platform-independent representation, so that the filters
+    // apply equally well on both source and dest sides, if they are different platforms.
+
+    // Paths returned by DirEntry will include the root, but we want paths relative to the root
+    // The strip_prefix should always be successful, because the entry has to be inside the root.
+    let path = entry.path().strip_prefix(root).expect("Strip prefix failed").to_path_buf();
+    // Convert to platform-agnostic representation
+    let path = match normalize_path(&path) {
+        Ok(p) => p,
+        Err(e) => return Err(format!("normalize_path failed on '{}': {e}", path.display())),
+    };
+
+    let skip = apply_filters(&path, &filters) == FilterResult::Exclude;
+    if skip {
+        trace!("Skipping '{}' due to filter", path);
+    }
+    // Store the normalized root-relative path so that we don't need to re-calculate this when we process
+    // this entry
+    Ok(parallel_walk_dir::FilterResult::<RootRelativePath> {
+        skip,
+        additional_data: path,
+    })
+}
+
 fn handle_get_entries(comms: &mut Comms, context: &mut DoerContext, filters: Filters) -> Result<(), String> {
     let start = Instant::now();
-    // Due to the way the WalkDir API works, we unfortunately need to do the iter loop manually
-    // so that we can avoid normalizing the path twice (once for the filter, once for the conversion
-    // of the entry to our representation).
-    // Note that we can't use this to get metadata for a single root entry when that entry is a broken symlink,
-    // as the walk will fail before we can get the metadata for the broken link. Therefore we only use this
+    // Note that we can't use this to get metadata for a single root entry when that entry is a symlink,
+    // as the iteration will fail before we can get the metadata for the root. Therefore we only use this
     // when walking what's known to be a directory (discovered in SetRoot).
-    let mut walker_it = WalkDir::new(&context.root)
-        .follow_links(false)  // We want to see the symlinks, not their targets
-        // To ensure deterministic order, mainly for tests. If this turns out to have a performance impact,
-        // we could enable it only for tests perhaps.
-        .sort_by_file_name() 
-        .into_iter();
+    let root = context.root.clone();
+    let entry_receiver = parallel_walk_dir(&context.root, move |e| filter_func(e, &root, &filters));
     let mut count = 0;
-    loop {
-        match walker_it.next() {
-            None => break,
-            Some(Err(e)) => return Err(format!("Error fetching entries of root '{}': {e}", context.root.display())),
-            Some(Ok(e)) => {
+    while let Ok(entry) = entry_receiver.recv() {
+        count += 1;
+        match entry {
+            Err(e) => return Err(format!("Error fetching entries of root '{}': {e}", context.root.display())),
+            Ok(e) => {
                 trace!("Processing entry {:?}", e);
                 profile_this!("Processing entry");
 
-                // Skip the first entry - the root, as the boss already has details of this from SetRoot.
-                if e.depth() == 0 {
-                    continue;
-                }
+                // The root-relative path was stored when this entry was tested against the filter,
+                // so that we don't need to re-normalize it here.
+                let path = e.additional_data;
 
-                // Check if we should filter this entry.
-                // First normalize the path to our platform-independent representation, so that the filters
-                // apply equally well on both source and dest sides, if they are different platforms.
-
-                // Paths returned by WalkDir will include the root, but we want paths relative to the root
-                // The strip_prefix should always be successful, because the entry has to be inside the root.
-                let path = e.path().strip_prefix(&context.root).unwrap();
-                // Convert to platform-agnostic representation
-                let path = match normalize_path(path) {
-                    Ok(p) => p,
-                    Err(e) => return Err(format!("normalize_path failed on '{}': {e}", path.display())),
-                };
-
-                if apply_filters(&path, &filters) == FilterResult::Exclude {
-                    trace!("Skipping '{}' due to filter", path);
-                    if e.file_type().is_dir() {
-                        // Filtering a folder prevents iterating into child files/folders, so this is efficient.
-                        walker_it.skip_current_dir();
-                    }
-                    continue;
-                }
-
-                let metadata = match e.metadata() {
+                let metadata = match e.dir_entry.metadata() {
                     Ok(m) => m,
                     Err(err) => return Err(format!("Unable to get metadata for '{}': {err}", path)),
                 };
 
-                let d = entry_details_from_metadata(metadata, e.path())?;
+                let d = entry_details_from_metadata(metadata, &e.dir_entry.path())?;
 
                 comms.send_response(Response::Entry((path, d)))?;
             }
         }
-        count += 1;
     }
 
     let elapsed = start.elapsed().as_millis();

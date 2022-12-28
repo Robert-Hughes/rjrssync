@@ -58,12 +58,10 @@ Also the same buffer size this is used for both the filesystem read() buffer siz
 Performance
 ------------
 
-* Investigate if parallelising some stages would speed it up, e.g. walking the dir structure on multiple threads (use a pool of workers, all fetching and adding jobs to a common queue (channel), whenever they encounter a directory that needs recursing into, and sending results onto a channel where a receiver can collect them), or sending data across network on multiple threads
-   - Maybe check if WalkDir is slow, by comparing its performance with direct std::fs stuff or even native OS stuff?
-   - From experiment with `walker` example, using multiple threads for directory walking makes it much faster! (up to 4x). Implement this into rjrssync!
+* Investigate if parallelising copying/deleting would speed it up
 * Investigate if pipelining some stages would speed it up, e.g. encrypting and serialization at same time
 * Probably better to batch together File() Responses, to avoid overhead from sending loads of messages
-* If launching two remote doers, then it would be quicker to run the two setup_comms in paśallel
+* If launching two remote doers, then it would be quicker to run the two setup_comms in parallel
    - need to watch out for ssh prompts though - what if we get two of these in parallel!
 * Could investigate using UDP or something else to reduce TCP overhead, possibly this could speed up the TCP connection time?
 * Benchmarking with two remotes rather than just one
