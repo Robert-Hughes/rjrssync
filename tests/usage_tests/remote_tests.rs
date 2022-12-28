@@ -22,7 +22,7 @@ fn test_remote_launch_impl(remote_platform_temp_variable: &str) {
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
-            Regex::new("Compiling rjrssync").unwrap(),
+            (1, Regex::new("Compiling rjrssync").unwrap()),
         ],
         ..Default::default()
     });
@@ -37,8 +37,8 @@ fn test_remote_launch_impl(remote_platform_temp_variable: &str) {
             format!("{remote_platform_temp_variable}/dest")
         ],
         expected_exit_code: 0,
-        unexpected_output_messages: vec![
-            Regex::new("Compiling rjrssync").unwrap(),
+        expected_output_messages: vec![
+            (0, Regex::new("Compiling rjrssync").unwrap()),
         ],
         ..Default::default()
     });

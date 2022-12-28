@@ -41,9 +41,9 @@ fn run_trailing_slashes_test_expect_success_override_dest(src_node: Option<&File
         expected_exit_code: 0,
         expected_output_messages: vec![
             if matches!(src_node, Some(FilesystemNode::Symlink { .. })) {
-                Regex::new(&regex::escape(&format!("copied {} symlink(s)", expected_num_copies))).unwrap()
+                (1, Regex::new(&regex::escape(&format!("copied {} symlink(s)", expected_num_copies))).unwrap())
             } else {
-                Regex::new(&regex::escape(&format!("Copied {} file(s)", expected_num_copies))).unwrap()
+                (1, Regex::new(&regex::escape(&format!("Copied {} file(s)", expected_num_copies))).unwrap())
             }
         ],
         expected_filesystem_nodes: vec![
@@ -76,7 +76,7 @@ fn run_trailing_slashes_test_expected_failure(src_node: Option<&FilesystemNode>,
         ],
         expected_exit_code: 12,
         expected_output_messages: vec![
-            expected_error,
+            (1, expected_error),
         ],
         expected_filesystem_nodes: vec![
             // Both src and dest should be unchanged, as the sync should have failed

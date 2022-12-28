@@ -261,17 +261,15 @@ pub struct TestDesc<'a> {
     pub prompt_responses: Vec<String>,
     /// The expected exit code of rjrssync (e.g. 0 for success).
     pub expected_exit_code: i32,
-    /// Messages that are expected to be present in rjrssync's stdout/stderr
-    pub expected_output_messages: Vec<Regex>,
-    /// Messages that are expected to _not_ be present in rjrssync's stdout/stderr
-    pub unexpected_output_messages: Vec<Regex>,
+    /// Messages that are expected to be present in rjrssync's stdout/stderr, 
+    /// along with the expected number of occurences (use zero to indicate that a message should _not_ appear).
+    pub expected_output_messages: Vec<(usize, Regex)>,
     /// The filesystem at the given paths are expected to be as described (including None, for non-existent)
     pub expected_filesystem_nodes: Vec<(&'a str, Option<&'a FilesystemNode>)>
 }
 impl TestDesc<'_> {
     pub fn with_expected_actions(mut self, actions: NumActions) -> Self {
         self.expected_output_messages.append(&mut actions.get_expected_output_messages());
-        self.unexpected_output_messages.append(&mut actions.get_unexpected_output_messages());
         self
     }
 }
@@ -341,15 +339,10 @@ pub fn run(desc: TestDesc) {
 
     // Check for expected output messages
     let actual_output = output.stderr + &output.stdout;
-    for m in desc.expected_output_messages {
-        println!("Checking for match against '{}'", m);
-        assert!(m.is_match(&actual_output));
-    }
-
-    // Check for unexpected output messages
-    for m in desc.unexpected_output_messages {
-        println!("Checking for NO match against '{}'", m);
-        assert!(!m.is_match(&actual_output));
+    for (n, r) in desc.expected_output_messages {
+        println!("Checking for match(es) against '{}'", r);
+        let actual_matches = r.find_iter(&actual_output).count();
+        assert_eq!(actual_matches, n);
     }
 
     // Check the filesystem is as expected afterwards
@@ -395,32 +388,26 @@ pub fn copied_files_folders_and_symlinks(files: u32, folders: u32, symlinks: u32
 }
 
 impl NumActions {
-    pub fn get_expected_output_messages(&self) -> Vec<Regex> {
+    pub fn get_expected_output_messages(&self) -> Vec<(usize, Regex)> {
         let mut result = vec![];
         if self.copied_files + self.created_folders + self.copied_symlinks > 0 {
-            result.push(Regex::new(&regex::escape(&format!("Copied {} file(s)", self.copied_files))).unwrap());
-            result.push(Regex::new(&regex::escape(&format!("created {} folder(s)", self.created_folders))).unwrap());
-            result.push(Regex::new(&regex::escape(&format!("copied {} symlink(s)", self.copied_symlinks))).unwrap());    
+            result.push((1, Regex::new(&regex::escape(&format!("Copied {} file(s)", self.copied_files))).unwrap()));
+            result.push((1, Regex::new(&regex::escape(&format!("created {} folder(s)", self.created_folders))).unwrap()));
+            result.push((1, Regex::new(&regex::escape(&format!("copied {} symlink(s)", self.copied_symlinks))).unwrap()));
+        } else {
+            result.push((0, Regex::new("Copied|copied|created").unwrap()));
         }
         if self.deleted_files + self.deleted_folders + self.deleted_symlinks > 0 {
-            result.push(Regex::new(&regex::escape(&format!("Deleted {} file(s), {} folder(s) and {} symlink(s)",
+            result.push((1, Regex::new(&regex::escape(&format!("Deleted {} file(s), {} folder(s) and {} symlink(s)",
                 self.deleted_files,
                 self.deleted_folders,
-                self.deleted_symlinks))).unwrap());
+                self.deleted_symlinks))).unwrap()));
+        } else {
+            result.push((0, Regex::new("Deleted|deleted").unwrap()));            
         }
-        if result.is_empty() {
-            result.push(Regex::new(&regex::escape("Nothing to do")).unwrap());    
-        }
-        result
-    }
-
-    pub fn get_unexpected_output_messages(&self) -> Vec<Regex> {
-        let mut result = vec![];
-        if self.copied_files + self.created_folders + self.copied_symlinks == 0 {
-            result.push(Regex::new("Copied|copied|created").unwrap());            
-        }
-        if self.deleted_files + self.deleted_folders + self.deleted_symlinks == 0 {
-            result.push(Regex::new("Deleted|deleted").unwrap());            
+        if self.copied_files + self.created_folders + self.copied_symlinks +
+           self.deleted_files + self.deleted_folders + self.deleted_symlinks == 0 {
+            result.push((1, Regex::new(&regex::escape("Nothing to do")).unwrap()));
         }
         result
     }

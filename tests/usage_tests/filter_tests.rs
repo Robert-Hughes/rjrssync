@@ -96,7 +96,7 @@ fn test_invalid_filter_prefix() {
         ],
         expected_exit_code: 12,
         expected_output_messages: vec![
-            Regex::new(&regex::escape("Invalid filter 'BLARG'")).unwrap(),
+            (1, Regex::new(&regex::escape("Invalid filter 'BLARG'")).unwrap()),
         ],
         ..Default::default()
     });
@@ -117,7 +117,7 @@ fn test_invalid_filter_regex() {
        ],
         expected_exit_code: 12,
         expected_output_messages: vec![
-            Regex::new(&regex::escape("regex parse error")).unwrap(),
+            (1, Regex::new(&regex::escape("regex parse error")).unwrap()),
         ],
         ..Default::default()
     });
@@ -148,7 +148,7 @@ fn test_remove_dest_folder_with_excluded_files() {
         expected_exit_code: 12,
         expected_output_messages: vec![
             // Check for both Linux and Windows error messages
-            Regex::new("(The directory is not empty)|(Directory not empty)").unwrap(),
+            (1, Regex::new("(The directory is not empty)|(Directory not empty)").unwrap()),
         ],
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&src_folder)), // Source should always be unchanged

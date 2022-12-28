@@ -33,8 +33,9 @@ fn prompt_cancel() {
         ],
         expected_exit_code: 12,
         expected_output_messages: vec![
-            Regex::new("dest root folder .* needs deleting").unwrap(),
-            Regex::new(&regex::escape("Will not delete")).unwrap(), // skipped
+            // We actaully get this message twice - once for the prompt and once in the error message after the prompt is cancelled
+            (2, Regex::new("dest root folder .* needs deleting").unwrap()),
+            (1, Regex::new(&regex::escape("Will not delete")).unwrap()), // skipped
         ],
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&src)), // Unchanged
@@ -66,8 +67,8 @@ fn prompt_delete() {
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
-            Regex::new("dest root folder .* needs deleting").unwrap(),
-            Regex::new(&regex::escape("Deleted 0 file(s), 1 folder(s)")).unwrap(), // The root folder is deleted
+            (1, Regex::new("dest root folder .* needs deleting").unwrap()),
+            (1, Regex::new(&regex::escape("Deleted 0 file(s), 1 folder(s)")).unwrap()), // The root folder is deleted
         ],
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&src)), // Unchanged
@@ -99,7 +100,7 @@ fn prompt_skip() {
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
-            Regex::new("dest root folder .* needs deleting").unwrap(),
+            (1, Regex::new("dest root folder .* needs deleting").unwrap()),
         ],
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&src)), // Unchanged
@@ -133,7 +134,7 @@ fn error() {
         ],
         expected_exit_code: 12,
         expected_output_messages: vec![
-            Regex::new(&regex::escape("Will not delete")).unwrap(),
+            (1, Regex::new(&regex::escape("Will not delete")).unwrap()),
         ],
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&src)), // Unchanged
@@ -195,7 +196,7 @@ fn delete() {
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
-            Regex::new(&regex::escape("Deleted 1 file(s), 1 folder(s)")).unwrap(), // The file inside and the root folder deleted
+            (1, Regex::new(&regex::escape("Deleted 1 file(s), 1 folder(s)")).unwrap()), // The file inside and the root folder deleted
         ],
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&src)), // Unchanged

@@ -279,9 +279,9 @@ fn test_file_to_symlink_file_dest_root() {
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
-            Regex::new(&regex::escape("Copied 1 file(s)")).unwrap(),
-            Regex::new(&regex::escape("copied 0 symlink(s)")).unwrap(),
-            Regex::new("Deleted .* and 1 symlink").unwrap()
+            (1, Regex::new(&regex::escape("Copied 1 file(s)")).unwrap()),
+            (1, Regex::new(&regex::escape("copied 0 symlink(s)")).unwrap()),
+            (1, Regex::new("Deleted .* and 1 symlink").unwrap())
         ],
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&src)), // Source should always be unchanged
@@ -317,9 +317,9 @@ fn test_file_to_symlink_folder_dest_root() {
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
-            Regex::new(&regex::escape("Copied 1 file(s)")).unwrap(),
-            Regex::new(&regex::escape("copied 0 symlink(s)")).unwrap(),
-            Regex::new("Deleted .* and 1 symlink").unwrap()
+            (1, Regex::new(&regex::escape("Copied 1 file(s)")).unwrap()),
+            (1, Regex::new(&regex::escape("copied 0 symlink(s)")).unwrap()),
+            (1, Regex::new("Deleted .* and 1 symlink").unwrap())
         ],
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&src)), // Source should always be unchanged
@@ -412,7 +412,7 @@ fn test_unknown_symlink_unix_to_windows() {
         ],
         expected_exit_code: 12,
         expected_output_messages: vec! [
-            Regex::new(&regex::escape("Can't create symlink of unknown kind on this platform")).unwrap()
+            (1, Regex::new(&regex::escape("Can't create symlink of unknown kind on this platform")).unwrap())
         ],
         ..Default::default()
     });

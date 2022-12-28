@@ -39,11 +39,11 @@ fn prompt_skip_then_overwrite() {
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
-            Regex::new("dest file .*c1.* is older than source file .*c1.*").unwrap(),
-            Regex::new("dest file .*c2.* is older than source file .*c2.*").unwrap(),
+            (1, Regex::new("dest file .*c1.* is older than source file .*c1.*").unwrap()),
+            (1, Regex::new("dest file .*c2.* is older than source file .*c2.*").unwrap()),
             // Note that we need this last check, to make sure that the second prompt response only affects one file, not all remaining files
-            Regex::new("dest file .*c3.* is older than source file .*c3.*").unwrap(), 
-            Regex::new(&regex::escape("Copied 1 file(s)")).unwrap(), // 1 file copied the other skipped
+            (1, Regex::new("dest file .*c3.* is older than source file .*c3.*").unwrap()), 
+            (1, Regex::new(&regex::escape("Copied 1 file(s)")).unwrap()), // 1 file copied the other skipped
         ],
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&src)), // Unchanged
@@ -86,11 +86,8 @@ fn prompt_skip_all() {
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
-            Regex::new("dest file .*c1.* is older than source file .*c1.*").unwrap(),
-            Regex::new(&regex::escape("Nothing to do")).unwrap(), // Both files skipped
-        ],
-        unexpected_output_messages: vec![
-            Regex::new("dest file .*c2.* is older than source file .*c2.*").unwrap(), // We'll never be prompted about c2, because we choose to "skip all"
+            (1, Regex::new("dest file .*c\\d.* is older than source file .*c\\d.*").unwrap()), // We can't be sure which file we'll be prompted about, because the order is non-deterministic, we just need to make sure there's only one
+            (1, Regex::new(&regex::escape("Nothing to do")).unwrap()), // Both files skipped
         ],
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&src)), // Unchanged
@@ -129,11 +126,8 @@ fn prompt_overwrite_all() {
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
-            Regex::new("dest file .*c1.* is older than source file .*c1.*").unwrap(),
-            Regex::new(&regex::escape("Copied 2 file(s)")).unwrap(), // Both files copied
-        ],
-        unexpected_output_messages: vec![
-            Regex::new("dest file .*c2.* is older than source file .*c2.*").unwrap(), // We'll never be prompted about c2, because we choose to "overwrite all"
+            (1, Regex::new("dest file .*c\\d.* is older than source file .*c\\d.*").unwrap()), // We can't be sure which file we'll be prompted about, because the order is non-deterministic, we just need to make sure there's only one
+            (1, Regex::new(&regex::escape("Copied 2 file(s)")).unwrap()), // Both files copied
         ],
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&src)), // Unchanged
@@ -170,8 +164,9 @@ fn prompt_cancel() {
         ],
         expected_exit_code: 12,
         expected_output_messages: vec![
-            Regex::new("dest file .*c1.* is older than source file .*c1.*").unwrap(),
-            Regex::new(&regex::escape("Will not overwrite")).unwrap(), // Cancelled
+            // We actaully get this message twice - once for the prompt and once in the error message after the prompt is cancelled
+            (2, Regex::new("dest file .*c1.* is older than source file .*c1.*").unwrap()), 
+            (1, Regex::new(&regex::escape("Will not overwrite")).unwrap()), // Cancelled
         ],
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&src)), // Unchanged
@@ -205,7 +200,7 @@ fn error() {
         ],
         expected_exit_code: 12,
         expected_output_messages: vec![
-            Regex::new(&regex::escape("Will not overwrite")).unwrap(),
+            (1, Regex::new(&regex::escape("Will not overwrite")).unwrap()),
         ],
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&src)), // Unchanged
@@ -239,7 +234,7 @@ fn skip() {
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
-            Regex::new(&regex::escape("Nothing to do")).unwrap(),
+            (1, Regex::new(&regex::escape("Nothing to do")).unwrap()),
         ],
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&src)), // Unchanged
@@ -273,7 +268,7 @@ fn overwrite() {
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
-            Regex::new(&regex::escape("Copied 1 file(s)")).unwrap(),
+            (1, Regex::new(&regex::escape("Copied 1 file(s)")).unwrap()),
         ],
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&src)), // Unchanged

@@ -145,9 +145,9 @@ fn test_spec_file() {
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
-            Regex::new(&regex::escape("src1/ => dest1/")).unwrap(),
-            Regex::new(&regex::escape("src2/ => dest2/")).unwrap(),
-            Regex::new(&regex::escape("Copied 1 file(s)")).unwrap(),
+            (1, Regex::new(&regex::escape("src1/ => dest1/")).unwrap()),
+            (1, Regex::new(&regex::escape("src2/ => dest2/")).unwrap()),
+            (2, Regex::new(&regex::escape("Copied 1 file(s)")).unwrap()),
         ],
         expected_filesystem_nodes: vec![
             ("$TEMP/dest1", Some(&src1)),
