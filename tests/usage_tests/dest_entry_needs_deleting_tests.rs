@@ -28,9 +28,10 @@ fn prompt_skip_then_delete() {
             "prompt".to_string(),
         ],
         prompt_responses: vec![
-            String::from("Skip (just this occurence)"),
-            String::from("Delete (just this occurence)"),
-            String::from("Skip (just this occurence)"),
+            // We don't know what order the prompts will appear, so make sure that we match against the filename
+            String::from("1:.*c1.*:Skip (just this occurence)"),
+            String::from("1:.*c2.*:Delete (just this occurence)"),
+            String::from("1:.*c3.*:Skip (just this occurence)"),
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
@@ -72,7 +73,7 @@ fn prompt_skip_all() {
             "prompt".to_string(),
         ],
         prompt_responses: vec![
-            String::from("Skip (all occurences)"),
+            String::from("1:.*:Skip (all occurences)"),
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
@@ -108,7 +109,7 @@ fn prompt_delete_all() {
             "prompt".to_string(),
         ],
         prompt_responses: vec![
-            String::from("Delete (all occurences)"),
+            String::from("1:.*:Delete (all occurences)"),
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
@@ -143,7 +144,7 @@ fn prompt_cancel() {
             "prompt".to_string(),
         ],
         prompt_responses: vec![
-            String::from("Cancel sync"),
+            String::from("1:.*:Cancel sync"),
         ],
         expected_exit_code: 12,
         expected_output_messages: vec![

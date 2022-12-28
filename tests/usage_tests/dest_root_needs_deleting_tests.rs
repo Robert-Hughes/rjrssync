@@ -29,7 +29,7 @@ fn prompt_cancel() {
             "prompt".to_string(),
         ],
         prompt_responses: vec![
-            String::from("Cancel sync"),
+            String::from("1:.*:Cancel sync"),
         ],
         expected_exit_code: 12,
         expected_output_messages: vec![
@@ -63,7 +63,7 @@ fn prompt_delete() {
             "prompt".to_string(),
         ],
         prompt_responses: vec![
-            String::from("Delete"),
+            String::from("1:.*:Delete"),
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
@@ -96,7 +96,7 @@ fn prompt_skip() {
             "prompt".to_string(),
         ],
         prompt_responses: vec![
-            String::from("Skip"),
+            String::from("1:.*:Skip"),
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![

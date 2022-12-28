@@ -17,6 +17,7 @@ Interface
 * Decide if info! (and other) log messages should be on stdout or stderr
 * When showing multiple prompts, could remember the selection from previous time the same prompt was shown and use that as the default for the next one?
 * Maybe could make "Connecting" spinner actually spin, until the first message from ssh?
+* When cancelling sync from a prompt, now getting TCP error as well which isn't nice. Perhaps this is an issue for any non-successful exit of the program? Maybe need to call shutdown() of the comms in all cases rather than earlying-out?
 
 
 Remote launching

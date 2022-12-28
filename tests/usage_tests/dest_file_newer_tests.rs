@@ -33,9 +33,10 @@ fn prompt_skip_then_overwrite() {
             "prompt".to_string(),
         ],
         prompt_responses: vec![
-            String::from("Skip (just this occurence)"),
-            String::from("Overwrite (just this occurence)"),
-            String::from("Skip (just this occurence)"),
+            // We don't know what order the prompts will appear, so make sure that we match against the filename
+            String::from("1:.*c1.*:Skip (just this occurence)"),
+            String::from("1:.*c2.*:Overwrite (just this occurence)"),
+            String::from("1:.*c3.*:Skip (just this occurence)"),
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
@@ -82,7 +83,7 @@ fn prompt_skip_all() {
             "prompt".to_string(),
         ],
         prompt_responses: vec![
-            String::from("Skip (all occurences)"),
+            String::from("1:.*:Skip (all occurences)"),
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
@@ -122,7 +123,7 @@ fn prompt_overwrite_all() {
             "prompt".to_string(),
         ],
         prompt_responses: vec![
-            String::from("Overwrite (all occurences)"),
+            String::from("1:.*:Overwrite (all occurences)"),
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
@@ -160,7 +161,7 @@ fn prompt_cancel() {
             "prompt".to_string(),
         ],
         prompt_responses: vec![
-            String::from("Cancel sync"),
+            String::from("1:.*:Cancel sync"),
         ],
         expected_exit_code: 12,
         expected_output_messages: vec![

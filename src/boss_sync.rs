@@ -1,12 +1,13 @@
 use std::{
     cmp::Ordering,
-    fmt::{Display, Write}, time::{Instant, SystemTime, Duration}, collections::HashMap,
+    fmt::{Display, Write}, time::{Instant, SystemTime, Duration}, collections::HashMap, sync::Mutex,
 };
 
 use console::{Style};
 use indicatif::{ProgressBar, ProgressStyle, HumanCount, HumanBytes};
 use log::{debug, info, trace};
-use regex::RegexSet;
+use regex::{RegexSet, Regex};
+use lazy_static::{lazy_static};
 
 use crate::*;
 
@@ -899,6 +900,47 @@ fn handle_existing_file(
 /// to respond.
 const TEST_PROMPT_RESPONSE_ENV_VAR: &str = "RJRSSYNC_TEST_PROMPT_RESPONSE";
 
+lazy_static! {
+    // We're only accessing this on one thread, but the compiler doesn't know that so we need a mutex.
+    // It's only used for the prompt code, so performance should not be a concern.
+    static ref TEST_PROMPT_RESPONSES: Mutex<TestPromptResponses> = Mutex::new(TestPromptResponses::from_env());
+}
+
+struct TestPromptResponses {
+    responses: Vec<(usize, Regex, String)>
+}
+impl TestPromptResponses {
+    fn from_env() -> TestPromptResponses {
+        let mut result = TestPromptResponses { responses: vec![] };
+        if let Ok(all_responses) = std::env::var(TEST_PROMPT_RESPONSE_ENV_VAR) {
+            // The env var is a comma-separated list of entries, where each entry has
+            // a regex defining what prompts it matches, a maximum number of prompts that it 
+            // can be used to respond to and the prompt response itself.
+            // The count reduces each time the response is used,
+            // and once it hits zero it will no longer be used as a response.
+            for max_occurences_and_regex in all_responses.split(',') {
+                let mut parts = max_occurences_and_regex.splitn(3, ':');
+                let max_occurences = parts.next().expect("Invalid syntax").parse::<usize>().expect("Invalid number");
+                let regex = Regex::new(parts.next().expect("Invalid syntax")).expect("Invalid regex");
+                let response = parts.next().expect("Invalid syntax");
+                result.responses.push((max_occurences, regex, response.to_string()));
+            }
+        }
+        result
+    }
+
+    /// Gets the response to use for the given prompt, and reduces the max occurences count accordingly.
+    fn get_response(&mut self, prompt: &str) -> Option<String> {
+        for (max_occurences, regex, response) in &mut self.responses {
+            if regex.is_match(prompt) && *max_occurences > 0 {
+                *max_occurences -= 1;
+                return Some(response.clone());
+            }
+        }
+        None
+    }
+}
+
 #[derive(Clone, Copy)]
 struct ResolvePromptResult<B> {
     /// The decision that was made for this occurence.
@@ -931,15 +973,10 @@ fn resolve_prompt<B: Copy>(prompt: String, progress_bar: &ProgressBar,
 
     // Allow overriding the prompt response for testing
     let mut response_idx = None;
-    if let Ok(all_responses) = std::env::var(TEST_PROMPT_RESPONSE_ENV_VAR) {
-        let mut iter = all_responses.splitn(2, ',');
-        let next_response = iter.next().unwrap(); // It always has at least one entry, even if the input string is empty
-        if !next_response.is_empty() {
-            // Print the prompt anyway, so the test can confirm that it was hit
-            println!("{}", prompt);
-            response_idx = Some(items.iter().position(|i| i.0 == next_response).expect("Invalid response"));
-            std::env::set_var(TEST_PROMPT_RESPONSE_ENV_VAR, iter.next().unwrap_or(""));
-        }
+    if let Some(auto_response) = TEST_PROMPT_RESPONSES.lock().expect("Mutex problem").get_response(&prompt) {
+        // Print the prompt anyway, so the test can confirm that it was hit
+        println!("{}", prompt);
+        response_idx = Some(items.iter().position(|i| i.0 == auto_response).expect("Invalid response"));
     }
     let response_idx = match response_idx {
         Some(r) => r,
