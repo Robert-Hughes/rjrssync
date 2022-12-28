@@ -59,6 +59,7 @@ Also the same buffer size this is used for both the filesystem read() buffer siz
 Performance
 ------------
 
+* The change to parallelise walking directories made things faster on Windows, but seemingly slower on Linux (WSL). See commit 2128727 which updated the benchmark figures and commit d807da2 which made the code change. Perhaps on Linux we should just use a single thread?
 * Investigate if parallelising copying/deleting would speed it up
 * Investigate if pipelining some stages would speed it up, e.g. encrypting and serialization at same time
 * Probably better to batch together File() Responses, to avoid overhead from sending loads of messages
