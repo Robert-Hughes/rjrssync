@@ -69,4 +69,8 @@ bench = false # Prevent from being run as a benchmark when running "cargo bench"
 name = "tcper"
 bench = false # Prevent from being run as a benchmark when running "cargo bench"
 
+[[example]]
+name = "walker"
+bench = false # Prevent from being run as a benchmark when running "cargo bench"
+
 #end
