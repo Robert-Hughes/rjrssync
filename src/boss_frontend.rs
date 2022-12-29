@@ -496,6 +496,76 @@ pub fn boss_main() -> ExitCode {
         }
     };
 
+    let exit_code = execute_spec(spec, &args);
+
+    stop_timer(timer);
+
+    dump_all_profiling();
+
+    // Dump memory usage figures when used for benchmarking. There isn't a good way of determining this from the benchmarking app
+    // (especially for remote processes), so we instrument it instead.
+    if std::env::var("RJRSSYNC_TEST_DUMP_MEMORY_USAGE").is_ok() {
+        println!("Boss peak memory usage: {}", profiling::get_peak_memory_usage());
+    }
+
+    exit_code
+}
+
+/// Figures out the Spec that we should execute, from a combination of the command-line args
+/// and a --spec file (if provided)
+fn resolve_spec(args: &BossCliArgs) -> Result<Spec, String> {
+    let mut spec = Spec::default();
+    match &args.spec {
+        Some(s) => {
+            // If --spec was provided, use that as the starting point
+            spec = match parse_spec_file(Path::new(&s)) {
+                Ok(s) => s,
+                Err(e) => return Err(format!("Failed to parse spec file at '{}': {}", s, e)),
+            }
+            // Some things in the spec file are overridable by command line equivalents (behaviours, filters etc.)
+            // which is done below
+        },
+        None => {
+            // No spec - the command-line must have the src and dest specified
+            let src = args.src.as_ref().unwrap(); // Command-line parsing rules means these must be valid, if spec is not provided
+            let dest = args.dest.as_ref().unwrap();
+            spec.src_hostname = src.hostname.clone();
+            spec.src_username = src.username.clone();
+            spec.dest_hostname = dest.hostname.clone();
+            spec.dest_username = dest.username.clone();
+            spec.syncs.push(SyncSpec { 
+                src: src.path.clone(), 
+                dest: dest.path.clone(),
+                ..Default::default()
+            });
+            // The rest of the command-line arguments are applied below (as they are also relevant
+            // when a spec file is used).
+        }
+    }
+
+    // Apply additional command-line args, which may override/augment what's in the spec file.
+    for mut sync in &mut spec.syncs {
+        if !args.filters.is_empty() {
+            sync.filters = args.filters.clone();
+        }
+        if let Some(b) = args.dest_file_newer {
+            sync.dest_file_newer_behaviour = b;
+        }
+        if let Some(b) = args.dest_file_older {
+            sync.dest_file_older_behaviour = b;
+        }
+        if let Some(b) = args.dest_entry_needs_deleting {
+            sync.dest_entry_needs_deleting_behaviour = b;
+        }
+        if let Some(b) = args.dest_root_needs_deleting {
+            sync.dest_root_needs_deleting_behaviour = b;
+        }
+    }
+
+    Ok(spec)
+}
+
+fn execute_spec(spec: Spec, args: &BossCliArgs) -> ExitCode {
     // The src and/or dest may be on another computer. We need to run a copy of rjrssync on the remote
     // computer(s) and set up network commmunication.
     // There are therefore up to three copies of our program involved (although some may actually be the same as each other)
@@ -562,71 +632,7 @@ pub fn boss_main() -> ExitCode {
     src_comms.shutdown();
     dest_comms.shutdown();
 
-    stop_timer(timer);
-
-    dump_all_profiling();
-
-    // Dump memory usage figures when used for benchmarking. There isn't a good way of determining this from the benchmarking app
-    // (especially for remote processes), so we instrument it instead.
-    if std::env::var("RJRSSYNC_TEST_DUMP_MEMORY_USAGE").is_ok() {
-        println!("Boss peak memory usage: {}", profiling::get_peak_memory_usage());
-    }
-
     ExitCode::SUCCESS
-}
-
-/// Figures out the Spec that we should execute, from a combination of the command-line args
-/// and a --spec file (if provided)
-fn resolve_spec(args: &BossCliArgs) -> Result<Spec, String> {
-    let mut spec = Spec::default();
-    match &args.spec {
-        Some(s) => {
-            // If --spec was provided, use that as the starting point
-            spec = match parse_spec_file(Path::new(&s)) {
-                Ok(s) => s,
-                Err(e) => return Err(format!("Failed to parse spec file at '{}': {}", s, e)),
-            }
-            // Some things in the spec file are overridable by command line equivalents (behaviours, filters etc.)
-            // which is done below
-        },
-        None => {
-            // No spec - the command-line must have the src and dest specified
-            let src = args.src.as_ref().unwrap(); // Command-line parsing rules means these must be valid, if spec is not provided
-            let dest = args.dest.as_ref().unwrap();
-            spec.src_hostname = src.hostname.clone();
-            spec.src_username = src.username.clone();
-            spec.dest_hostname = dest.hostname.clone();
-            spec.dest_username = dest.username.clone();
-            spec.syncs.push(SyncSpec { 
-                src: src.path.clone(), 
-                dest: dest.path.clone(),
-                ..Default::default()
-            });
-            // The rest of the command-line arguments are applied below (as they are also relevant
-            // when a spec file is used).
-        }
-    }
-
-    // Apply additional command-line args, which may override/augment what's in the spec file.
-    for mut sync in &mut spec.syncs {
-        if !args.filters.is_empty() {
-            sync.filters = args.filters.clone();
-        }
-        if let Some(b) = args.dest_file_newer {
-            sync.dest_file_newer_behaviour = b;
-        }
-        if let Some(b) = args.dest_file_older {
-            sync.dest_file_older_behaviour = b;
-        }
-        if let Some(b) = args.dest_entry_needs_deleting {
-            sync.dest_entry_needs_deleting_behaviour = b;
-        }
-        if let Some(b) = args.dest_root_needs_deleting {
-            sync.dest_root_needs_deleting_behaviour = b;
-        }
-    }
-
-    Ok(spec)
 }
 
 #[cfg(test)]

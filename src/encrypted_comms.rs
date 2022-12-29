@@ -56,9 +56,12 @@ impl<S: Serialize + Send + 'static + Debug, R: for<'a> Deserialize<'a> + Seriali
                     };
                     if let Err(e) = send(s, &mut tcp_connection_clone1, &cipher, &mut sending_nonce_counter, sending_nonce_lsb) {
                         // There was an error sending a message, which shouldn't happen in normal operation.
-                        // Log an error, and stop this background thread, which will close the receiving side of the 
+                        // Stop this background thread, which will close the receiving side of the 
                         // channel. The main thread will detect this as a closed channel.
-                        error!("Sending thread '{sending_thread_name}' shutting down due to error sending on TCP: {e}");
+                        // Note we don't log this as an error, as we leave this up to the main thread to report when this thread
+                        // gets joined, otherwise we might report the error at an inappropriate time, e.g. if the sync is cancelled due
+                        // to an error and the connection drops, we don't want to report the connection dropping as well as the original error.
+                        trace!("Sending thread '{sending_thread_name}' shutting down due to error sending on TCP: {e}");
                         return Err(e);
                     }                    
                 }
@@ -78,14 +81,20 @@ impl<S: Serialize + Send + 'static + Debug, R: for<'a> Deserialize<'a> + Seriali
                             // There was an error receiving a message, which shouldn't happen in normal operation.
                             // Log an error, and stop this background thread, which will close the sending side of the 
                             // channel. The main thread will detect this as a closed channel.
-                            error!("Receiving thread '{receiving_thread_name}' shutting down due to error receiving from TCP: {e}");
+                            // Note we don't log this as an error, as we leave this up to the main thread to report when this thread
+                            // gets joined, otherwise we might report the error at an inappropriate time, e.g. if the sync is cancelled due
+                            // to an error and the connection drops, we don't want to report the connection dropping as well as the original error.
+                            trace!("Receiving thread '{receiving_thread_name}' shutting down due to error receiving from TCP: {e}");
                             return Err(e);
                         }
                     };
                     let is_final_message = r.is_final_message();
                     if thread_sender.send(r).is_err() {
                         // The main thread receiver has been dropped, which shouldn't happen during normal operation
-                        error!("Receiving thread '{receiving_thread_name}' shutting down due to closed channel");
+                        // Note we don't log this as an error, as we leave this up to the main thread to report when this thread
+                        // gets joined, otherwise we might report the error at an inappropriate time, e.g. if the sync is cancelled due
+                        // to an error and the connection drops, we don't want to report the connection dropping as well as the original error.
+                        trace!("Receiving thread '{receiving_thread_name}' shutting down due to closed channel");
                         return Err("Communications with main thread broken".to_string());
                     };
                     // Stop this thread cleanly if that was the final message
