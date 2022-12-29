@@ -42,7 +42,7 @@ struct ThreadRecorder {
 }
 impl Drop for ThreadRecorder {
     fn drop(&mut self) {
-        let thread_name = std::thread::current().name().unwrap().to_string();
+        let thread_name = std::thread::current().name().expect("Thread has no name").to_string();
         trace!("Moving thread profiling data to global for thread '{}'", thread_name);
         GLOBAL_PROFILING_DATA.lock().expect("Locking error").processes.entry(LOCAL_PROCESS_NAME.to_string())
             .or_default().threads.insert(thread_name, ThreadProfilingData {
@@ -170,7 +170,7 @@ impl GlobalProfilingData {
             let keys : Vec<String> = name_to_tid.keys().map(|t| (*t).clone()).collect();
             for thread_name in keys {
                 let idx = thread_name_to_first_event.iter().position(|x| x.0 == thread_name).unwrap();
-                let new_thread_name = format!("{idx}) {thread_name}");
+                let new_thread_name = format!("{idx:0>2}) {thread_name}");
                 let v = name_to_tid.remove(&thread_name).unwrap();
                 name_to_tid.insert(new_thread_name, v);
             }

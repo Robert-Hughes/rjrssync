@@ -1,6 +1,8 @@
-use std::{path::{Path, PathBuf}, sync::{Arc, atomic::{AtomicUsize, Ordering}}};
+use std::{path::{Path, PathBuf}, sync::{Arc, atomic::{AtomicUsize, Ordering}}, thread};
 
-use crossbeam::channel::{Receiver, Sender, SendError};
+use crossbeam::{channel::{Receiver, Sender, SendError}, utils::Backoff};
+
+use crate::profiling;
 
 /// Similar to WalkDir from the walk_dir crate, this function gets all the files/folders/etc.
 /// recursively inside a root directory. 
@@ -36,14 +38,14 @@ pub fn parallel_walk_dir<
     let num_threads = num_cpus::get();
 
     // Spawn worker threads
-    for _ in 0..num_threads {
+    for i in 0..num_threads {
         let job_sender = job_sender.clone();
         let job_receiver = job_receiver.clone();
         let result_sender = result_sender.clone();
         let num_unfinished_jobs = num_unfinished_jobs.clone();
         let filter_func = filter_func.clone();
-        std::thread::spawn(move || worker_main(job_sender, job_receiver, result_sender,
-            num_unfinished_jobs, num_threads, filter_func));
+        thread::Builder::new().name(format!("parallel_walk_dir_{}_{i}", root.display())).spawn(move || worker_main(job_sender, job_receiver, result_sender,
+            num_unfinished_jobs, num_threads, filter_func)).expect("Failed to spawn thread");
     }
 
     result_receiver
@@ -93,6 +95,7 @@ fn worker_main<T, F: Fn(&std::fs::DirEntry) -> Result<FilterResult<T>, String>>(
 
         match job {
             Job::Dir(dir) => {
+                let timer = profiling::start_timer("read_dir");
                 let iter = match std::fs::read_dir(&dir) {
                     Ok(x) => x,
                     Err(e) => {
@@ -100,6 +103,7 @@ fn worker_main<T, F: Fn(&std::fs::DirEntry) -> Result<FilterResult<T>, String>>(
                         continue;
                     }
                 };
+                profiling::stop_timer(timer);
 
                 for entry in iter {
                     let entry = match entry {
@@ -112,6 +116,7 @@ fn worker_main<T, F: Fn(&std::fs::DirEntry) -> Result<FilterResult<T>, String>>(
 
                     // Check if this entry should be filtered.
                     // Filtering a folder prevents iterating into child files/folders, so this is efficient.
+                    let timer = profiling::start_timer("filter_func");
                     let additional_data = match filter_func(&entry) {
                         Ok(f) => {
                             if f.skip {
@@ -124,8 +129,10 @@ fn worker_main<T, F: Fn(&std::fs::DirEntry) -> Result<FilterResult<T>, String>>(
                             continue;
                         }
                     };
+                    profiling::stop_timer(timer);
                     
                     // Before sending the entry as a result, check if it's a directory that we need to recurse into
+                    let timer = profiling::start_timer(&format!("send result ({})", result_sender.len()));
                     let file_type = match entry.file_type() {
                         Ok(x) => x,
                         Err(e) => {
@@ -145,7 +152,9 @@ fn worker_main<T, F: Fn(&std::fs::DirEntry) -> Result<FilterResult<T>, String>>(
                         file_type,
                         additional_data,
                     }))?;
+                    profiling::stop_timer(timer);
 
+                    let timer = profiling::start_timer("recurse");
                     // Recurse into child directories by adding a job that other threads could pick up.
                     // Note that it's important that we do this _after_ sending the entry as a result, so that
                     // the children of this folder are always after the folder itself in the results.
@@ -153,6 +162,7 @@ fn worker_main<T, F: Fn(&std::fs::DirEntry) -> Result<FilterResult<T>, String>>(
                         num_unfinished_jobs.fetch_add(1, Ordering::SeqCst);
                         job_sender.send(Job::Dir(x)).expect("Job channel disconnected");
                     }
+                    profiling::stop_timer(timer);
                 }                        
             }
             Job::Done => break,
