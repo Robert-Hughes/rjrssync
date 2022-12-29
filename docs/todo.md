@@ -10,6 +10,7 @@ Interface
 * Ctrl-C doesn't seem to work very well at stopping rjrssync when it's running
 * Tidy up --help output - maybe we need a short and long version?
   - Things in the README or notes.md shouldn't be needed for a user as they won't necessarily have access to then. These would need to be in --help, so might need moving.
+  - The README is displayed on crates.io though, so it's likely that a user would see this.
 * The naming for the behaviour flags isn't great - too verbose and not clear enough?
 * In the spec file, could allow some settings to be set at both per-sync level, and at the top level (which would then apply to all syncs, but allowing overrides)
 * Decide if info! (and other) log messages should be on stdout or stderr
@@ -91,3 +92,4 @@ Misc
 ERROR | rjrssync::boss_frontend: Sync error: Unexpected response from dest GetEntries: Ok(Error("normalize_path failed: Illegal characters in path"))
 * Warning if filter doesn't match anything, possibly after GetEntries but before actually doing anything (to prevent mistaken filter?)
 * Would be nice to automatically detect cases where the version number hasn't been updated, e.g. if we could see that the Command/Response struct layout has changed.
+* Document that ssh is used for connecting and launching, and that the sync is performed over a different network port, and that it is encrypted.
