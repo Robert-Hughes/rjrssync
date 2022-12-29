@@ -1,6 +1,6 @@
 use std::{path::{Path, PathBuf}, sync::{Arc, atomic::{AtomicUsize, Ordering}}, thread};
 
-use crossbeam::{channel::{Receiver, Sender, SendError}, utils::Backoff};
+use crossbeam::{channel::{Receiver, Sender, SendError}};
 
 use crate::profiling;
 
@@ -35,7 +35,13 @@ pub fn parallel_walk_dir<
     // The cross-thread queue of results, sent to the caller via their Receiver.
     let (result_sender, result_receiver) = crossbeam::channel::bounded::<Result<Entry<T>, String>>(1000);  // Bounded arbitrarily to prevent too high memory usage
 
-    let num_threads = num_cpus::get();
+    // The "best" number of threads to use depends on many things, and so isn't easily calculable.
+    // We spawn this number of threads as the maximum, but scale things down dynamically based on
+    // the length of the result queue.
+    #[cfg(windows)]
+    let num_threads = std::cmp::max(1, num_cpus::get() / 2);
+    #[cfg(unix)]
+    let num_threads = 1;
 
     // Spawn worker threads
     for i in 0..num_threads {

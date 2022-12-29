@@ -68,6 +68,7 @@ Performance
 * Could investigate using UDP or something else to reduce TCP overhead, possibly this could speed up the TCP connection time?
 * Benchmarking with two remotes rather than just one
 * Benchmarking with explicit clear of linux cahce beforehand: sudo bash -c "sync; echo 3 > /proc/sys/vm/drop_caches"
+   - And the same for Windows, it seems to have some sort of caching too (faster second time)
 * Profiling events like send/receive could show the message type?
 * --no-encryption option, might be faster?
    - Possibly want to keep the authentication aspects, but drop the encryption?
