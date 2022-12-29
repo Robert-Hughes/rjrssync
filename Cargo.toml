@@ -1,8 +1,13 @@
 [package]
 name = "rjrssync"
 version = "0.1.0"
+description = "Fast rsync-like tool for incrementally copying files. Runs natively on both Windows and Linux and uses network for communication."
 edition = "2021"
-default-run = "rjrssync"
+repository = "https://github.com/Robert-Hughes/rjrssync"
+license = "MIT"
+keywords = [ "filesystem", "binary", "tool", "cross-platform", "sync" ]
+# crates.io only allows 5 keywords, here are some others that might be good too: [ "filesystem", "cli", "windows", "linux", "binary", "tool", "cross-platform", "sync", "mirror", "copying" ]
+categories = [ "command-line-utilities", "development-tools", "filesystem" ]
 
 [dependencies]
 clap = { version = "4.0", features = ["derive"] }
@@ -58,6 +63,9 @@ name = "rjrssync"
 bench = false # Prevent from being run as a benchmark when running "cargo bench"
 
 #if NonRemote
+# Note that these other executables are not in a [[bin]] section, so they don't get 
+# installed (etc.) by default - only the main rjrssync executable should get installed,
+# as these are just for testing/development.
 [[bench]]
 name = "benchmarks"
 harness = false
