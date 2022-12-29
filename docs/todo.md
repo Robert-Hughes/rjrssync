@@ -67,6 +67,7 @@ Performance
    - need to watch out for ssh prompts though - what if we get two of these in parallel!
 * Could investigate using UDP or something else to reduce TCP overhead, possibly this could speed up the TCP connection time?
 * Benchmarking with two remotes rather than just one
+* Benchmarking with explicit clear of linux cahce beforehand: sudo bash -c "sync; echo 3 > /proc/sys/vm/drop_caches"
 * Profiling events like send/receive could show the message type?
 * --no-encryption option, might be faster?
    - Possibly want to keep the authentication aspects, but drop the encryption?
