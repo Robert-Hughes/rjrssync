@@ -17,7 +17,6 @@ Interface
 * Decide if info! (and other) log messages should be on stdout or stderr
 * When showing multiple prompts, could remember the selection from previous time the same prompt was shown and use that as the default for the next one?
 * Maybe could make "Connecting" spinner actually spin, until the first message from ssh?
-* When cancelling sync from a prompt, now getting TCP error as well which isn't nice. Perhaps this is an issue for any non-successful exit of the program? Maybe need to call shutdown() of the comms in all cases rather than earlying-out?
 
 
 Remote launching
@@ -68,7 +67,17 @@ Performance
 * Could investigate using UDP or something else to reduce TCP overhead, possibly this could speed up the TCP connection time?
 * Benchmarking with two remotes rather than just one
 * Benchmarking with explicit clear of linux cahce beforehand: sudo bash -c "sync; echo 3 > /proc/sys/vm/drop_caches"
-   - And the same for Windows, it seems to have some sort of caching too (faster second time)
+   - And the same for Windows, it seems to have some sort of caching too (faster second time) https://learn.microsoft.com/en-us/windows/win32/api/memoryapi/nf-memoryapi-setsystemfilecachesize
+
+               unsafe {
+                if winapi::um::memoryapi::SetSystemFileCacheSize(usize::MAX, usize::MAX, 0) != 1 {
+                    panic!("SetSystemFileCacheSize failed: {}", winapi::um::errhandlingapi::GetLastError());
+                }
+            }
+   Also need the "memoryapi" feature for the winapi crate
+
+   Need to grant the SE_INCREASE_QUOTA_NAME  privilege, which it seems isn't as simple as running as admin
+
 * Profiling events like send/receive could show the message type?
 * --no-encryption option, might be faster?
    - Possibly want to keep the authentication aspects, but drop the encryption?
