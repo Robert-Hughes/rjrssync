@@ -40,10 +40,10 @@ fn prompt_skip_then_overwrite() {
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
-            (1, Regex::new("dest file .*c1.* is newer than source file .*c1.*").unwrap()),
-            (1, Regex::new("dest file .*c2.* is newer than source file .*c2.*").unwrap()),
+            (1, Regex::new("dest file .*c1' is newer than source file .*c1.*").unwrap()),
+            (1, Regex::new("dest file .*c2' is newer than source file .*c2.*").unwrap()),
             // Note that we need this last check, to make sure that the second prompt response only affects one file, not all remaining files
-            (1, Regex::new("dest file .*c3.* is newer than source file .*c3.*").unwrap()), 
+            (1, Regex::new("dest file .*c3' is newer than source file .*c3.*").unwrap()), 
             (1, Regex::new(&regex::escape("Copied 1 file(s)")).unwrap()), // 1 file copied the other skipped
         ],
         expected_filesystem_nodes: vec![
@@ -87,7 +87,7 @@ fn prompt_skip_all() {
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
-            (1, Regex::new("dest file .*c1|2.* is newer than source file .*c1|2.*").unwrap()), // We don't know which file will be first, as it depends on the OS
+            (1, Regex::new("dest file .*c1|2' is newer than source file .*c1|2.*").unwrap()), // We don't know which file will be first, as it depends on the OS
             (1, Regex::new(&regex::escape("Nothing to do")).unwrap()), // Both files skipped
         ],
         expected_filesystem_nodes: vec![
@@ -127,7 +127,7 @@ fn prompt_overwrite_all() {
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
-            (1, Regex::new("dest file .*c\\d.* is newer than source file .*c\\d.*").unwrap()), // We don't know which file will be first, as it depends on the OS, we just need it to be there only once
+            (1, Regex::new("dest file .*c\\d' is newer than source file .*c\\d.*").unwrap()), // We don't know which file will be first, as it depends on the OS, we just need it to be there only once
             (1, Regex::new(&regex::escape("Copied 2 file(s)")).unwrap()), // Both files copied
         ],
         expected_filesystem_nodes: vec![
@@ -166,7 +166,7 @@ fn prompt_cancel() {
         expected_exit_code: 12,
         expected_output_messages: vec![
             // We actaully get this message twice - once for the prompt and once in the error message after the prompt is cancelled
-            (2, Regex::new("dest file .*c1.* is newer than source file .*c1.*").unwrap()),
+            (2, Regex::new("dest file .*c1' is newer than source file .*c1.*").unwrap()),
             (1, Regex::new(&regex::escape("Will not overwrite")).unwrap()), // Cancelled
         ],
         expected_filesystem_nodes: vec![

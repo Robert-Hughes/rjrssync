@@ -35,10 +35,10 @@ fn prompt_skip_then_delete() {
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
-            (1, Regex::new("dest file .*c1.* needs deleting").unwrap()),
-            (1, Regex::new("dest file .*c2.* needs deleting").unwrap()),
+            (1, Regex::new("dest file .*c1' needs deleting").unwrap()),
+            (1, Regex::new("dest file .*c2' needs deleting").unwrap()),
             // Note that we need this last check, to make sure that the second prompt response only affects one file, not all remaining files
-            (1, Regex::new("dest file .*c3.* needs deleting").unwrap()), 
+            (1, Regex::new("dest file .*c3' needs deleting").unwrap()), 
             (1, Regex::new(&regex::escape("Deleted 1 file(s)")).unwrap()), // 1 file deleted the other two skipped
         ],
         expected_filesystem_nodes: vec![
@@ -77,7 +77,7 @@ fn prompt_skip_all() {
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
-            (1, Regex::new("dest file .*c\\d.* needs deleting").unwrap()), // We can't be sure which file we'll be prompted about, because the order is non-deterministic, we just need to make sure there's only one
+            (1, Regex::new("dest file .*c\\d' needs deleting").unwrap()), // We can't be sure which file we'll be prompted about, because the order is non-deterministic, we just need to make sure there's only one
             (1, Regex::new(&regex::escape("Nothing to do")).unwrap()), // Both files skipped
         ],
         expected_filesystem_nodes: vec![
@@ -113,7 +113,7 @@ fn prompt_delete_all() {
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
-            (1, Regex::new("dest file .*c\\d.* needs deleting").unwrap()), // We can't be sure which file we'll be prompted about, because the order is non-deterministic, we just need to make sure there's only one
+            (1, Regex::new("dest file .*c\\d' needs deleting").unwrap()), // We can't be sure which file we'll be prompted about, because the order is non-deterministic, we just need to make sure there's only one
             (1, Regex::new(&regex::escape("Deleted 2 file(s)")).unwrap()), // Both files deleted
         ],
         expected_filesystem_nodes: vec![
@@ -149,7 +149,7 @@ fn prompt_cancel() {
         expected_exit_code: 12,
         expected_output_messages: vec![
             // We actaully get this message twice - once for the prompt and once in the error message after the prompt is cancelled
-            (2, Regex::new("dest file .*c1.* needs deleting").unwrap()),
+            (2, Regex::new("dest file .*c1' needs deleting").unwrap()),
             (1, Regex::new(&regex::escape("Will not delete")).unwrap()), // Cancelled
         ],
         expected_filesystem_nodes: vec![
