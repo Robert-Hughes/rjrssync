@@ -80,6 +80,9 @@ Testing
 * Tests for when filesystem operations fail, e.g. failing to read/write a file
 * Clarify if filters should expect to see trailing slashes on folder names or not? What about folder symlinks? Tests + docs for this
 * Run benchmark tests on GitHub actions?
+   - Trigger on push, or every day on schedule (to build up a good amount of data to hopefully be able to average out inconsistencies and spot a definite change) GitHub will automatically stop running scheduled runs after 60 days of inactivity which is good
+   - Separate job to the existing CI one to avoid slowing it down? How do we avoid duplicating all of the WSL and ssh setup stuff though...
+   - https://github.com/marketplace/actions/continuous-benchmark
 * Various tests are leaving behind temporary folders, filling up with disk space!
 * "The source/dest root is never checked against the filter - this is always considered as included." - test this (maybe already have a unit test actually!)
 * Using tar for remote filesytem nodes messes about with symlinks when extracting on a different platform (Windows vs Linux)
