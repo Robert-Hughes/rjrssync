@@ -664,7 +664,7 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), String> {
             HumanCount(ctx.stats.num_folders_deleted as u64),
             HumanCount(ctx.stats.num_symlinks_deleted as u64),
             if !ctx.dry_run && ctx.show_stats {
-                format!(", in {:.1} seconds", delete_elapsed.as_secs_f32())
+                format!(", in {:.2} seconds", delete_elapsed.as_secs_f32())
             } else { "".to_string() },
         );
     }
@@ -680,7 +680,7 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), String> {
             if !ctx.dry_run { "copied" } else { "would copy" },
             HumanCount(ctx.stats.num_symlinks_copied as u64),
             if !ctx.dry_run && ctx.show_stats {
-                format!(", in {:.1} seconds ({}/s)",
+                format!(", in {:.2} seconds ({}/s)",
                     copy_elapsed.as_secs_f32(), HumanBytes((ctx.stats.num_bytes_copied as f32 / copy_elapsed.as_secs_f32()).round() as u64))
             } else { "".to_string() },
         );
