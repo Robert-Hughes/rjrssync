@@ -577,9 +577,6 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), String> {
             match dest_details {
                 Some(dest_details) if !should_delete (&src_details, dest_details, dest_platform_differentiates_symlinks) => {
                     // Dest already has this entry - check if it is up-to-date
-                    let msg = format!("{} already exists at {}",
-                        ctx.pretty_src(&path, &src_details),
-                        ctx.pretty_dest(&path, dest_details));
                     match src_details {
                         EntryDetails::File { size, modified_time: src_modified_time } => {
                             let dest_modified_time = match dest_details {
@@ -589,13 +586,12 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), String> {
                             handle_existing_file(&path, size, &mut ctx, src_modified_time,
                                 *dest_modified_time)?;
                         },
-                        EntryDetails::Folder => {
-                            // Folders are always up-to-date
-                            trace!("{msg} - nothing to do");
-                        },
-                        EntryDetails::Symlink { .. } => {
-                            // Symlinks are always up-to-date, if should_delete indicated that we shouldn't delete it
-                            trace!("{msg} - nothing to do");
+                        EntryDetails::Folder |  // Folders are always up-to-date
+                        EntryDetails::Symlink { .. }  // Symlinks are always up-to-date, if should_delete indicated that we shouldn't delete it
+                        => {
+                            trace!("{} already exists at {} - nothing to do", 
+                                ctx.pretty_src(&path, &src_details),
+                                ctx.pretty_dest(&path, dest_details));
                         },
                     }
                 },
