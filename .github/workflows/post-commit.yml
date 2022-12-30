@@ -8,6 +8,11 @@ on:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
+  schedule:
+    # Run the job every night as well to collect more benchmark data, to hopefully be able to 
+    # average out inconsistencies and spot definite changes.
+    # Note that GitHub will automatically stop running scheduled runs after 60 days of repo inactivity which is good
+    - cron:  '19 4 * * *'   # Every day at 4:19am (not on the hour to avoid high load periods)
   # Allow this workflow to be triggered manually, with an optional parameter to enable remote debugging
   workflow_dispatch:
     inputs:
@@ -262,4 +267,12 @@ jobs:
         WINDOWS_IP=$(hostname -I | cut -d ' ' -f1)
         export RJRSSYNC_TEST_REMOTE_USER_AND_HOST_WINDOWS="runneradmin@$WINDOWS_IP"
         cargo test --verbose -- "remote" --test-threads 1 --nocapture
+
+    - name: Run benchmarks on Windows
+      shell: pwsh
+      run: cargo bench -- -n 10
+
+    - name: Run remote tests on WSL
+      shell: wsl-bash {0}
+      run: cargo bench -- -n 10
 
