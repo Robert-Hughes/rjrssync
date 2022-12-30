@@ -24,6 +24,8 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # Set WSLENV to include some github-provided env vars so that these are acccessible from inside WSL
+  WSLENV: GITHUB_PATH/p:GITHUB_ENV/p
 
 jobs:
   # This job builds and runs unit tests on both Windows and Linux (natively, no WSL).
