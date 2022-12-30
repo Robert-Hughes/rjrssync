@@ -233,6 +233,10 @@ jobs:
         WINDOWS_IP=$(hostname -I | cut -d ' ' -f1)
         ssh runneradmin@$WINDOWS_IP "ver && echo WSL to Windows SSH is working"
 
+        # Override rjrssync testing automatically detected windows hostname, as it gets it wrong,
+        # so we don't need to specify this for all future test executions
+        echo "RJRSSYNC_TEST_REMOTE_USER_AND_HOST_WINDOWS=runneradmin@$WINDOWS_IP" >> $GITHUB_ENV
+
     # Beware that the tmate session runs inside cygwin, so some behaviour doesn't match native windows
     # Note that if this step happens before the "choco install", then we can't manually run choco inside tmate
     # because cygwin messes up the %TEMP% environment variables
@@ -252,8 +256,7 @@ jobs:
       # The logic in remote_tests.rs should automatically detect the WSL instance and connect to that
       # These tests can be resource-intensive (building rjrssync on remote hosts), so run one at a time,
       # and print the test output as they run so can see the progress
-      run: |
-        cargo test --verbose -- "remote" --test-threads 1 --nocapture
+      run: cargo test --verbose -- "remote" --test-threads 1 --nocapture
 
     - name: Run remote tests on WSL
       # Only run tests that require a remote, as the other tests are covered by the "native" jobs above.
@@ -263,9 +266,6 @@ jobs:
       shell: wsl-bash {0}
       run: |
         source "$HOME/.cargo/env"
-        # Override the automatically detected windows hostname, as it gets it wrong
-        WINDOWS_IP=$(hostname -I | cut -d ' ' -f1)
-        export RJRSSYNC_TEST_REMOTE_USER_AND_HOST_WINDOWS="runneradmin@$WINDOWS_IP"
         cargo test --verbose -- "remote" --test-threads 1 --nocapture
 
     - name: Run benchmarks on Windows
