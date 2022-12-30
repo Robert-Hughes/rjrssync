@@ -71,7 +71,7 @@ jobs:
   # This job sets up a Windows runner with WSL, so that tests that require remote
   # platforms (e.g. a Linux to Windows sync) can be tested.
   remote-platforms:
-    runs-on: windows-2019 # windows-latest (2022) causes rustc to crash the whole VM when run inside WSL
+    runs-on: windows-latest # windows-latest (2022) causes rustc to crash the whole VM when run inside WSL
 
     steps:
     - uses: actions/checkout@v3
