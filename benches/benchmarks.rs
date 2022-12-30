@@ -1,4 +1,4 @@
-use std::{time::{Instant, Duration}, path::{Path, PathBuf}, io::Write};
+use std::{time::{Instant, Duration}, path::{Path, PathBuf}, io::Write, process::Command};
 
 use ascii_table::AsciiTable;
 use clap::Parser;
@@ -135,7 +135,22 @@ fn main () {
         
     if !args.only_remote && !args.only_local {
         #[cfg(windows)]
-        results.push((format!(r"{local_name} -> \\wsl$\..."), run_benchmarks_for_target(&args, Target::Local(PathBuf::from(r"\\wsl$\\Ubuntu\\tmp\\rjrssync-benchmark-dest\\")))));
+        {
+            // Get the WSL distribution name, as we need this to find the path in \\wsl$
+            let r = test_utils::run_process_with_live_output(Command::new("wsl").arg("--list").arg("--quiet"));
+            assert!(r.exit_status.success());
+            // wsl --list has some text encoding problems...
+            println!("distro name = {:?}", r.stdout.as_bytes());
+            let u16s = unsafe { r.stdout.as_bytes().split_at(r.stdout.len() - 2).0.align_to::<u16>().1 };
+            let distro_name = String::from_utf16(u16s).unwrap().trim().to_string();
+            println!("distro name = {:?}", distro_name);
+            let wsl_tmp_path = PathBuf::from(format!("\\\\wsl$\\{distro_name}\\tmp"));
+            println!("WSL tmp path = {:?}", wsl_tmp_path);
+            // Older versions of WSL don't have this (e.g. on GitHub actions)
+            if PathBuf::from(&wsl_tmp_path).is_dir() { 
+                results.push((format!(r"{local_name} -> \\wsl$\..."), run_benchmarks_for_target(&args, Target::Local(wsl_tmp_path.join(r"rjrssync-benchmark-dest")))));
+            }
+        }
 
         #[cfg(unix)]
         results.push((format!("{local_name} -> /mnt/..."), run_benchmarks_for_target(&args, Target::Local(PathBuf::from("/mnt/t/Temp/rjrssync-benchmarks/dest")))));

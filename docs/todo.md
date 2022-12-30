@@ -55,6 +55,8 @@ Performance
    - need to watch out for ssh prompts though - what if we get two of these in parallel!
 * Could investigate using UDP or something else to reduce TCP overhead, possibly this could speed up the TCP connection time?
 * Benchmarking with two remotes rather than just one
+   - maybe create abstraction for "targets", which can be local, \\wsl$, remote windows etc.,
+     and each test table is a pair of source and dest targets.
 * Benchmarking with explicit clear of linux cahce beforehand: sudo bash -c "sync; echo 3 > /proc/sys/vm/drop_caches"
    - And the same for Windows, it seems to have some sort of caching too (faster second time) https://learn.microsoft.com/en-us/windows/win32/api/memoryapi/nf-memoryapi-setsystemfilecachesize
 
