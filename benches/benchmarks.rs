@@ -154,7 +154,19 @@ fn main () {
         }
 
         #[cfg(unix)]
-        results.push((format!("{local_name} -> /mnt/..."), run_benchmarks_for_target(&args, Target::Local(PathBuf::from("/mnt/t/Temp/rjrssync-benchmarks/dest")))));
+        {
+            // Figure out the /mnt/... path to the windows temp dir
+            let r = test_utils::run_process_with_live_output(Command::new("cmd.exe").arg("/c").arg("echo %TEMP%"));
+            assert!(r.exit_status.success());
+            let windows_temp = r.stdout.trim();
+            // Convert to /mnt/ format using wslpath
+            let r = test_utils::run_process_with_live_output(Command::new("wslpath").arg(windows_temp));
+            assert!(r.exit_status.success());
+            let mnt_temp = r.stdout.trim();
+            // Use a sub-folder
+            let dest = PathBuf::from(mnt_temp).join("rjrssync-benchmarks").join("dest");
+            results.push((format!("{local_name} -> /mnt/..."), run_benchmarks_for_target(&args, Target::Local(dest))));
+        }
     }
     
     if !args.only_local {
