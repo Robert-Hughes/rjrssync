@@ -78,8 +78,8 @@ jobs:
 
     - uses: Vampire/setup-wsl@v1 # Note this sets up a WSL 1 (not WSL 2) environment, so network access is slightly different etc.
       with:
-        # Customize the WSL shell command to remove "--noprofile", so that cargo will be on the path once it is installed
-        wsl-shell-command: bash --norc -euo pipefail
+        # Customize the WSL shell command to remove "--noprofile" and add "--login", so that cargo will be on the path once it is installed
+        wsl-shell-command: bash --login --norc -euo pipefail
         # curl and ca-certificates: For installing rust
         # build-essential: so that a linker is available when running rustc
         # ssh for both client and server, needed for test environment
