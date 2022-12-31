@@ -84,12 +84,13 @@ jobs:
         # curl and ca-certificates: For installing rust
         # build-essential: so that a linker is available when running rustc
         # ssh for both client and server, needed for test environment
-        # git for benchmarks
+        # git and rsync for benchmarks
         additional-packages:
           curl ca-certificates
           build-essential
           ssh
           git
+          rsync
 
     - name: Copy source code to WSL
       # By copying the source code into the native WSL filesystem this is more "faithful" to a proper linux setup, 

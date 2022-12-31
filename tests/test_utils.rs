@@ -62,7 +62,7 @@ pub fn run_process_with_live_output_impl(c: &mut std::process::Command,
 
     let mut child = child
         .spawn()
-        .expect("Failed to launch child process");
+        .expect(&format!("Failed to launch child process {:?} {:?}", c.get_program(), c.get_args()));
 
 
     // Spawn a background thread for each stdout and stderr, to process messages we get from the child
