@@ -84,10 +84,12 @@ jobs:
         # curl and ca-certificates: For installing rust
         # build-essential: so that a linker is available when running rustc
         # ssh for both client and server, needed for test environment
+        # git for benchmarks
         additional-packages:
           curl ca-certificates
           build-essential
           ssh
+          git
 
     - name: Copy source code to WSL
       # By copying the source code into the native WSL filesystem this is more "faithful" to a proper linux setup, 
@@ -270,11 +272,13 @@ jobs:
       shell: wsl-bash {0}
       run: cargo test --verbose -- "remote" --test-threads 1 --nocapture
 
+    # TODO: expand to more samples?
+
     - name: Run benchmarks on Windows
       shell: pwsh
-      run: cargo bench -- -n 10
+      run: cargo bench -- -n 1
 
     - name: Run benchmarks on WSL
       shell: wsl-bash {0}
-      run: cargo bench -- -n 10
+      run: cargo bench -- -n 1
 
