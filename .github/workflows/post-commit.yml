@@ -78,6 +78,8 @@ jobs:
 
     - uses: Vampire/setup-wsl@v1 # Note this sets up a WSL 1 (not WSL 2) environment, so network access is slightly different etc.
       with:
+        # Customize the WSL shell command to remove "--noprofile", so that cargo will be on the path once it is installed
+        wsl-shell-command: bash --norc -euo pipefail
         # curl and ca-certificates: For installing rust
         # build-essential: so that a linker is available when running rustc
         # ssh for both client and server, needed for test environment
@@ -129,7 +131,6 @@ jobs:
       # It crashes in windows-latest servers!
       shell: wsl-bash {0}
       run: |
-        source "$HOME/.cargo/env"
         sleep 3 # Make sure log output is visible up to here, before it crashes
         rustc --version
       
@@ -266,15 +267,13 @@ jobs:
       # These tests can be resource-intensive (building rjrssync on remote hosts), so run one at a time,
       # and print the test output as they run so can see the progress
       shell: wsl-bash {0}
-      run: |
-        source "$HOME/.cargo/env"
-        cargo test --verbose -- "remote" --test-threads 1 --nocapture
+      run: cargo test --verbose -- "remote" --test-threads 1 --nocapture
 
     - name: Run benchmarks on Windows
       shell: pwsh
       run: cargo bench -- -n 10
 
-    - name: Run remote tests on WSL
+    - name: Run benchmarks on WSL
       shell: wsl-bash {0}
       run: cargo bench -- -n 10
 
