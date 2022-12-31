@@ -156,7 +156,8 @@ fn main () {
         #[cfg(unix)]
         {
             // Figure out the /mnt/... path to the windows temp dir
-            let r = test_utils::run_process_with_live_output(Command::new("cmd.exe").arg("/c").arg("echo %TEMP%"));
+            // Note the full path to cmd.exe need to be used when running on GitHub actions
+            let r = test_utils::run_process_with_live_output(Command::new("/mnt/c/Windows/system32/cmd.exe").arg("/c").arg("echo %TEMP%"));
             assert!(r.exit_status.success());
             let windows_temp = r.stdout.trim();
             // Convert to /mnt/ format using wslpath
