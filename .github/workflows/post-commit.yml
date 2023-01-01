@@ -25,7 +25,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   # Set WSLENV to share some env vars between Windows and WSL
-  WSLENV: GITHUB_PATH/p:GITHUB_ENV/p:RJRSSYNC_TEST_REMOTE_USER_AND_HOST_WINDOWS
+  WSLENV: GITHUB_PATH/p:GITHUB_ENV/p:RJRSSYNC_TEST_REMOTE_USER_AND_HOST_WINDOWS:CARGO_TERM_COLOR
 
 jobs:
   # This job builds and runs unit tests on both Windows and Linux (natively, no WSL).
@@ -115,6 +115,8 @@ jobs:
     # (see example at https://github.com/actions/cache/blob/main/examples.md#rust---cargo)
     - name: Restore from cache
       uses: actions/cache@v3
+      #TODO: check that cache for WSL rjrssync/target folder here is working (we were mistakenly not using this
+      # folder at all before!)
       with:
         path: |
           ~\.cargo\bin\
