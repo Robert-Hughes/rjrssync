@@ -49,6 +49,11 @@ ascii_table = "=4.0.2"
 rand = "=0.8.5"
 #end
 
+# Dependencies needed for tests/benchmarks, which aren't needed for building on a remote
+# (can't put this in the above #if block because it's also an "optional" dependency for profiling)
+[dev-dependencies]
+json = { version = "=0.12.4" }
+
 [features]
 profiling=["dep:json"]
 

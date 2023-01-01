@@ -36,7 +36,8 @@ jobs:
         os: [windows-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
-    - uses: actions/checkout@v3
+    - name: Checkout repo
+      uses: actions/checkout@v3
 
     # Speed up the following cache step, when _restoring_ the cache (note it actually seems to make it slower when _saving_ the cache!)
     # See: https://github.com/actions/cache/blob/main/tips-and-workarounds.md#improving-cache-restore-performance-on-windows-using-cross-os-caching
@@ -47,7 +48,8 @@ jobs:
 
     # Cache the cargo registry (in user's home dir) and the rjrssync target folder, to speed up subsequent builds.
     # (see example at https://github.com/actions/cache/blob/main/examples.md#rust---cargo)
-    - uses: actions/cache@v3
+    - name: Restore from cache
+      uses: actions/cache@v3
       with:
         path: |
           ~/.cargo/bin/
@@ -74,9 +76,11 @@ jobs:
     runs-on: windows-2019 # windows-latest (2022) causes rustc to crash the whole VM when run inside WSL
 
     steps:
-    - uses: actions/checkout@v3
+    - name: Checkout repo
+      uses: actions/checkout@v3
 
-    - uses: Vampire/setup-wsl@v1 # Note this sets up a WSL 1 (not WSL 2) environment, so network access is slightly different etc.
+    - name: Setup WSL
+      uses: Vampire/setup-wsl@v1 # Note this sets up a WSL 1 (not WSL 2) environment, so network access is slightly different etc.
       with:
         # Customize the WSL shell command to remove "--noprofile" and add "--login", so that cargo will be on the path once it is installed
         # Also remove "-u" to prevent error when running .profile script
@@ -109,7 +113,8 @@ jobs:
     # Cache the Windows and WSL cargo registry (from user's home dir) and the rjrssync target folder (both Windows and WSL),
     # to speed up subsequent builds.
     # (see example at https://github.com/actions/cache/blob/main/examples.md#rust---cargo)
-    - uses: actions/cache@v3
+    - name: Restore from cache
+      uses: actions/cache@v3
       with:
         path: |
           ~\.cargo\bin\
@@ -269,17 +274,29 @@ jobs:
       # Only run tests that require a remote, as the other tests are covered by the "native" jobs above.
       # The logic in remote_tests.rs should automatically detect the Windows host and connect to that (for the most part)
       # These tests can be resource-intensive (building rjrssync on remote hosts), so run one at a time,
-      # and print the test output as they run so can see the progress
+      # and print the test output as they run so can see the progress.
+      # Note we use the copy of the source code on the native Linux filesystem, not the one in the Github actions workspace
+      # via /mnt/... (so that it's faster and more faithful to a 'proper' linux setup)
       shell: wsl-bash {0}
-      run: cargo test --verbose -- "remote" --test-threads 1 --nocapture
+      run: cd ~/rjrssync && cargo test --verbose -- "remote" --test-threads 1 --nocapture
 
     # TODO: expand to more samples?
 
     - name: Run benchmarks on Windows
       shell: pwsh
-      run: cargo bench -- -n 1
+      run: cargo bench -- -n 1 --json-output benchmark-results-windows-$(Get-Date -Format "yyyy-MM-dd-HH-mm").json
 
     - name: Run benchmarks on WSL
-      shell: wsl-bash {0}
-      run: cargo bench -- -n 1
+      shell: wsl-bash {0}      
+      # Note we use the copy of the source code on the native Linux filesystem, not the one in the Github actions workspace
+      # via /mnt/... (so that it's faster and more faithful to a 'proper' linux setup)
+      run: cd ~/rjrssync && cargo bench -- -n 1 --json-output benchmark-results-wsl-$(printf '%(%Y-%m-%d-%H-%M)T').json
+
+    - name: Upload benchmark results (Windows + WSL)
+      uses: actions/upload-artifact@v3
+      with:
+        name: benchmark-results
+        path: |
+          benchmark-results-*
+          C:\hostedtoolcache\windows\Debian\1.0.0\x64\rootfs\root\rjrssync\benchmark-results-*
 

@@ -83,13 +83,13 @@ Testing
 * Clarify if filters should expect to see trailing slashes on folder names or not? What about folder symlinks? Tests + docs for this
 * Run benchmark tests on GitHub actions?
    - https://github.com/marketplace/actions/continuous-benchmark
+   - Or do it ourselves using plotly, might be better? Can store data similarly to the above project, using a different branch of the repo, and maybe use github pages to view the rendered charts?
    - Make a note somewhere that because we're using WSL 1 on GHA, the "linux" filesystem performance
      won't be as good and might have "windows" characteristics (as the kernel is still windows)
 * Keep looking for a way to get two github runners to talk to each other, so we can have one windows and one linux rather than having to use WSL which brings with it a bunch of problems
 * Various tests are leaving behind temporary folders, filling up with disk space! Especially benchmarks which are big!
 * "The source/dest root is never checked against the filter - this is always considered as included." - test this (maybe already have a unit test actually!)
 * Using tar for remote filesytem nodes messes about with symlinks when extracting on a different platform (Windows vs Linux)
-* When running benchmarks and a benchmark program fails, would be nice to dump the output. Currently need to rebuild without the quiet flag and then run it again, which might take a while.
 
 Misc
 -----
