@@ -49,17 +49,17 @@ struct CliArgs {
     json_output: Option<PathBuf>,
 }
 
-fn set_up_src_folders(args: &CliArgs) {
-    if Path::new("src").exists() && args.skip_setup {
+fn set_up_src_folders(src_folder: &Path, skip_if_exists: bool) {
+    if src_folder.exists() && skip_if_exists {
         println!("Skipping setup. Beware this may be stale!");
         return;
     }
 
     // Delete any old stuff, so we start from a clean state each time
-    if Path::new("src").exists() {
-        std::fs::remove_dir_all("src").expect("Failed to delete old src folder");
+    if src_folder.exists() {
+        std::fs::remove_dir_all(src_folder).expect("Failed to delete old src folder");
     }
-    std::fs::create_dir_all("src").expect("Failed to create src dir");
+    std::fs::create_dir_all(src_folder).expect("Failed to create src dir");
 
     // Representative example of a directory structure with varied depth, varied file size etc.
     // PowerToys, specific version (so doesn't change in future runs)
@@ -67,46 +67,46 @@ fn set_up_src_folders(args: &CliArgs) {
         .arg("--depth").arg("1")
         .arg("--branch").arg("v0.64.0")
         .arg("https://github.com/microsoft/PowerToys.git")
-        .arg("src/example-repo")
+        .arg(src_folder.join("example-repo"))
         .status().expect("Failed to launch git");
     assert!(result.success());
 
     // Copy the repo then check out a slightly different version, so that only some files have changed
-    std::fs::create_dir("src/example-repo-slight-change").expect("Failed to create folder");
-    fs_extra::dir::copy("src/example-repo", "src/example-repo-slight-change", &CopyOptions { content_only: true, ..Default::default() })
+    std::fs::create_dir(src_folder.join("example-repo-slight-change")).expect("Failed to create folder");
+    fs_extra::dir::copy(src_folder.join("example-repo"), src_folder.join("example-repo-slight-change"), &CopyOptions { content_only: true, ..Default::default() })
         .expect("Failed to copy dir");
     assert!(std::process::Command::new("git").arg("remote").arg("set-branches").arg("origin").arg("*")
-        .current_dir("src/example-repo-slight-change")
+        .current_dir(src_folder.join("example-repo-slight-change"))
         .status().expect("Failed to launch git").success());
     assert!(std::process::Command::new("git").arg("fetch").arg("--depth").arg("1").arg("origin").arg("v0.64.1")
-        .current_dir("src/example-repo-slight-change")
+        .current_dir(src_folder.join("example-repo-slight-change"))
         .status().expect("Failed to launch git").success());
     assert!(std::process::Command::new("git").arg("checkout").arg("FETCH_HEAD")
-        .current_dir("src/example-repo-slight-change")
+        .current_dir(src_folder.join("example-repo-slight-change"))
         .status().expect("Failed to launch git").success());
 
     // Delete the .git folders so these aren't synced too.
-    std::fs::remove_dir_all("src/example-repo/.git").expect("Failed to delete .git");
-    std::fs::remove_dir_all("src/example-repo-slight-change/.git").expect("Failed to delete .git");
+    std::fs::remove_dir_all(src_folder.join("example-repo/.git")).expect("Failed to delete .git");
+    std::fs::remove_dir_all(src_folder.join("example-repo-slight-change/.git")).expect("Failed to delete .git");
 
     // Delete some particularly deeply-nested folders, which cause scp.exe on windows to crash with a
     // stack overflow.
-    std::fs::remove_dir_all("src/example-repo/src/modules/previewpane/MonacoPreviewHandler/monacoSRC/min/vs").expect("Failed to delete nested folders");
-    std::fs::remove_dir_all("src/example-repo/src/settings-ui/Settings.UI.UnitTests/BackwardsCompatibility/TestFiles/").expect("Failed to delete nested folders");
+    std::fs::remove_dir_all(src_folder.join("example-repo/src/modules/previewpane/MonacoPreviewHandler/monacoSRC/min/vs")).expect("Failed to delete nested folders");
+    std::fs::remove_dir_all(src_folder.join("example-repo/src/settings-ui/Settings.UI.UnitTests/BackwardsCompatibility/TestFiles/")).expect("Failed to delete nested folders");
   
-    std::fs::remove_dir_all("src/example-repo-slight-change/src/modules/previewpane/MonacoPreviewHandler/monacoSRC/min/vs").expect("Failed to delete nested folders");
-    std::fs::remove_dir_all("src/example-repo-slight-change/src/settings-ui/Settings.UI.UnitTests/BackwardsCompatibility/TestFiles/").expect("Failed to delete nested folders");
+    std::fs::remove_dir_all(src_folder.join("example-repo-slight-change/src/modules/previewpane/MonacoPreviewHandler/monacoSRC/min/vs")).expect("Failed to delete nested folders");
+    std::fs::remove_dir_all(src_folder.join("example-repo-slight-change/src/settings-ui/Settings.UI.UnitTests/BackwardsCompatibility/TestFiles/")).expect("Failed to delete nested folders");
 
     // Copy the repo again and make a more significant change (rename src folder), so that many files will need
     // deleting and copying.
-    std::fs::create_dir("src/example-repo-large-change").expect("Failed to create folder");
-    fs_extra::dir::copy("src/example-repo-slight-change", "src/example-repo-large-change", &CopyOptions { content_only: true, ..Default::default() })
+    std::fs::create_dir(src_folder.join("example-repo-large-change")).expect("Failed to create folder");
+    fs_extra::dir::copy(src_folder.join("example-repo-slight-change"), src_folder.join("example-repo-large-change"), &CopyOptions { content_only: true, ..Default::default() })
         .expect("Failed to copy dir");
-    std::fs::rename("src/example-repo-large-change/src", "src/example-repo-large-change/src2").expect("Failed to rename");
+    std::fs::rename(src_folder.join("example-repo-large-change/src"), src_folder.join("example-repo-large-change/src2")).expect("Failed to rename");
 
     // Single large file
-    std::fs::create_dir_all("src/large-file").expect("Failed to create dir");
-    let mut f = std::fs::File::create("src/large-file/large.bin").expect("Failed to create file");
+    std::fs::create_dir_all(src_folder.join("large-file")).expect("Failed to create dir");
+    let mut f = std::fs::File::create(src_folder.join("large-file/large.bin")).expect("Failed to create file");
     for i in 0..1000_000 as i32 {
         let buf = [(i % 256) as u8; 1024];
         f.write_all(&buf).expect("Failed to write to file");
@@ -120,8 +120,7 @@ fn main () {
     let temp_dir = std::env::temp_dir().join("rjrssync-benchmarks");
     std::fs::create_dir_all(&temp_dir).expect("Failed to create temp dir");
 
-    set_up_src_folders(&args);
-
+    set_up_src_folders(&temp_dir.join("src"), args.skip_setup);
     
     let mut results : AllResults = vec![];
     
