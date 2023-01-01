@@ -298,7 +298,13 @@ jobs:
       uses: actions/upload-artifact@v3
       with:
         name: benchmark-results
+        #TODO: looks like paths have to be in the workspace, so we need to copy the wsl artifact into the workspace first, and then upload both from the workspace
         path: |
           benchmark-results-*
           C:\hostedtoolcache\windows\Debian\1.0.0\x64\rootfs\root\rjrssync\benchmark-results-*
 
+  # Artifacts aren't saved forever, so we commit the results to a special (independent) branch of the repo.
+  #TODO: this
+
+  #TODO: process all historical benchmark data from the branch and produce a plotly chart,
+  # which we can host on github pages to view online!
