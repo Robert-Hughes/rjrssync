@@ -23,6 +23,12 @@ on:
         required: false
         default: false
 
+# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
 env:
   CARGO_TERM_COLOR: always
   # Set WSLENV to share some env vars between Windows and WSL

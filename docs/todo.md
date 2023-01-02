@@ -84,6 +84,8 @@ Testing
 * Improve display of benchmark graph
 * Make a note somewhere that because we're using WSL 1 on GHA, the "linux" filesystem performance won't be as good and might have "windows" characteristics (as the kernel is still windows)
 * Keep looking for a way to get two github runners to talk to each other, so we can have one windows and one linux rather than having to use WSL which brings with it a bunch of problems. Maybe we can open a TCP tunnel between two runners, some kind of NAT traversal handoff thing that doesn't involve all the traffic going through a third party, just the setup bits somehow?
+   - https://en.wikipedia.org/wiki/NAT_traversal
+   - https://github.com/ValdikSS/nat-traversal-github-actions-openvpn-wireguard/blob/master/README.md
 * Various tests are leaving behind temporary folders, filling up with disk space! Especially benchmarks which are big!
 * "The source/dest root is never checked against the filter - this is always considered as included." - test this (maybe already have a unit test actually!)
 * Using tar for remote filesytem nodes messes about with symlinks when extracting on a different platform (Windows vs Linux)

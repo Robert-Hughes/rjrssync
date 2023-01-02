@@ -56,6 +56,8 @@ def main():
     
     print(all_results)
 
+    #TODO: add memory (local and remote) to the page somehow
+
     # fig = px.scatter(all_results, x="timestamp", y="value", facet_row="case", facet_col="measurement",
     #     color="program",
     #     hover_data=["commit-hash"])
