@@ -342,7 +342,9 @@ jobs:
           git push
 
       - name: Generate graphs
-        run: .github/workflows/generate-benchmark-graphs.py --json-files benchmark-results/ --output-html graphs.html
+        run: |
+          python3 -m pip install pandas plotly
+          .github/workflows/generate-benchmark-graphs.py --json-files benchmark-results/ --output-html graphs.html
 
       #TODO: publish the HTML file onto github pages - I don't think we need to check it in anywhere,
       # can use https://github.com/actions/upload-pages-artifact to publish it directly (which is good cos this is a generated file so better not to check in)
