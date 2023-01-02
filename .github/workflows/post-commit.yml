@@ -297,7 +297,7 @@ jobs:
       # Note we use the copy of the source code on the native Linux filesystem, not the one in the Github actions workspace
       # via /mnt/... (so that it's faster and more faithful to a 'proper' linux setup)
       run: |
-        cargo bench --manifest-path ~/rjrssync/Cargo.toml -- -n 1 --json-output benchmark-results-wsl-$(printf '%(%Y-%m-%d-%H-%M)T')-${GITHUB_SHA}.json
+        cargo bench --manifest-path ~/rjrssync/Cargo.toml -- -n 5 --json-output benchmark-results-wsl-$(printf '%(%Y-%m-%d-%H-%M)T')-${GITHUB_SHA}.json
         # Copy the json output to the workspace, where we can upload it from
         cp ~/rjrssync/benchmark-results-* .
 
