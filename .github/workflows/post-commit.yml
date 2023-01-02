@@ -331,7 +331,8 @@ jobs:
         run: |
           git config --global user.name "CI (GitHub Actions)"
           git config --global user.email "no-reply@github.com"
-          git commit -a -m "Benchmark results for $GITHUB_SHA"
+          git add benchmark-results-*
+          git commit -m "Benchmark results for $GITHUB_SHA"
           git push
 
       #TODO: process all historical benchmark data from the branch and produce a plotly chart,
