@@ -341,13 +341,14 @@ jobs:
       - name: Generate graphs
         run: |
           python3 -m pip install pandas plotly
-          .github/workflows/generate-benchmark-graphs.py --json-files benchmark-results/ --output-html index.html
+          mkdir pages
+          .github/workflows/generate-benchmark-graphs.py --json-files benchmark-results/ --output-html pages/index.html
      
       - name: Setup Pages
         uses: actions/configure-pages@v2
       - name: Upload pages artifact
         uses: actions/upload-pages-artifact@v1
         with:          
-          path: 'index.html' # Upload just the graph file
+          path: pages # Upload just the graph file inside this folder
       - name: Deploy to GitHub Pages
         uses: actions/deploy-pages@v1
