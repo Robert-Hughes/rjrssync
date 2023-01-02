@@ -25,7 +25,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   # Set WSLENV to share some env vars between Windows and WSL
-  WSLENV: GITHUB_PATH/p:GITHUB_ENV/p:RJRSSYNC_TEST_REMOTE_USER_AND_HOST_WINDOWS:CARGO_TERM_COLOR
+  WSLENV: GITHUB_PATH/p:GITHUB_ENV/p:RJRSSYNC_TEST_REMOTE_USER_AND_HOST_WINDOWS:CARGO_TERM_COLOR:GITHUB_SHA
 
 jobs:
   # This job builds and runs unit tests on both Windows and Linux (natively, no WSL).
@@ -286,25 +286,27 @@ jobs:
 
     - name: Run benchmarks on Windows
       shell: pwsh
-      run: cargo bench -- -n 1 --json-output benchmark-results-windows-$(Get-Date -Format "yyyy-MM-dd-HH-mm").json
+      run: cargo bench -- -n 1 --json-output benchmark-results-windows-$(Get-Date -Format "yyyy-MM-dd-HH-mm")-$env:GITHUB_SHA.json
 
     - name: Run benchmarks on WSL
       shell: wsl-bash {0}      
       # Note we use the copy of the source code on the native Linux filesystem, not the one in the Github actions workspace
       # via /mnt/... (so that it's faster and more faithful to a 'proper' linux setup)
-      run: cd ~/rjrssync && cargo bench -- -n 1 --json-output benchmark-results-wsl-$(printf '%(%Y-%m-%d-%H-%M)T').json
+      run: |
+        cargo bench --manifest-path ~/rjrssync/Cargo.toml -- -n 1 --json-output benchmark-results-wsl-$(printf '%(%Y-%m-%d-%H-%M)T')-${GITHUB_SHA}.json
+        # Copy the json output to the workspace, where we can upload it from
+        cp ~/rjrssync/benchmark-results-* .
 
     - name: Upload benchmark results (Windows + WSL)
       uses: actions/upload-artifact@v3
       with:
         name: benchmark-results
-        #TODO: looks like paths have to be in the workspace, so we need to copy the wsl artifact into the workspace first, and then upload both from the workspace
-        path: |
-          benchmark-results-*
-          C:\hostedtoolcache\windows\Debian\1.0.0\x64\rootfs\root\rjrssync\benchmark-results-*
+        path: benchmark-results-*
 
   # Artifacts aren't saved forever, so we commit the results to a special (independent) branch of the repo.
   #TODO: this
+
+  #TODO: only do this for main branch stuff, not pull requests?
 
   #TODO: process all historical benchmark data from the branch and produce a plotly chart,
   # which we can host on github pages to view online!
