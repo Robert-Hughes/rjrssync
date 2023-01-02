@@ -114,6 +114,7 @@ jobs:
     # to speed up subsequent builds.
     # (see example at https://github.com/actions/cache/blob/main/examples.md#rust---cargo)
     - name: Restore from cache
+      id: cache
       uses: actions/cache@v3
       #TODO: check that cache for WSL rjrssync/target folder here is working (we were mistakenly not using this
       # folder at all before!)
@@ -133,6 +134,12 @@ jobs:
 
           C:\hostedtoolcache\windows\Debian\1.0.0\x64\rootfs\root\rjrssync\target\
         key: remote-platforms-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+    # Restoring the WSL rjrssync/target folder from cache messes up with the file metadata - this fixes it
+    - name: Fix WSL permissions
+      if: steps.cache.outputs.cache-hit == 'true'
+      shell: wsl-bash {0}
+      run: chmod -R 777 ~/rjrssync/target
 
     - name: Set up cargo on WSL
       shell: wsl-bash {0}
