@@ -313,7 +313,7 @@ jobs:
   # Artifacts aren't saved forever, so we commit the results to a special (independent) branch of the repo.
   commit-benchmark-results:
     # Only do this for stuff already merged to main - we don't want the benchmark results history to include pull requests for example
-    if: ${{ github.ref == 'refs/heads/main' }}
+    if: ${{ github.ref == 'refs/heads/github-actions' }} #TODO: change this to main!
     needs: remote-platforms
     runs-on: ubuntu-latest
     steps:
