@@ -116,8 +116,6 @@ jobs:
     - name: Restore from cache
       id: cache
       uses: actions/cache@v3
-      #TODO: check that cache for WSL rjrssync/target folder here is working (we were mistakenly not using this
-      # folder at all before!)
       with:
         path: |
           ~\.cargo\bin\
@@ -289,11 +287,9 @@ jobs:
       shell: wsl-bash {0}
       run: cd ~/rjrssync && cargo test --verbose -- "remote" --test-threads 1 --nocapture
 
-    # TODO: expand to more samples?
-
     - name: Run benchmarks on Windows
       shell: pwsh
-      run: cargo bench -- -n 1 --json-output benchmark-results-windows-$(Get-Date -Format "yyyy-MM-dd-HH-mm")-$env:GITHUB_SHA.json
+      run: cargo bench -- -n 5 --json-output benchmark-results-windows-$(Get-Date -Format "yyyy-MM-dd-HH-mm")-$env:GITHUB_SHA.json
 
     - name: Run benchmarks on WSL
       shell: wsl-bash {0}      
@@ -344,7 +340,13 @@ jobs:
       - name: Generate graphs
         run: |
           python3 -m pip install pandas plotly
-          .github/workflows/generate-benchmark-graphs.py --json-files benchmark-results/ --output-html graphs.html
-
-      #TODO: publish the HTML file onto github pages - I don't think we need to check it in anywhere,
-      # can use https://github.com/actions/upload-pages-artifact to publish it directly (which is good cos this is a generated file so better not to check in)
+          .github/workflows/generate-benchmark-graphs.py --json-files benchmark-results/ --output-html index.html
+     
+      - name: Setup Pages
+        uses: actions/configure-pages@v2
+      - name: Upload pages artifact
+        uses: actions/upload-pages-artifact@v1
+        with:          
+          path: 'index.html' # Upload just the graph file
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v1
