@@ -58,7 +58,7 @@ jobs:
           ~/.cargo/git/db/
           target/
         key: native-${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
+      
     - name: Build
       run: cargo build --verbose --all-targets
 
@@ -311,9 +311,26 @@ jobs:
         path: benchmark-results-*
 
   # Artifacts aren't saved forever, so we commit the results to a special (independent) branch of the repo.
-  #TODO: this
+  commit-benchmark-results:
+    # Only do this for stuff already merged to main - we don't want the benchmark results history to include pull requests for example
+    if: ${{ github.ref == 'refs/heads/main' }}
+    needs: remote-platforms
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout benchmark-results branch
+        uses: actions/checkout@v3
+        with:
+          ref: benchmark-results
 
-  #TODO: only do this for main branch stuff, not pull requests?
+      - name: Download artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: benchmark-results
+        
+      - name: Commit to benchmark-results branch
+        run: |
+          git commit -a -m "Benchmark results for $GITHUB_SHA"
+          git push
 
-  #TODO: process all historical benchmark data from the branch and produce a plotly chart,
-  # which we can host on github pages to view online!
+      #TODO: process all historical benchmark data from the branch and produce a plotly chart,
+      # which we can host on github pages to view online!
