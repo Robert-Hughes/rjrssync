@@ -13,6 +13,7 @@ on:
     # average out inconsistencies and spot definite changes.
     # Note that GitHub will automatically stop running scheduled runs after 60 days of repo inactivity which is good
     - cron:  '19 4 * * *'   # Every day at 4:19am (not on the hour to avoid high load periods)
+    #TODO: confirm that schedule is working
   # Allow this workflow to be triggered manually, with an optional parameter to enable remote debugging
   workflow_dispatch:
     inputs:
