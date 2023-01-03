@@ -13,6 +13,7 @@ on:
     # average out inconsistencies and spot definite changes.
     # Note that GitHub will automatically stop running scheduled runs after 60 days of repo inactivity which is good
     - cron:  '19 4 * * *'   # Every day at 4:19am (not on the hour to avoid high load periods)
+    #TODO: confirm that schedule is working
   # Allow this workflow to be triggered manually, with an optional parameter to enable remote debugging
   workflow_dispatch:
     inputs:
@@ -116,8 +117,6 @@ jobs:
     - name: Restore from cache
       id: cache
       uses: actions/cache@v3
-      #TODO: check that cache for WSL rjrssync/target folder here is working (we were mistakenly not using this
-      # folder at all before!)
       with:
         path: |
           ~\.cargo\bin\
@@ -289,18 +288,16 @@ jobs:
       shell: wsl-bash {0}
       run: cd ~/rjrssync && cargo test --verbose -- "remote" --test-threads 1 --nocapture
 
-    # TODO: expand to more samples?
-
     - name: Run benchmarks on Windows
       shell: pwsh
-      run: cargo bench -- -n 1 --json-output benchmark-results-windows-$(Get-Date -Format "yyyy-MM-dd-HH-mm")-$env:GITHUB_SHA.json
+      run: cargo bench -- -n 5 --json-output benchmark-results-windows-$(Get-Date -Format "yyyy-MM-dd-HH-mm")-$env:GITHUB_SHA.json
 
     - name: Run benchmarks on WSL
       shell: wsl-bash {0}      
       # Note we use the copy of the source code on the native Linux filesystem, not the one in the Github actions workspace
       # via /mnt/... (so that it's faster and more faithful to a 'proper' linux setup)
       run: |
-        cargo bench --manifest-path ~/rjrssync/Cargo.toml -- -n 1 --json-output benchmark-results-wsl-$(printf '%(%Y-%m-%d-%H-%M)T')-${GITHUB_SHA}.json
+        cargo bench --manifest-path ~/rjrssync/Cargo.toml -- -n 5 --json-output benchmark-results-wsl-$(printf '%(%Y-%m-%d-%H-%M)T')-${GITHUB_SHA}.json
         # Copy the json output to the workspace, where we can upload it from
         cp ~/rjrssync/benchmark-results-* .
 
@@ -315,25 +312,44 @@ jobs:
     # Only do this for stuff already merged to main - we don't want the benchmark results history to include pull requests for example
     if: ${{ github.ref == 'refs/heads/main' }}
     needs: remote-platforms
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest    
+    permissions: write-all # Set permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
     steps:
-      - name: Checkout benchmark-results branch
+      - name: Checkout default branch (for scripts)
+        uses: actions/checkout@v3
+
+      - name: Checkout benchmark-results branch into subfolder
         uses: actions/checkout@v3
         with:
           ref: benchmark-results
+          path: benchmark-results
 
       - name: Download artifact
         uses: actions/download-artifact@v3
         with:
           name: benchmark-results
+          path: benchmark-results
         
       - name: Commit to benchmark-results branch
         run: |
+          cd benchmark-results
           git config --global user.name "CI (GitHub Actions)"
           git config --global user.email "no-reply@github.com"
           git add benchmark-results-*
           git commit -m "Benchmark results for $GITHUB_SHA"
           git push
 
-      #TODO: process all historical benchmark data from the branch and produce a plotly chart,
-      # which we can host on github pages to view online!
+      - name: Generate graphs
+        run: |
+          python3 -m pip install pandas plotly
+          mkdir pages
+          .github/workflows/generate-benchmark-graphs.py --json-files benchmark-results/ --output-html pages/index.html
+     
+      - name: Setup Pages
+        uses: actions/configure-pages@v2
+      - name: Upload pages artifact
+        uses: actions/upload-pages-artifact@v1
+        with:          
+          path: pages # Upload just the graph file inside this folder
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v1
