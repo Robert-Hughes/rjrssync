@@ -24,6 +24,7 @@ Remote launching
 * Additional SSH options as command-line arguments (separate for source and dest?)
 * SSH host key verification prompt doesn't echo the user's typing, but it does seem to work anyway
 * Using temporary dir means that rebooting the remote will mean we have to rebuild from scratch (on Linux)
+   - Could use something like /var (find whatever is appropriate), but might want to ask user's permission for this. Could use a prompt to check with the user if they're happy, and a corresponding command line option to set the behaviour. Could prompt whenever we need to deploy new/updated version, as it will take a little time and the user might want to know that we are building stuff on their remote device. Shoudl also include the reason ("rjrsssync isn't installed, are you happy to do XYZ", or "rjrssync on remote is the wrong version, are you happy to do XYZ")
 * We could first attempt to use an already-installed version of rjrssync (in the PATH), and only if this doesn't exist or is incompatible do we deploy/build from scratch?
 * Sometimes see "ssh stderr: mesg: ttyname failed: Inappropriate ioctl for device" when deploying to remote (I think on 'F**A' platforms). Can we hide this using "-T" for example?
 * Launching on a new system can take a while, even if cargo is already installed, and if cargo isn't installed, this is an extra step for the user. Pre-built binaries?
@@ -82,10 +83,12 @@ Testing
 * Tests for when filesystem operations fail, e.g. failing to read/write a file
 * Clarify if filters should expect to see trailing slashes on folder names or not? What about folder symlinks? Tests + docs for this
 * Improve display of benchmark graph
+   - add memory (local and remote) to the page somehow
 * Make a note somewhere that because we're using WSL 1 on GHA, the "linux" filesystem performance won't be as good and might have "windows" characteristics (as the kernel is still windows)
 * Keep looking for a way to get two github runners to talk to each other, so we can have one windows and one linux rather than having to use WSL which brings with it a bunch of problems. Maybe we can open a TCP tunnel between two runners, some kind of NAT traversal handoff thing that doesn't involve all the traffic going through a third party, just the setup bits somehow?
    - https://en.wikipedia.org/wiki/NAT_traversal
    - https://github.com/ValdikSS/nat-traversal-github-actions-openvpn-wireguard/blob/master/README.md
+* Confirm that github actions nightly schedule is working
 * Various tests are leaving behind temporary folders, filling up with disk space! Especially benchmarks which are big!
 * "The source/dest root is never checked against the filter - this is always considered as included." - test this (maybe already have a unit test actually!)
 * Using tar for remote filesytem nodes messes about with symlinks when extracting on a different platform (Windows vs Linux)
