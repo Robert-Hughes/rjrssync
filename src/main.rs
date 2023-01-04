@@ -17,7 +17,7 @@ use profiling::*;
 
 // We include the profiling config in the version number, as profiling and non-profiling builds are not compatible
 // (because a non-profiling doer won't record any events).
-pub const VERSION: &str = concatcp!("120", if cfg!(feature="profiling") { "+profiling"} else { "" });
+pub const VERSION: &str = concatcp!("122", if cfg!(feature="profiling") { "+profiling"} else { "" });
 
 // Message printed by a doer copy of the program to indicate that it has loaded and is ready
 // to receive data over its stdin. Once the boss receives this, it knows that ssh has connected
@@ -30,7 +30,7 @@ pub const HANDSHAKE_STARTED_MSG: &str = "rjrssync doer v"; // Version number wil
 // is listening on a network port for a connection.
 pub const HANDSHAKE_COMPLETED_MSG: &str = "Waiting for incoming network connection on port "; // Port number will be appended.
 
-pub const REMOTE_TEMP_UNIX: &str = "/tmp/";
+pub const REMOTE_TEMP_UNIX: &str = "/var/tmp/"; // Use /var/tmp rather than /tmp so it doesn't get wiped on reboot (and thus requiring a re-deploy)
 pub const REMOTE_TEMP_WINDOWS: &str = r"%TEMP%\";
 
 /// Rough maximum amount of memory we allow to be buffered in our cross-thread communication channels

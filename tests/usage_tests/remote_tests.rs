@@ -3,7 +3,7 @@ use std::time::SystemTime;
 use regex::Regex;
 
 use map_macro::map;
-use crate::{test_framework::{run, TestDesc, empty_folder, folder, NumActions, file_with_modified}, folder};
+use crate::{test_framework::{run, TestDesc, empty_folder, folder, NumActions, file_with_modified, copied_files}, folder};
 
 /// Tests that rjrssync can be launched on a remote platform, and communication is estabilished.
 /// There is no proper sync performed (just syncing an empty folder), but this checks that
@@ -17,12 +17,14 @@ fn test_remote_launch_impl(remote_platform_temp_variable: &str) {
         ],
         args: vec![
             "--force-redeploy".to_string(),
+            "--needs-deploy".to_string(),
+            "deploy".to_string(), // Skip the confirmation prompt for deploying
             "$TEMP/src".to_string(),
-            format!("{remote_platform_temp_variable}/dest")
+            format!("{remote_platform_temp_variable}/dest"),
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
-            (1, Regex::new("Compiling rjrssync").unwrap()),
+            (1, Regex::new(&regex::escape("Finished release [optimized] target")).unwrap()),
         ],
         ..Default::default()
     });
@@ -38,7 +40,7 @@ fn test_remote_launch_impl(remote_platform_temp_variable: &str) {
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
-            (0, Regex::new("Compiling rjrssync").unwrap()),
+            (0, Regex::new(&regex::escape("Finished release [optimized] target")).unwrap()),
         ],
         ..Default::default()
     });
@@ -114,4 +116,127 @@ fn test_cross_platform() {
             }));
         }
     }
+}
+
+/// Deploy is needed due to --force-redeploy. The expected behaviour is controlled by a command-line argument, which in this case
+/// we set to "prompt", and choose "cancel" on the prompt, so the sync should be stopped.
+#[test]
+fn needs_deploy_prompt_cancel() {
+    let src = file_with_modified("this will replace the dest!", SystemTime::UNIX_EPOCH);
+    let dest = file_with_modified("replace me!", SystemTime::UNIX_EPOCH);
+    run(TestDesc {
+        setup_filesystem_nodes: vec![
+            ("$TEMP/src", &src),
+            ("$REMOTE_WINDOWS_TEMP/dest", &dest),
+        ],
+        args: vec![
+            "$TEMP/src".to_string(),
+            "$REMOTE_WINDOWS_TEMP/dest".to_string(),
+            "--force-redeploy".to_string(),
+            "--needs-deploy".to_string(),
+            "prompt".to_string(),
+        ],
+        prompt_responses: vec![
+            String::from("1:.*:Cancel sync"),
+        ],
+        expected_exit_code: 11,
+        expected_output_messages: vec![
+            // We actaully get this message twice - once for the prompt and once in the error message after the prompt is cancelled
+            (2, Regex::new("rjrssync needs to be deployed").unwrap()),
+            (1, Regex::new(&regex::escape("Will not deploy")).unwrap()), // skipped
+        ],
+        expected_filesystem_nodes: vec![
+            ("$TEMP/src", Some(&src)), // Unchanged
+            ("$REMOTE_WINDOWS_TEMP/dest", Some(&dest)), // Unchanged
+        ],
+        ..Default::default()
+    });
+}
+
+/// Deploy is needed due to --force-redeploy. The expected behaviour is controlled by a command-line argument, which in this case
+/// we set to "prompt", and choose "deploy" on the prompt, so the sync should go ahead after deployment
+#[test]
+fn needs_deploy_prompt_deploy() {
+    let src = file_with_modified("this will replace the dest!", SystemTime::UNIX_EPOCH);
+    run(TestDesc {
+        setup_filesystem_nodes: vec![
+            ("$TEMP/src", &src),
+        ],
+        args: vec![
+            "$TEMP/src".to_string(),
+            "$REMOTE_WINDOWS_TEMP/dest".to_string(),
+            "--force-redeploy".to_string(),
+            "--needs-deploy".to_string(),
+            "prompt".to_string(),
+        ],
+        prompt_responses: vec![
+            String::from("1:.*:Deploy"),
+        ],
+        expected_exit_code: 0,
+        expected_output_messages: vec![
+            (1, Regex::new("rjrssync needs to be deployed").unwrap()),
+            (1, Regex::new(&regex::escape("Finished release [optimized] target")).unwrap()), // Deploy and build happens
+        ],
+        expected_filesystem_nodes: vec![
+            ("$TEMP/src", Some(&src)), // Unchanged
+            ("$REMOTE_WINDOWS_TEMP/dest", Some(&src)), // Src copied to dest, as the sync went ahead after deployment
+        ],
+        ..Default::default()
+    }.with_expected_actions(copied_files(1)));
+}
+
+/// Deploy is needed due to --force-redeploy. The expected behaviour is controlled by a command-line argument, which in this case
+/// we set to produce an error.
+#[test]
+fn needs_deploy_error() {
+    let src = file_with_modified("this will replace the dest!", SystemTime::UNIX_EPOCH);
+    run(TestDesc {
+        setup_filesystem_nodes: vec![
+            ("$TEMP/src", &src),
+        ],
+        args: vec![
+            "$TEMP/src".to_string(),
+            "$REMOTE_WINDOWS_TEMP/dest".to_string(),
+            "--force-redeploy".to_string(),
+            "--needs-deploy".to_string(),
+            "error".to_string(),
+        ],
+        expected_exit_code: 11,
+        expected_output_messages: vec![
+            (1, Regex::new(&regex::escape("Will not deploy")).unwrap()),
+        ],
+        expected_filesystem_nodes: vec![
+            ("$TEMP/src", Some(&src)), // Unchanged
+            ("$REMOTE_WINDOWS_TEMP/dest", None), // Unchanged
+        ],
+        ..Default::default()
+    });
+}
+
+/// Deploy is needed due to --force-redeploy. The expected behaviour is controlled by a command-line argument, which in this case
+/// we set to deploy, so the deploy should go ahead and the sync should succeed
+#[test]
+fn needs_deploy_deploy() {
+    let src = file_with_modified("this will replace the dest!", SystemTime::UNIX_EPOCH);
+    run(TestDesc {
+        setup_filesystem_nodes: vec![
+            ("$TEMP/src", &src),
+        ],
+        args: vec![
+            "$TEMP/src".to_string(),
+            "$REMOTE_WINDOWS_TEMP/dest".to_string(),
+            "--force-redeploy".to_string(),
+            "--needs-deploy".to_string(),
+            "deploy".to_string(),
+        ],
+        expected_exit_code: 0,
+        expected_output_messages: vec![
+            (1, Regex::new(&regex::escape("Finished release [optimized] target")).unwrap()), // Deploy and build happens
+        ],
+        expected_filesystem_nodes: vec![
+            ("$TEMP/src", Some(&src)), // Unchanged
+            ("$REMOTE_WINDOWS_TEMP/dest", Some(&src)), // Src copied to dest, as the sync went ahead after deployment
+        ],
+        ..Default::default()
+    }.with_expected_actions(copied_files(1)));
 }

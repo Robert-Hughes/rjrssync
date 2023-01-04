@@ -1,13 +1,16 @@
 use std::path::Path;
 use std::process::ExitCode;
 use std::io::Write;
+use std::sync::Mutex;
 
 use clap::{Parser, ValueEnum, CommandFactory};
 use env_logger::{Env, fmt::Color};
 use indicatif::ProgressBar;
 use log::info;
 use log::{debug, error};
+use regex::Regex;
 use yaml_rust::{YamlLoader, Yaml};
+use lazy_static::{lazy_static};
 
 use crate::profiling::{dump_all_profiling, start_timer, stop_timer, self};
 use crate::{boss_launch::*, profile_this, function_name};
@@ -81,6 +84,14 @@ pub struct BossCliArgs {
 
     #[arg(long)]
     pub dry_run: bool,
+
+    /// Specifies behaviour when rjrssync needs to be deployed to a remote target. 
+    /// This might download some cargo packages and take a while to build, so we check with the user.
+    /// The default is 'prompt'.
+    // (the default isn't defined here, because it's defined in SyncSpec::default() and if we duplicate it
+    //  here then we'll have no way of knowing if the user provided it on the cmd prompt as an override or not)
+    #[arg(long)]
+    pub needs_deploy: Option<NeedsDeployBehaviour>,
 
     /// Specifies behaviour when a file exists on both source and destination sides, but the 
     /// destination file has a newer modified timestamp. This might indicate that data is about
@@ -238,6 +249,16 @@ impl std::str::FromStr for RemotePathDesc {
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug)]
+pub enum NeedsDeployBehaviour {
+    /// The user will be asked what to do. (In a non-interactive environment, this is equivalent to 'error')
+    Prompt,
+    /// An error will be raised and the sync will not happen.
+    Error,
+    /// rjrssync will be deployed and built onto the target platform.
+    Deploy,
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug)]
 pub enum DestFileUpdateBehaviour {
     /// The user will be asked what to do. (In a non-interactive environment, this is equivalent to 'error')
     Prompt,
@@ -293,13 +314,26 @@ pub enum AllDestructiveBehaviour {
 /// sync like you can with the filters etc.), because this doesn't bring much benefit over just 
 /// running rjrssync multiple times with different arguments. We do allow syncing multiple folders
 /// between the same two hosts though because this saves the connecting/setup time.
-#[derive(Default, Debug, PartialEq)]
+#[derive(Debug, PartialEq)]
 struct Spec {
     src_hostname: String,
     src_username: String,
     dest_hostname: String,
     dest_username: String,
+    needs_deploy_behaviour: NeedsDeployBehaviour,
     syncs: Vec<SyncSpec>,
+}
+impl Default for Spec {
+    fn default() -> Self {
+        Self { 
+            src_hostname: String::from(""), 
+            src_username: String::from(""), 
+            dest_hostname: String::from(""), 
+            dest_username: String::from(""), 
+            needs_deploy_behaviour: NeedsDeployBehaviour::Prompt, 
+            syncs: vec![],
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -392,6 +426,7 @@ fn parse_spec_file(path: &Path) -> Result<Spec, String> {
             Yaml::String(x) if x == "src_username" => result.src_username = parse_string(root_value, "src_username")?,
             Yaml::String(x) if x == "dest_hostname" => result.dest_hostname = parse_string(root_value, "dest_hostname")?,
             Yaml::String(x) if x == "dest_username" => result.dest_username = parse_string(root_value, "dest_username")?,
+            Yaml::String(x) if x == "needs_deploy_behaviour" => result.needs_deploy_behaviour = NeedsDeployBehaviour::from_str(&parse_string(root_value, "needs_deploy_behaviour")?, true)?,
             Yaml::String(x) if x == "syncs" => {
                 match root_value {
                     Yaml::Array(syncs_yaml) => {
@@ -544,6 +579,9 @@ fn resolve_spec(args: &BossCliArgs) -> Result<Spec, String> {
     }
 
     // Apply additional command-line args, which may override/augment what's in the spec file.
+    if let Some(b) = args.needs_deploy {
+        spec.needs_deploy_behaviour = b;
+    }
     for mut sync in &mut spec.syncs {
         if !args.filters.is_empty() {
             sync.filters = args.filters.clone();
@@ -592,6 +630,7 @@ fn execute_spec(spec: Spec, args: &BossCliArgs) -> ExitCode {
         args.remote_port,
         "src".to_string(),
         args.force_redeploy,
+        spec.needs_deploy_behaviour,
     ) {
         Some(c) => c,
         None => return ExitCode::from(10),
@@ -602,6 +641,7 @@ fn execute_spec(spec: Spec, args: &BossCliArgs) -> ExitCode {
         args.remote_port,
         "dest".to_string(),
         args.force_redeploy,
+        spec.needs_deploy_behaviour,
     ) {
         Some(c) => c,
         None => return ExitCode::from(11),
@@ -633,6 +673,133 @@ fn execute_spec(spec: Spec, args: &BossCliArgs) -> ExitCode {
     dest_comms.shutdown();
 
     ExitCode::SUCCESS
+}
+
+/// For testing purposes, this env var can be set to a list of responses to prompts
+/// that we might display, which we use immediately rather than waiting for a real user
+/// to respond.
+const TEST_PROMPT_RESPONSE_ENV_VAR: &str = "RJRSSYNC_TEST_PROMPT_RESPONSE";
+
+lazy_static! {
+    // We're only accessing this on one thread, but the compiler doesn't know that so we need a mutex.
+    // It's only used for the prompt code, so performance should not be a concern.
+    static ref TEST_PROMPT_RESPONSES: Mutex<TestPromptResponses> = Mutex::new(TestPromptResponses::from_env());
+}
+
+struct TestPromptResponses {
+    responses: Vec<(usize, Regex, String)>
+}
+impl TestPromptResponses {
+    fn from_env() -> TestPromptResponses {
+        let mut result = TestPromptResponses { responses: vec![] };
+        if let Ok(all_responses) = std::env::var(TEST_PROMPT_RESPONSE_ENV_VAR) {
+            // The env var is a comma-separated list of entries, where each entry has
+            // a regex defining what prompts it matches, a maximum number of prompts that it 
+            // can be used to respond to and the prompt response itself.
+            // The count reduces each time the response is used,
+            // and once it hits zero it will no longer be used as a response.
+            for max_occurences_and_regex in all_responses.split(',') {
+                if max_occurences_and_regex.is_empty() {
+                    continue;
+                }
+                let mut parts = max_occurences_and_regex.splitn(3, ':');
+                let max_occurences = parts.next().expect("Invalid syntax").parse::<usize>().expect("Invalid number");
+                let regex = Regex::new(parts.next().expect("Invalid syntax")).expect("Invalid regex");
+                let response = parts.next().expect("Invalid syntax");
+                result.responses.push((max_occurences, regex, response.to_string()));
+            }
+        }
+        result
+    }
+
+    /// Gets the response to use for the given prompt, and reduces the max occurences count accordingly.
+    fn get_response(&mut self, prompt: &str) -> Option<String> {
+        for (max_occurences, regex, response) in &mut self.responses {
+            if regex.is_match(prompt) && *max_occurences > 0 {
+                *max_occurences -= 1;
+                return Some(response.clone());
+            }
+        }
+        None
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct ResolvePromptResult<B> {
+    /// The decision that was made for this occurence.
+    pub immediate_behaviour: B,
+    /// The decision that was made to be remembered for future occurences (if any)
+    pub remembered_behaviour: Option<B>,
+}
+impl<B: Copy> ResolvePromptResult<B> {
+    fn once(b: B) -> Self {
+        Self { immediate_behaviour: b, remembered_behaviour: None }
+    }
+    fn always(b: B) -> Self {
+        Self { immediate_behaviour: b, remembered_behaviour: Some(b) }
+    }
+}
+
+pub fn resolve_prompt<B: Copy>(prompt: String, progress_bar: Option<&ProgressBar>,
+    options: &[(&str, B)], include_always_versions: bool, cancel_behaviour: B) -> ResolvePromptResult<B> {
+
+    let mut items = vec![];
+    for o in options {
+        if include_always_versions {
+            items.push((format!("{} (just this occurence)", o.0), ResolvePromptResult::once(o.1)));
+            items.push((format!("{} (all occurences)", o.0), ResolvePromptResult::always(o.1)));
+        } else {
+            items.push((String::from(o.0), ResolvePromptResult::once(o.1)));
+        }
+    }
+    items.push((String::from("Cancel sync"), ResolvePromptResult::once(cancel_behaviour)));
+
+    // Allow overriding the prompt response for testing
+    let mut response_idx = None;
+    if let Some(auto_response) = TEST_PROMPT_RESPONSES.lock().expect("Mutex problem").get_response(&prompt) {
+        // Print the prompt anyway, so the test can confirm that it was hit
+        println!("{}", prompt);
+        response_idx = Some(items.iter().position(|i| i.0 == auto_response).expect("Invalid response"));
+    }
+    let response_idx = match response_idx {
+        Some(r) => r,
+        None => {
+            if !dialoguer::console::user_attended() {
+                debug!("Unattended terminal, behaving as if prompt cancelled");
+                items.len() - 1 // Last entry is always cancel
+            } else {
+                // The prompt message provided as input to this function may have styling applied 
+                // (e.g. if it comes from our PrettyPath), which won't play nicely with the styling applied
+                // by the theme for the prompt. To work around this, we modify the provided prompt to append
+                // any occurences of the "reset" ANSI code with the code(s) that re-apply the theme used by 
+                // the whole prompt.
+                let theme = dialoguer::theme::ColorfulTheme::default();
+                // Figure out the ANSI code(s) needed to apply the prompt theme
+                let style_begin = theme.prompt_style.apply_to("").to_string().replace("\x1b[0m", "");
+                // Append these to any occurences of RESET on the original prompt string.
+                let prompt = prompt.replace("\x1b[0m", &format!("\x1b[0m{style_begin}"));
+
+                let f = || {
+                    let r = dialoguer::Select::with_theme(&theme)
+                        .with_prompt(prompt)
+                        .items(&items.iter().map(|i| &i.0).collect::<Vec<&String>>())
+                        .default(0).interact_opt();
+                    let response = match r {
+                        Ok(Some(i)) => i,
+                        _ => items.len() - 1 // Last entry is always cancel, e.g. if user presses q or Esc
+                    };
+                    response
+                };
+
+                match progress_bar {
+                    Some(p) => p.suspend(f), // Hide the progress bar while showing this message, otherwise the background tick will redraw it over our prompt!
+                    None => f(),
+                }
+            }
+        }
+    };
+
+    items[response_idx].1
 }
 
 #[cfg(test)]
@@ -871,6 +1038,7 @@ mod tests {
             src_username: "user1"
             dest_hostname: "computer2"
             dest_username: "user2"
+            needs_deploy_behaviour: deploy
             syncs:
             - src: T:\Source1
               dest: T:\Dest1
@@ -893,6 +1061,7 @@ mod tests {
             src_username: "user1".to_string(),
             dest_hostname: "computer2".to_string(),
             dest_username: "user2".to_string(),
+            needs_deploy_behaviour: NeedsDeployBehaviour::Deploy,
             syncs: vec![
                 SyncSpec {
                     src: "T:\\Source1".to_string(),
@@ -933,6 +1102,7 @@ mod tests {
             src_username: "".to_string(), // Default - not specified in the YAML
             dest_hostname: "".to_string(), // Default - not specified in the YAML
             dest_username: "".to_string(), // Default - not specified in the YAML
+            needs_deploy_behaviour: NeedsDeployBehaviour::Prompt, // Default - not specified in the YAML
             syncs: vec![
                 SyncSpec {
                     src: "T:\\Source1".to_string(),
@@ -1055,6 +1225,7 @@ mod tests {
     fn resolve_spec_overrides() {
         let mut spec_file = NamedTempFile::new().unwrap();
         write!(spec_file, r#"
+            needs_deploy_behaviour: error
             syncs:
             - src: a
               dest: b
@@ -1070,9 +1241,11 @@ mod tests {
             "--spec", spec_file.path().to_str().unwrap(),
             "--filter", "-meow",
             "--dest-file-newer", "error",
+            "--needs-deploy", "deploy",
         ]).unwrap();
         let spec = resolve_spec(&args).unwrap();
-        assert_eq!(spec, Spec { 
+        assert_eq!(spec, Spec {
+            needs_deploy_behaviour: NeedsDeployBehaviour::Deploy, // Overriden by command-line args
             syncs: vec![
                 SyncSpec {
                     src: "a".to_string(),

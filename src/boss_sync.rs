@@ -1,13 +1,12 @@
 use std::{
     cmp::Ordering,
-    fmt::{Display, Write}, time::{Instant, SystemTime, Duration}, collections::HashMap, sync::Mutex,
+    fmt::{Display, Write}, time::{Instant, SystemTime, Duration}, collections::HashMap,
 };
 
 use console::{Style};
 use indicatif::{ProgressBar, ProgressStyle, HumanCount, HumanBytes};
 use log::{debug, info, trace};
-use regex::{RegexSet, Regex};
-use lazy_static::{lazy_static};
+use regex::{RegexSet};
 
 use crate::*;
 
@@ -418,7 +417,7 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), String> {
             let resolved_behaviour = match ctx.dest_root_needs_deleting_behaviour {
                 DestRootNeedsDeletingBehaviour::Prompt => {
                     let prompt_result = resolve_prompt(format!("{msg}. What do?"),
-                        &ctx.progress_bar, 
+                        Some(&ctx.progress_bar), 
                         &[
                             ("Skip", DestRootNeedsDeletingBehaviour::Skip),
                             ("Delete", DestRootNeedsDeletingBehaviour::Delete),
@@ -742,7 +741,7 @@ fn delete_dest_entry(ctx: &mut SyncContext, dest_details: &EntryDetails, dest_pa
     let resolved_behaviour = match ctx.dest_entry_needs_deleting_behaviour {
         DestEntryNeedsDeletingBehaviour::Prompt => {
             let prompt_result = resolve_prompt(format!("{msg}. What do?"),
-                &ctx.progress_bar, 
+                Some(&ctx.progress_bar), 
                 &[
                     ("Skip", DestEntryNeedsDeletingBehaviour::Skip),
                     ("Delete", DestEntryNeedsDeletingBehaviour::Delete),
@@ -814,7 +813,7 @@ fn handle_existing_file(
             let resolved_behaviour = match ctx.dest_file_newer_behaviour {
                 DestFileUpdateBehaviour::Prompt => {
                     let prompt_result = resolve_prompt(format!("{msg}. What do?"),
-                        &ctx.progress_bar, 
+                        Some(&ctx.progress_bar), 
                         &[
                             ("Skip", DestFileUpdateBehaviour::Skip),
                             ("Overwrite", DestFileUpdateBehaviour::Overwrite),
@@ -856,7 +855,7 @@ fn handle_existing_file(
             let resolved_behaviour = match ctx.dest_file_older_behaviour {
                 DestFileUpdateBehaviour::Prompt => {
                     let prompt_result = resolve_prompt(format!("{msg}. What do?"),
-                        &ctx.progress_bar, 
+                        Some(&ctx.progress_bar), 
                         &[
                             ("Skip", DestFileUpdateBehaviour::Skip),
                             ("Overwrite", DestFileUpdateBehaviour::Overwrite),
@@ -889,125 +888,6 @@ fn handle_existing_file(
         copy_file(&path, size, src_modified_time, ctx)?
     }
     Ok(())
-}
-
-/// For testing purposes, this env var can be set to a list of responses to prompts
-/// that we might display, which we use immediately rather than waiting for a real user
-/// to respond.
-const TEST_PROMPT_RESPONSE_ENV_VAR: &str = "RJRSSYNC_TEST_PROMPT_RESPONSE";
-
-lazy_static! {
-    // We're only accessing this on one thread, but the compiler doesn't know that so we need a mutex.
-    // It's only used for the prompt code, so performance should not be a concern.
-    static ref TEST_PROMPT_RESPONSES: Mutex<TestPromptResponses> = Mutex::new(TestPromptResponses::from_env());
-}
-
-struct TestPromptResponses {
-    responses: Vec<(usize, Regex, String)>
-}
-impl TestPromptResponses {
-    fn from_env() -> TestPromptResponses {
-        let mut result = TestPromptResponses { responses: vec![] };
-        if let Ok(all_responses) = std::env::var(TEST_PROMPT_RESPONSE_ENV_VAR) {
-            // The env var is a comma-separated list of entries, where each entry has
-            // a regex defining what prompts it matches, a maximum number of prompts that it 
-            // can be used to respond to and the prompt response itself.
-            // The count reduces each time the response is used,
-            // and once it hits zero it will no longer be used as a response.
-            for max_occurences_and_regex in all_responses.split(',') {
-                let mut parts = max_occurences_and_regex.splitn(3, ':');
-                let max_occurences = parts.next().expect("Invalid syntax").parse::<usize>().expect("Invalid number");
-                let regex = Regex::new(parts.next().expect("Invalid syntax")).expect("Invalid regex");
-                let response = parts.next().expect("Invalid syntax");
-                result.responses.push((max_occurences, regex, response.to_string()));
-            }
-        }
-        result
-    }
-
-    /// Gets the response to use for the given prompt, and reduces the max occurences count accordingly.
-    fn get_response(&mut self, prompt: &str) -> Option<String> {
-        for (max_occurences, regex, response) in &mut self.responses {
-            if regex.is_match(prompt) && *max_occurences > 0 {
-                *max_occurences -= 1;
-                return Some(response.clone());
-            }
-        }
-        None
-    }
-}
-
-#[derive(Clone, Copy)]
-struct ResolvePromptResult<B> {
-    /// The decision that was made for this occurence.
-    immediate_behaviour: B,
-    /// The decision that was made to be remembered for future occurences (if any)
-    remembered_behaviour: Option<B>,
-}
-impl<B: Copy> ResolvePromptResult<B> {
-    fn once(b: B) -> Self {
-        Self { immediate_behaviour: b, remembered_behaviour: None }
-    }
-    fn always(b: B) -> Self {
-        Self { immediate_behaviour: b, remembered_behaviour: Some(b) }
-    }
-}
-
-fn resolve_prompt<B: Copy>(prompt: String, progress_bar: &ProgressBar,
-    options: &[(&str, B)], include_always_versions: bool, cancel_behaviour: B) -> ResolvePromptResult<B> {
-
-    let mut items = vec![];
-    for o in options {
-        if include_always_versions {
-            items.push((format!("{} (just this occurence)", o.0), ResolvePromptResult::once(o.1)));
-            items.push((format!("{} (all occurences)", o.0), ResolvePromptResult::always(o.1)));
-        } else {
-            items.push((String::from(o.0), ResolvePromptResult::once(o.1)));
-        }
-    }
-    items.push((String::from("Cancel sync"), ResolvePromptResult::once(cancel_behaviour)));
-
-    // Allow overriding the prompt response for testing
-    let mut response_idx = None;
-    if let Some(auto_response) = TEST_PROMPT_RESPONSES.lock().expect("Mutex problem").get_response(&prompt) {
-        // Print the prompt anyway, so the test can confirm that it was hit
-        println!("{}", prompt);
-        response_idx = Some(items.iter().position(|i| i.0 == auto_response).expect("Invalid response"));
-    }
-    let response_idx = match response_idx {
-        Some(r) => r,
-        None => {
-            if !dialoguer::console::user_attended() {
-                debug!("Unattended terminal, behaving as if prompt cancelled");
-                items.len() - 1 // Last entry is always cancel
-            } else {
-                // The prompt message provided as input to this function may have styling applied 
-                // (e.g. if it comes from our PrettyPath), which won't play nicely with the styling applied
-                // by the theme for the prompt. To work around this, we modify the provided prompt to append
-                // any occurences of the "reset" ANSI code with the code(s) that re-apply the theme used by 
-                // the whole prompt.
-                let theme = dialoguer::theme::ColorfulTheme::default();
-                // Figure out the ANSI code(s) needed to apply the prompt theme
-                let style_begin = theme.prompt_style.apply_to("").to_string().replace("\x1b[0m", "");
-                // Append these to any occurences of RESET on the original prompt string.
-                let prompt = prompt.replace("\x1b[0m", &format!("\x1b[0m{style_begin}"));
-
-                progress_bar.suspend(|| { // Hide the progress bar while showing this message, otherwise the background tick will redraw it over our prompt!
-                    let r = dialoguer::Select::with_theme(&theme)
-                        .with_prompt(prompt)
-                        .items(&items.iter().map(|i| &i.0).collect::<Vec<&String>>())
-                        .default(0).interact_opt();
-                    let response = match r {
-                        Ok(Some(i)) => i,
-                        _ => items.len() - 1 // Last entry is always cancel, e.g. if user presses q or Esc
-                    };
-                    response
-                })
-            }
-        }
-    };
-
-    items[response_idx].1
 }
 
 fn copy_file(

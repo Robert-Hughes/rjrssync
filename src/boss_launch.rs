@@ -175,6 +175,7 @@ pub fn setup_comms(
     remote_port_for_comms: Option<u16>,
     debug_name: String,
     force_redeploy: bool,
+    needs_deploy_behaviour: NeedsDeployBehaviour,
 ) -> Option<Comms> {
     profile_this!(format!("setup_comms {}", debug_name));
     debug!(
@@ -205,10 +206,13 @@ pub fn setup_comms(
     // We first attempt to run a previously-deployed copy of the program on the remote, to save time.
     // If it exists and is a compatible version, we can use that. Otherwise we deploy a new version
     // and try again
-    let mut deploy = force_redeploy;
+    let mut deploy_reason = match force_redeploy {
+        true => Some("--force-redeploy was set"),
+        false => None
+    };
     for attempt in 0..2 {
-        if deploy {
-            if deploy_to_remote(remote_hostname, remote_user).is_ok() {
+        if let Some(r) = deploy_reason {
+            if deploy_to_remote(remote_hostname, remote_user, r, needs_deploy_behaviour).is_ok() {
                 debug!("Successfully deployed, attempting to run again");
             } else {
                 error!("Failed to deploy to remote");
@@ -220,11 +224,11 @@ pub fn setup_comms(
             SshDoerLaunchResult::FailedToRunSsh => {
                 return None; // No point trying again. launch_doer_via_ssh will have logged the error already.
             }
-            SshDoerLaunchResult::NotPresentOnRemote
-            | SshDoerLaunchResult::HandshakeIncompatibleVersion
-                if attempt == 0 =>
-            {
-                deploy = true; // Will attempt to deploy on next loop iteration
+            SshDoerLaunchResult::NotPresentOnRemote if attempt == 0 => {
+                deploy_reason = Some("rjrssync is not present on the remote target"); // Will attempt to deploy on next loop iteration
+            }
+            SshDoerLaunchResult::HandshakeIncompatibleVersion if attempt == 0 => {
+                deploy_reason = Some("the rjrssync version present on the remote target is not compatible"); // Will attempt to deploy on next loop iteration
             }
             SshDoerLaunchResult::NotPresentOnRemote
             | SshDoerLaunchResult::HandshakeIncompatibleVersion => {
@@ -653,7 +657,7 @@ const EMBEDDED_CARGO_TOML : &'static str = include_str!("../Cargo.toml");
 const EMBEDDED_CARGO_LOCK : &[u8] = include_bytes!("../Cargo.lock");
 
 /// Deploys the source code of rjrssync to the given remote computer and builds it, ready to be executed.
-fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> {
+fn deploy_to_remote(remote_hostname: &str, remote_user: &str, reason: &str, needs_deploy_behaviour: NeedsDeployBehaviour) -> Result<(), ()> {
     // We're about to show a bunch of output from scp/ssh, so this log message may as well be the same severity,
     // so the user knows what's happening.
     info!("Deploying onto '{}'", &remote_hostname); 
@@ -752,15 +756,41 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> 
     // so we fall back to Linux as a default
     let is_windows = os_test_output.contains("Windows");
 
+    let (remote_temp, remote_rjrssync_folder) = if is_windows {
+        (REMOTE_TEMP_WINDOWS, format!("{REMOTE_TEMP_WINDOWS}\\rjrssync"))
+    } else {
+        (REMOTE_TEMP_UNIX, format!("{REMOTE_TEMP_UNIX}/rjrssync"))
+    };
+
+    // Confirm that the user is happy for us to deploy and build the code on the target. This might take a while
+    // and might download cargo packages, so the user should probably be aware.
+    let msg = format!("rjrssync needs to be deployed onto remote target {remote_hostname} because {reason}. \
+        This will require downloading some cargo packages and building the program on the remote target. \
+        It will be deployed into the folder '{remote_rjrssync_folder}'");
+    let resolved_behaviour = match needs_deploy_behaviour {
+        NeedsDeployBehaviour::Prompt => {
+            let prompt_result = resolve_prompt(format!("{msg}. What do?"),
+                None, 
+                &[
+                    ("Deploy", NeedsDeployBehaviour::Deploy),
+                ], false, NeedsDeployBehaviour::Error);
+            prompt_result.immediate_behaviour
+        },
+        x => x,
+    };
+    match resolved_behaviour {
+        NeedsDeployBehaviour::Prompt => panic!("Should have been alredy resolved!"),
+        NeedsDeployBehaviour::Error => { 
+            error!("{msg}. Will not deploy. See --needs-deploy.");
+            return Err(());
+        }
+        NeedsDeployBehaviour::Deploy => (), // Continue with deployment
+    };
+
     // Deploy to remote target using scp
     // Note we need to deal with the case where the the remote folder doesn't exist, and the case where it does, so
     // we copy into /tmp (which should always exist), rather than directly to /tmp/rjrssync which may or may not
     let source_spec = local_temp_dir.path().join("rjrssync");
-    let remote_temp = if is_windows {
-        REMOTE_TEMP_WINDOWS
-    } else {
-        REMOTE_TEMP_UNIX
-    };
     let remote_spec = format!("{user_prefix}{remote_hostname}:{remote_temp}");
     debug!("Copying {} to {}", source_spec.display(), remote_spec);
     match run_process_with_live_output("scp", &[OsStr::new("-r"), source_spec.as_os_str(), OsStr::new(&remote_spec)]) {
@@ -788,13 +818,13 @@ fn deploy_to_remote(remote_hostname: &str, remote_user: &str) -> Result<(), ()> 
             ""
         });
     let remote_command = if is_windows {
-        format!("cd /d {REMOTE_TEMP_WINDOWS}\\rjrssync && {cargo_command}")
+        format!("cd /d {remote_rjrssync_folder} && {cargo_command}")
     } else {
         // Attempt to load .profile first, as cargo might not be on the PATH otherwise.
         // Still continue even if this fails, as it might not be available on this system.
         // Note that the previous attempt to do this (using $SHELL -lc '...') wasn't as good as it runs bashrc,
         // which is only meant for interative shells, but .profile is meant for scripts too.
-        format!("source ~/.profile; cd {REMOTE_TEMP_UNIX}/rjrssync && {cargo_command}")
+        format!("source ~/.profile; cd {remote_rjrssync_folder} && {cargo_command}")
     };
     debug!("Running remote command: {}", remote_command);
     match run_process_with_live_output("ssh", &[user_prefix + remote_hostname, remote_command]) {

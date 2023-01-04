@@ -268,6 +268,8 @@ pub struct TestDesc<'a> {
     pub expected_filesystem_nodes: Vec<(&'a str, Option<&'a FilesystemNode>)>
 }
 impl TestDesc<'_> {
+    //TODO: now that we just have one expected_output_messages array rather than two, we can probably
+    // get rid of this and just set the field directly?
     pub fn with_expected_actions(mut self, actions: NumActions) -> Self {
         self.expected_output_messages.append(&mut actions.get_expected_output_messages());
         self
