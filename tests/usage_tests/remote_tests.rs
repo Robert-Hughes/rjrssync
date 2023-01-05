@@ -99,6 +99,8 @@ fn test_cross_platform() {
                 args: vec![
                     src_path.to_string(),
                     dest_path.to_string(),
+                    "--needs-deploy".to_string(),
+                    "deploy".to_string(), // Skip the confirmation prompt for deploying
                 ],
                 expected_exit_code: 0,
                 expected_filesystem_nodes: vec![

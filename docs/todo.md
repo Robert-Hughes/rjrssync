@@ -23,8 +23,6 @@ Remote launching
 
 * Additional SSH options as command-line arguments (separate for source and dest?)
 * SSH host key verification prompt doesn't echo the user's typing, but it does seem to work anyway
-* Using temporary dir means that rebooting the remote will mean we have to rebuild from scratch (on Linux)
-   - Could use something like /var (find whatever is appropriate), but might want to ask user's permission for this. Could use a prompt to check with the user if they're happy, and a corresponding command line option to set the behaviour. Could prompt whenever we need to deploy new/updated version, as it will take a little time and the user might want to know that we are building stuff on their remote device. Shoudl also include the reason ("rjrsssync isn't installed, are you happy to do XYZ", or "rjrssync on remote is the wrong version, are you happy to do XYZ")
 * We could first attempt to use an already-installed version of rjrssync (in the PATH), and only if this doesn't exist or is incompatible do we deploy/build from scratch?
 * Sometimes see "ssh stderr: mesg: ttyname failed: Inappropriate ioctl for device" when deploying to remote (I think on 'F**A' platforms). Can we hide this using "-T" for example?
 * Launching on a new system can take a while, even if cargo is already installed, and if cargo isn't installed, this is an extra step for the user. Pre-built binaries?
