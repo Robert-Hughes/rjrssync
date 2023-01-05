@@ -410,7 +410,7 @@ fn test_unknown_symlink_unix_to_windows() {
         ],
         args: vec![
             "$TEMP/src".to_string(),
-            String::from("$REMOTE_WINDOWS_TEMP/dest")
+            String::from("$REMOTE_WINDOWS_TEMP/dest"),
             "--needs-deploy".to_string(),
             "deploy".to_string(), // Skip the confirmation prompt for deploying
         ],
