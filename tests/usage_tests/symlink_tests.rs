@@ -61,12 +61,13 @@ fn test_symlink_folder_above_root() {
             "$TEMP/dest.txt".to_string(),
         ],
         expected_exit_code: 0,
+        expected_output_messages: copied_files_and_symlinks(1, 0).into(),
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&src)), // Source should always be unchanged
             ("$TEMP/dest.txt", Some(&file_with_modified("contents1", SystemTime::UNIX_EPOCH))),
         ],
         ..Default::default()
-    }.with_expected_actions(copied_files_and_symlinks(1, 0)));
+    });
 }
 
 /// Tests that specifying a root which is itself a file symlink symlink to another file,
@@ -84,12 +85,13 @@ fn test_symlink_file_root() {
             "$TEMP/dest".to_string(),
         ],
         expected_exit_code: 0,
+        expected_output_messages: copied_files_and_symlinks(0, 1).into(),
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&src)), // Source should always be unchanged
             ("$TEMP/dest", Some(&src)), // Dest should be a symlink too
         ],
         ..Default::default()
-    }.with_expected_actions(copied_files_and_symlinks(0, 1)));
+    });
 }
 
 /// Tests that specifying a root which is itself a folder symlink to another folder,
@@ -110,14 +112,15 @@ fn test_symlink_folder_root() {
             "$TEMP/dest".to_string(),
         ],
         expected_exit_code: 0,
+        // We should only be copying the symlink - not any files! (this was a sneaky bug where we copy the symlink but also all the things inside it!)
+        expected_output_messages: copied_files_folders_and_symlinks(0, 0, 1).into(),
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&src)), // Source should always be unchanged
             ("$TEMP/dest", Some(&src)), // Dest should be the same symlink as the source
             ("$TEMP/target", Some(&target_folder)) // Target folder should not have been changed
         ],
         ..Default::default()
-        // We should only be copying the symlink - not any files! (this was a sneaky bug where we copy the symlink but also all the things inside it!)
-    }.with_expected_actions(copied_files_folders_and_symlinks(0, 0, 1)));
+    });
 }
 
 /// Tests that syncing a symlink that hasn't changed results in nothing being done.
@@ -370,8 +373,9 @@ fn test_symlink_target_slashes() {
                 "deploy".to_string(), // Skip the confirmation prompt for deploying
             ],
             expected_exit_code: 0,
+            expected_output_messages: copied_files_folders_and_symlinks(1, 0, 2).into(),
             ..Default::default()
-        }.with_expected_actions(copied_files_folders_and_symlinks(1, 0, 2)));
+        });
 
         // The remote part of the test framework doesn't handle symlinks so well, as tar messes about
         // with the links, so we do the check manually.

@@ -396,6 +396,7 @@ fn test_symlinks_valid_targets() {
             "$TEMP/dest".to_string() // No trailing slash
         ],
         expected_exit_code: 0,
+        expected_output_messages: copied_files_and_folders(1, 1).into(),
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&symlink_folder("target"))), // src unchanged
             ("$TEMP/target", Some(&folder! { // target unchanged
@@ -406,7 +407,7 @@ fn test_symlinks_valid_targets() {
             })), 
         ],
         ..Default::default()
-    }.with_expected_actions(copied_files_and_folders(1, 1)));
+    });
 
     // Trailing slash on dest symlink folder only, so the dest link is followed
     // Because the source is a file, it will be placed into the target folder rather than overwriting it
@@ -423,6 +424,7 @@ fn test_symlinks_valid_targets() {
             "$TEMP/dest/".to_string() // With trailing slash
         ],
         expected_exit_code: 0,
+        expected_output_messages: copied_files(1).into(),
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&file_with_modified("src file", SystemTime::UNIX_EPOCH))), // src unchanged
             ("$TEMP/target", Some(&folder! { // target folder has the new source file in it
@@ -432,7 +434,7 @@ fn test_symlinks_valid_targets() {
             ("$TEMP/dest", Some(&symlink_folder("target"))), // dest is still a symlink
         ],
         ..Default::default()
-    }.with_expected_actions(copied_files(1)));
+    });
 
     // Trailing slash on both source and dest symlink folders, so both links are followed and 
     // the contents of the symlink target folders are synced.
@@ -452,6 +454,7 @@ fn test_symlinks_valid_targets() {
             "$TEMP/dest/".to_string() // With trailing slash
         ],
         expected_exit_code: 0,
+        expected_output_messages: NumActions { deleted_files: 1, copied_files: 1, ..Default::default() }.into(),
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&symlink_folder("target1"))), // src unchanged
             ("$TEMP/dest", Some(&symlink_folder("target2"))), // dest is still a symlink
@@ -460,7 +463,7 @@ fn test_symlinks_valid_targets() {
             })), 
         ],
         ..Default::default()
-    }.with_expected_actions(NumActions { deleted_files: 1, copied_files: 1, ..Default::default() }));
+    });
 }
 
 // ====================================================================================

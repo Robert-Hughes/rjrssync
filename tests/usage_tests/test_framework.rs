@@ -267,14 +267,6 @@ pub struct TestDesc<'a> {
     /// The filesystem at the given paths are expected to be as described (including None, for non-existent)
     pub expected_filesystem_nodes: Vec<(&'a str, Option<&'a FilesystemNode>)>
 }
-impl TestDesc<'_> {
-    //TODO: now that we just have one expected_output_messages array rather than two, we can probably
-    // get rid of this and just set the field directly?
-    pub fn with_expected_actions(mut self, actions: NumActions) -> Self {
-        self.expected_output_messages.append(&mut actions.get_expected_output_messages());
-        self
-    }
-}
 
 /// Checks that running rjrssync with the setup described by the TestDesc behaves as described by the TestDesc.
 /// See TestDesc for more details.
@@ -388,6 +380,11 @@ pub fn copied_files_and_symlinks(files: u32, symlinks: u32) -> NumActions {
 pub fn copied_files_folders_and_symlinks(files: u32, folders: u32, symlinks: u32) -> NumActions {
     NumActions { copied_files: files, created_folders: folders, copied_symlinks: symlinks, ..Default::default() }
 }
+impl From<NumActions> for Vec<(usize, Regex)> {
+    fn from(a: NumActions) -> Vec<(usize, Regex)> {
+        a.get_expected_output_messages()
+    }
+}
 
 impl NumActions {
     pub fn get_expected_output_messages(&self) -> Vec<(usize, Regex)> {
@@ -433,11 +430,12 @@ pub fn run_expect_success(src_node: &FilesystemNode, dest_node: &FilesystemNode,
             String::from("delete"),
         ],
         expected_exit_code: 0,
+        expected_output_messages: expected_actions.into(),
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(src_node)), // Source should always be unchanged
             ("$TEMP/dest", Some(src_node)), // Dest should be identical to source
         ],
         ..Default::default()
-    }.with_expected_actions(expected_actions));
+    });
 }
 

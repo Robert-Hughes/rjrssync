@@ -38,12 +38,13 @@ fn test_filters() {
             "-.*/sc1".to_string(),
         ],
         expected_exit_code: 0,
+        expected_output_messages: copied_files_and_folders(2, 2).into(),
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&src_folder)), // Source should always be unchanged
             ("$TEMP/dest", Some(&expected_dest_folder)),
         ],
         ..Default::default()
-    }.with_expected_actions(copied_files_and_folders(2, 2)));
+    });
 }
 
 /// Checks that the regex must match the full path, not just part of it.
@@ -73,12 +74,13 @@ fn test_filters_partial_match() {
             "-build".to_string(),
         ],
         expected_exit_code: 0,
+        expected_output_messages: copied_files_and_folders(1, 1).into(),
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&src_folder)), // Source should always be unchanged
             ("$TEMP/dest", Some(&expected_dest_folder)),
         ],
         ..Default::default()
-    }.with_expected_actions(copied_files_and_folders(1, 1)));
+    });
 }
 
 #[test]
@@ -214,12 +216,13 @@ fn test_filter_normalized_paths() {
             "-Folder/EXCLUDE".to_string(), // note we use a forward slash - this should match the EXCLUDE subfolder on both Linux and Windows
         ],
         expected_exit_code: 0,
+        expected_output_messages: copied_files(1).into(),
         expected_filesystem_nodes: vec![
             ("$REMOTE_WINDOWS_TEMP/src", Some(&src_folder)), // Source should always be unchanged
             ("$REMOTE_LINUX_TEMP/dest", Some(&expected_dest)),
         ],
         ..Default::default()
-    }.with_expected_actions(copied_files(1)));
+    });
 }
 
 }

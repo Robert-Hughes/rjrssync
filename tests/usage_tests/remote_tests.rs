@@ -103,19 +103,20 @@ fn test_cross_platform() {
                     "deploy".to_string(), // Skip the confirmation prompt for deploying
                 ],
                 expected_exit_code: 0,
+                expected_output_messages: NumActions {
+                    copied_files: 3,
+                    created_folders: 1,
+                    copied_symlinks: 0,
+                    deleted_files: 5,
+                    deleted_folders: 2,
+                    deleted_symlinks: 0,
+                }.into(),
                 expected_filesystem_nodes: vec![
                     (src_path, Some(&src)), // Source should always be unchanged
                     (dest_path, Some(&src)), // Dest should be identical to source
                 ],
                 ..Default::default()
-            }.with_expected_actions(NumActions {
-                copied_files: 3,
-                created_folders: 1,
-                copied_symlinks: 0,
-                deleted_files: 5,
-                deleted_folders: 2,
-                deleted_symlinks: 0,
-            }));
+            });
         }
     }
 }
@@ -175,16 +176,16 @@ fn needs_deploy_prompt_deploy() {
             String::from("1:.*:Deploy"),
         ],
         expected_exit_code: 0,
-        expected_output_messages: vec![
+        expected_output_messages: [&[
             (1, Regex::new("rjrssync needs to be deployed").unwrap()),
             (1, Regex::new(&regex::escape("Finished release [optimized] target")).unwrap()), // Deploy and build happens
-        ],
+        ], &<NumActions as Into<Vec<(usize, Regex)>>>::into(copied_files(1))[..]].concat(),
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&src)), // Unchanged
             ("$REMOTE_WINDOWS_TEMP/dest", Some(&src)), // Src copied to dest, as the sync went ahead after deployment
         ],
         ..Default::default()
-    }.with_expected_actions(copied_files(1)));
+    });
 }
 
 /// Deploy is needed due to --force-redeploy. The expected behaviour is controlled by a command-line argument, which in this case
@@ -232,13 +233,13 @@ fn needs_deploy_deploy() {
             "deploy".to_string(),
         ],
         expected_exit_code: 0,
-        expected_output_messages: vec![
+        expected_output_messages: [&[
             (1, Regex::new(&regex::escape("Finished release [optimized] target")).unwrap()), // Deploy and build happens
-        ],
+        ], &<NumActions as Into<Vec<(usize, Regex)>>>::into(copied_files(1))[..]].concat(),
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&src)), // Unchanged
             ("$REMOTE_WINDOWS_TEMP/dest", Some(&src)), // Src copied to dest, as the sync went ahead after deployment
         ],
         ..Default::default()
-    }.with_expected_actions(copied_files(1)));
+    });
 }

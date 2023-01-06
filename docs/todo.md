@@ -16,6 +16,7 @@ Interface
 * Decide if info! (and other) log messages should be on stdout or stderr
 * When showing multiple prompts, could remember the selection from previous time the same prompt was shown and use that as the default for the next one?
 * Maybe could make "Connecting" spinner actually spin, until the first message from ssh?
+* WHen it says "Copied X file(s)", maybe should also include the total bytes copied?
 
 
 Remote launching
