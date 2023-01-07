@@ -5,6 +5,7 @@ use crate::test_framework::*;
 use crate::folder;
 use map_macro::map;
 use regex::Regex;
+use crate::filesystem_node::*;
 
 /// Simple folder -> folder sync
 #[test]

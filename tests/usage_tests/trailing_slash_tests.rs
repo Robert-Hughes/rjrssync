@@ -5,6 +5,7 @@ use crate::test_framework::*;
 use crate::folder;
 use map_macro::map;
 use regex::Regex;
+use crate::filesystem_node::*;
 
 /// Runs a test with an optional trailing slash on the src and dest paths provided to rjrssync.
 /// The expected result is sucess with the given number of files copied.

@@ -3,8 +3,8 @@ use std::time::{SystemTime};
 use regex::Regex;
 
 use crate::{folder, test_framework::{run, TestDesc}};
-use crate::test_framework::*;
 use map_macro::map;
+use crate::filesystem_node::*;
 
 /// Dest root needs deleting. The expected behaviour is controlled by a command-line argument, which in this case
 /// we set to "prompt", and choose "cancel" on the prompt, so the sync should be stopped.

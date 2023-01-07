@@ -3,8 +3,8 @@ use std::time::{Duration, SystemTime};
 use regex::Regex;
 
 use crate::{folder, test_framework::{run, TestDesc}};
-use crate::test_framework::*;
 use map_macro::map;
+use crate::filesystem_node::*;
 
 /// Syncing three files which already exists on the dest, but the dest has newer modified
 /// dates. The expected behaviour is controlled by a command-line argument, which in this case

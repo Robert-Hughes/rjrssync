@@ -3,7 +3,8 @@ use std::time::SystemTime;
 use regex::Regex;
 
 use map_macro::map;
-use crate::{test_framework::{run, TestDesc, empty_folder, folder, NumActions, file_with_modified, copied_files}, folder};
+use crate::{test_framework::{run, TestDesc, NumActions, copied_files}, folder};
+use crate::filesystem_node::*;
 
 /// Tests that rjrssync can be launched on a remote platform, and communication is estabilished.
 /// There is no proper sync performed (just syncing an empty folder), but this checks that

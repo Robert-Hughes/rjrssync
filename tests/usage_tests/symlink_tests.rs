@@ -2,9 +2,10 @@ use std::time::{SystemTime, Duration};
 
 use regex::Regex;
 
-use crate::test_framework::{file, copied_files_and_symlinks, run_expect_success, NumActions, copied_files_folders_and_symlinks, copied_symlinks};
+use crate::test_framework::{copied_files_and_symlinks, run_expect_success, NumActions, copied_files_folders_and_symlinks, copied_symlinks};
 #[allow(unused)]
-use crate::{test_framework::{symlink_generic, run, empty_folder, TestDesc, symlink_file, symlink_folder, folder, file_with_modified}, folder};
+use crate::filesystem_node::*;
+use crate::{test_framework::{run, TestDesc}, folder};
 use map_macro::map;
 use std::path::Path;
 

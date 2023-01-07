@@ -1,5 +1,9 @@
 #[path = "../test_utils.rs"]
+#[allow(unused)]
 mod test_utils;
+#[path = "../filesystem_node.rs"]
+#[allow(unused)]
+mod filesystem_node;
 mod test_framework;
 
 mod sync_tests;

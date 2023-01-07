@@ -3,8 +3,8 @@ use std::time::{SystemTime};
 use regex::Regex;
 
 use crate::{folder, test_framework::{run, TestDesc}};
-use crate::test_framework::*;
 use map_macro::map;
+use crate::filesystem_node::*;
 
 /// Dest has three files which need deleting. The expected behaviour is controlled by a command-line argument, 
 /// which in this case we set to "prompt", and choose "skip" and then "delete", then "skip" again.

@@ -8,6 +8,7 @@ license = "MIT"
 keywords = [ "filesystem", "binary", "tool", "cross-platform", "sync" ]
 # crates.io only allows 5 keywords, here are some others that might be good too: [ "filesystem", "cli", "windows", "linux", "binary", "tool", "cross-platform", "sync", "mirror", "copying" ]
 categories = [ "command-line-utilities", "development-tools", "filesystem" ]
+autotests = false # Otherwise our shared test utility code will be considered as test programs
 
 [dependencies]
 clap = { version = "=4.0.18", features = ["derive"] }
@@ -71,6 +72,10 @@ bench = false # Prevent from being run as a benchmark when running "cargo bench"
 # Note that these other executables are not in a [[bin]] section, so they don't get 
 # installed (etc.) by default - only the main rjrssync executable should get installed,
 # as these are just for testing/development.
+
+[[test]]
+name = "usage_tests"
+
 [[bench]]
 name = "benchmarks"
 harness = false
