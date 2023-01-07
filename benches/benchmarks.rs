@@ -1,4 +1,4 @@
-use std::{time::{Instant, Duration}, path::{Path, PathBuf}, io::Write, process::Command};
+use std::{time::{Instant, Duration}, path::{Path, PathBuf}, io::Write, process::Command, fmt::Display, collections::HashSet};
 
 use ascii_table::AsciiTable;
 use clap::Parser;
@@ -8,10 +8,18 @@ use indicatif::HumanBytes;
 #[path = "../tests/test_utils.rs"]
 mod test_utils;
 
-use test_utils::get_unique_remote_temp_folder;
 use test_utils::RemotePlatform;
 
-#[derive(Debug, Clone)]
+/// Global state
+struct Context {
+    args: CliArgs,
+    
+    /// The set of Targets that we have already set up source folders for,
+    /// so that we don't need to do it again.
+    src_folders_setup_on_targets: HashSet<Target>,
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 enum Target {
     Local(PathBuf),
     Remote {
@@ -20,8 +28,29 @@ enum Target {
         folder: String,
     }
 }
+impl Display for Target {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let name = match self {
+            Target::Local(p) => match p {
+                x if x.to_string_lossy().starts_with(r"\\wsl$\") => r"\\wsl$\...",
+                x if x.to_string_lossy().starts_with("/mnt/") => "/mnt/...",
+                _ => if cfg!(windows) {
+                    "Windows"
+                } else {
+                    "Linux"
+                },
+            },            
+            Target::Remote { is_windows, .. } => if *is_windows {
+                "Remote Windows"
+            } else {
+                "Remote Linux"
+            }
+        };
+        write!(f, "{}", name)
+    }
+}
 
-#[derive(clap::Parser)]
+#[derive(clap::Parser, Clone)]
 struct CliArgs {
     /// This is passed to us by "cargo bench", so we need to declare it, but we simply ignore it.
     #[arg(long)]
@@ -49,8 +78,22 @@ struct CliArgs {
     json_output: Option<PathBuf>,
 }
 
-fn set_up_src_folders(src_folder: &Path, skip_if_exists: bool) {
-    if src_folder.exists() && skip_if_exists {
+fn set_up_src_folders(target: &Target, context: &mut Context) {
+    // If we've already set up source folders on this target as part of an earlier benchmark
+    // then don't repeat it.
+    if context.src_folders_setup_on_targets.contains(target) {
+        return;
+    }
+
+    let src_folder = match target {
+        Target::Local(p) => p.join("src"),
+        Target::Remote { .. } => unimplemented!(),
+    };
+    let src_folder = &src_folder;
+
+    // If the user requested to skip the setup if possible (assuming it's up-to-date from last time),
+    // then do so if the folder already exists
+    if src_folder.exists() && context.args.skip_setup {
         println!("Skipping setup. Beware this may be stale!");
         return;
     }
@@ -111,82 +154,107 @@ fn set_up_src_folders(src_folder: &Path, skip_if_exists: bool) {
         let buf = [(i % 256) as u8; 1024];
         f.write_all(&buf).expect("Failed to write to file");
     }
+
+    // Remember that we set up this target as a source, so we don't have to repeat
+    // it for other benchmark configs
+    context.src_folders_setup_on_targets.insert(target.clone());
 }
 
 fn main () {
     let args = CliArgs::parse();
 
-    // Create a temporary folder which we will run all our benchmarks in
-    let temp_dir = std::env::temp_dir().join("rjrssync-benchmarks");
-    std::fs::create_dir_all(&temp_dir).expect("Failed to create temp dir");
-
-    set_up_src_folders(&temp_dir.join("src"), args.skip_setup);
-    
-    let mut results : AllResults = vec![];
-    
-    let local_name = if cfg!(windows) {
-        "Windows"
-    } else {
-        "Linux"
+    // Set up global state
+    let mut context = Context {
+        args: args.clone(),
+        src_folders_setup_on_targets: HashSet::new(),
     };
 
-    let src_target = Target::Local(temp_dir.clone());
+    // Create potential targets for use as source or dest
     
+    let local_target = {
+        let local_temp_dir = std::env::temp_dir().join("rjrssync-benchmarks");
+        Target::Local(local_temp_dir)
+    };
+
+    let wsl_target = if cfg!(windows) {
+        // Get the WSL distribution name, as we need this to find the path in \\wsl$
+        let r = test_utils::run_process_with_live_output(Command::new("wsl").arg("--list").arg("--quiet"));
+        if r.exit_status.success() {  // GitHub actions runs an older version of wsl, which doesn't support --list (nor the \\wsl$ path, so skip this)
+            // wsl --list has some text encoding problems...
+            println!("distro name = {:?}", r.stdout.as_bytes());
+            let u16s = unsafe { r.stdout.as_bytes().split_at(r.stdout.len() - 2).0.align_to::<u16>().1 };
+            let distro_name = String::from_utf16(u16s).unwrap().trim().to_string();
+            println!("distro name = {:?}", distro_name);
+            let wsl_tmp_path = PathBuf::from(format!("\\\\wsl$\\{distro_name}\\tmp"));
+            println!("WSL tmp path = {:?}", wsl_tmp_path);
+            // Older versions of WSL don't have this (e.g. on GitHub actions)
+            if PathBuf::from(&wsl_tmp_path).is_dir() { 
+                Some(Target::Local(wsl_tmp_path.join("rjrssync-benchmarks")))
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let mnt_target = if cfg!(unix) {
+        // Figure out the /mnt/... path to the windows temp dir
+        // Note the full path to cmd.exe need to be used when running on GitHub actions
+        let r = test_utils::run_process_with_live_output(Command::new("/mnt/c/Windows/system32/cmd.exe").arg("/c").arg("echo %TEMP%"));
+        assert!(r.exit_status.success());
+        let windows_temp = r.stdout.trim();
+        // Convert to /mnt/ format using wslpath
+        let r = test_utils::run_process_with_live_output(Command::new("wslpath").arg(windows_temp));
+        assert!(r.exit_status.success());
+        let mnt_temp = r.stdout.trim();
+        // Use a sub-folder
+        let folder = PathBuf::from(mnt_temp).join("rjrssync-benchmarks");
+        Some(Target::Local(folder))
+    } else {
+        None
+    };
+
+    let remote_windows_target = Target::Remote { 
+        is_windows: true, 
+        user_and_host: RemotePlatform::get_windows().user_and_host.clone(), 
+        folder: RemotePlatform::get_windows().test_folder.clone() + "\\" + "rjrssync-benchmarks",
+    };
+
+    let remote_linux_target = Target::Remote { 
+        is_windows: false, 
+        user_and_host: RemotePlatform::get_linux().user_and_host.clone(), 
+        folder: RemotePlatform::get_linux().test_folder.clone() + "/" + "rjrssync-benchmarks",  
+    };
+
+
+    let mut results : AllResults = vec![];
+    
+    let mut run_targets = |src: &Target, dest: &Target| {
+        results.push((
+            TargetDesc { source: src.to_string(), dest: dest.to_string() }, 
+            run_benchmarks_for_target(&args, src, dest, &mut context)
+        ));
+    };
+
     if !args.only_remote {
-        results.push((TargetDesc { source: local_name, dest: local_name }, run_benchmarks_for_target(&args, src_target.clone(), Target::Local(temp_dir.join("dest")))));
+        run_targets(&local_target, &local_target);
     }
         
     if !args.only_remote && !args.only_local {
-        #[cfg(windows)]
-        {
-            // Get the WSL distribution name, as we need this to find the path in \\wsl$
-            let r = test_utils::run_process_with_live_output(Command::new("wsl").arg("--list").arg("--quiet"));
-            if r.exit_status.success() {  // GitHub actions runs an older version of wsl, which doesn't support --list (nor the \\wsl$ path, so skip this)
-                // wsl --list has some text encoding problems...
-                println!("distro name = {:?}", r.stdout.as_bytes());
-                let u16s = unsafe { r.stdout.as_bytes().split_at(r.stdout.len() - 2).0.align_to::<u16>().1 };
-                let distro_name = String::from_utf16(u16s).unwrap().trim().to_string();
-                println!("distro name = {:?}", distro_name);
-                let wsl_tmp_path = PathBuf::from(format!("\\\\wsl$\\{distro_name}\\tmp"));
-                println!("WSL tmp path = {:?}", wsl_tmp_path);
-                // Older versions of WSL don't have this (e.g. on GitHub actions)
-                if PathBuf::from(&wsl_tmp_path).is_dir() { 
-                    results.push((TargetDesc { source: local_name, dest: r"\\wsl$\..." }, run_benchmarks_for_target(&args, src_target.clone(), Target::Local(wsl_tmp_path.join(r"rjrssync-benchmark-dest")))));
-                }
-            }
+        if let Some(w) = wsl_target {
+            run_targets(&local_target, &w);
         }
-
-        #[cfg(unix)]
-        {
-            // Figure out the /mnt/... path to the windows temp dir
-            // Note the full path to cmd.exe need to be used when running on GitHub actions
-            let r = test_utils::run_process_with_live_output(Command::new("/mnt/c/Windows/system32/cmd.exe").arg("/c").arg("echo %TEMP%"));
-            assert!(r.exit_status.success());
-            let windows_temp = r.stdout.trim();
-            // Convert to /mnt/ format using wslpath
-            let r = test_utils::run_process_with_live_output(Command::new("wslpath").arg(windows_temp));
-            assert!(r.exit_status.success());
-            let mnt_temp = r.stdout.trim();
-            // Use a sub-folder
-            let dest = PathBuf::from(mnt_temp).join("rjrssync-benchmarks").join("dest");
-            results.push((TargetDesc { source: local_name, dest: "/mnt/..." }, run_benchmarks_for_target(&args, src_target.clone(), Target::Local(dest))));
+        if let Some(m) = mnt_target {
+            run_targets(&local_target, &m);
         }
     }
     
     if !args.only_local {
-        results.push((TargetDesc { source: local_name, dest: "Remote Windows" }, run_benchmarks_for_target(&args, 
-            src_target.clone(), 
-            Target::Remote { 
-                is_windows: true, 
-                user_and_host: RemotePlatform::get_windows().user_and_host.clone(), 
-                folder: get_unique_remote_temp_folder(RemotePlatform::get_windows()) })));
-        
-        results.push((TargetDesc { source: local_name, dest: "Remote Linux" }, run_benchmarks_for_target(&args, 
-            src_target.clone(), 
-            Target::Remote { 
-                is_windows: false, 
-                user_and_host: RemotePlatform::get_linux().user_and_host.clone(), 
-                folder: get_unique_remote_temp_folder(RemotePlatform::get_linux()) })));
+        run_targets(&local_target, &remote_windows_target);
+        run_targets(&local_target, &remote_linux_target);
     }
 
     println!();
@@ -237,8 +305,8 @@ fn main () {
 
         let json_value = json::JsonValue::Array(results.iter().map(|(target_desc, target_results)| {
             json::object! {
-                source: target_desc.source,
-                dest: target_desc.dest,
+                source: target_desc.source.clone(),
+                dest: target_desc.dest.clone(),
                 results: target_results.iter().map(|(program_name, program_results)| {
                     json::object! {
                         program: *program_name,
@@ -264,8 +332,8 @@ fn main () {
 }
 
 struct TargetDesc {
-    source: &'static str,
-    dest: &'static str,
+    source: String,
+    dest: String,
 }
 type AllResults = Vec<(TargetDesc, TargetResults)>;
 type TargetResults = Vec<(&'static str, ProgramResults)>;
@@ -278,8 +346,12 @@ struct Sample {
     peak_memory: PeakMemoryUsage,
 }
 
-fn run_benchmarks_for_target(args: &CliArgs, src_target: Target, dest_target: Target) -> TargetResults {
+fn run_benchmarks_for_target(args: &CliArgs, src_target: &Target, dest_target: &Target, context: &mut Context) -> TargetResults {
     println!("Src target: {:?}, dest target: {:?}", src_target, dest_target);
+
+    // Set up test data on the source target if it's not there already
+    set_up_src_folders(src_target, context);
+    
     let mut results : TargetResults = vec![];
 
     if args.programs.contains(&String::from("rjrssync")) {
@@ -287,7 +359,7 @@ fn run_benchmarks_for_target(args: &CliArgs, src_target: Target, dest_target: Ta
         results.push(("rjrssync", run_benchmarks_using_program(args, rjrssync_path, &["$SRC", "$DEST"], src_target.clone(), dest_target.clone())));
     }
    
-    if args.programs.contains(&String::from("rsync")) && !matches!(dest_target, Target::Remote{ is_windows, .. } if is_windows) { // rsync is Linux -> Linux only
+    if args.programs.contains(&String::from("rsync")) && !matches!(dest_target, Target::Remote{ is_windows, .. } if *is_windows) { // rsync is Linux -> Linux only
         #[cfg(unix)]
         // Note trailing slash on the src is important for rsync!
         results.push(("rsync", run_benchmarks_using_program(args, "rsync", &["--archive", "--delete", "$SRC/", "$DEST"], src_target.clone(), dest_target.clone())));
@@ -409,6 +481,7 @@ fn run_benchmarks<F>(cli_args: &CliArgs, id: &str, sync_fn: F,
         // Delete any old dest folder from other subjects
         let dest_prefix = match &dest_target {
             Target::Local(d) => {
+                let d = d.join("dest");
                 if Path::new(&d).exists() {
                     std::fs::remove_dir_all(&d).expect("Failed to delete old dest folder");
                 }
@@ -416,6 +489,8 @@ fn run_benchmarks<F>(cli_args: &CliArgs, id: &str, sync_fn: F,
                 d.to_string_lossy().to_string() + &std::path::MAIN_SEPARATOR.to_string()
             }
             Target::Remote { is_windows, user_and_host, folder } => {
+                let remote_sep = if *is_windows { "\\" } else { "/" };
+                let folder = folder.clone() + remote_sep + "dest";
                 if *is_windows {
                     // Use run_process_with_live_output to avoid messing up terminal line endings
                     let _ = test_utils::run_process_with_live_output_impl(std::process::Command::new("ssh").arg(&user_and_host).arg(format!("rmdir /Q /S {folder}")), false, false, true);
