@@ -1,4 +1,4 @@
-use std::{collections::HashMap, time::SystemTime, path::{PathBuf, Path}, process::Command, os::windows::fs::FileTypeExt};
+use std::{collections::HashMap, time::SystemTime, path::{PathBuf, Path}, process::Command};
 
 use crate::test_utils::*;
 
@@ -185,9 +185,9 @@ pub fn load_filesystem_node_from_disk_local(path: &Path) -> Option<FilesystemNod
         let target = std::fs::read_link(path).expect("Unable to read symlink target");
         // On Windows, symlinks are either file-symlinks or dir-symlinks
         #[cfg(windows)]
-        let kind = if metadata.file_type().is_symlink_file() {
+        let kind = if std::os::windows::fs::FileTypeExt::is_symlink_file(&metadata.file_type()) {
             SymlinkKind::File
-        } else if metadata.file_type().is_symlink_dir() {
+        } else if std::os::windows::fs::FileTypeExt::is_symlink_dir(&metadata.file_type()) {
             SymlinkKind::Folder
         } else {
             panic!("Unknown symlink type type")
