@@ -439,7 +439,9 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), String> {
     // If the dest doesn't yet exist, make sure that all its ancestors are created, so that
     // when we come to create the dest path itself, it can succeed
     if dest_root_details.is_none() {
-        ctx.dest_comms.send_command(Command::CreateRootAncestors)?;
+        if !ctx.dry_run {
+            ctx.dest_comms.send_command(Command::CreateRootAncestors)?;
+        }
     }
 
     // Fetch all the entries for the source path and the dest path, if they are folders

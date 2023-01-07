@@ -168,3 +168,93 @@ fn test_large_file() {
     };
     run_expect_success(&src_folder, &empty_folder(), copied_files(1));
 }
+
+/// Checks that the --dry-run flag means that no changes are made, and that information about
+/// what _would_ happen is printed.
+#[test]
+fn dry_run() {
+    let src = folder! {
+        "file" => file("contents"),
+        "folder" => folder! {
+            "c1" => file("contents1"),
+        },
+        "symlink" => symlink_file("bob")
+    };
+    let dest = folder! {
+        "file2" => file("contents"),
+        "folder2" => folder! {
+            "c12" => file("contents1"),
+        },
+        "symlink2" => symlink_file("bob")
+    };
+    run(TestDesc {
+        setup_filesystem_nodes: vec![
+            ("$TEMP/src", &src),
+            ("$TEMP/dest", &dest),
+        ],
+        args: vec![
+            "$TEMP/src".to_string(),
+            "$TEMP/dest".to_string(),
+            "--dry-run".to_string(),
+        ],
+        expected_exit_code: 0,
+        expected_output_messages: vec![
+            (1, Regex::new(r"Would delete dest file .*/dest\\folder2\\c12").unwrap()),
+            (1, Regex::new(r"Would delete dest symlink .*/dest\\symlink2").unwrap()),
+            (1, Regex::new(r"Would delete dest folder .*/dest\\folder2").unwrap()),
+            (1, Regex::new(r"Would delete dest file .*/dest\\file2").unwrap()),
+            (1, Regex::new(r"Would copy source file .*/src\\file' => dest file .*/dest\\file").unwrap()),
+            (1, Regex::new(r"Would create dest folder .*/dest\\folder").unwrap()),
+            (1, Regex::new(r"Would create dest symlink .*/dest\\symlink").unwrap()),
+            (1, Regex::new(r"Would copy source file .*/src\\folder\\c1' => dest file .*/dest\\folder\\c1").unwrap()),
+            (1, Regex::new(&regex::escape("Would delete 2 file(s) totalling 17B, 1 folder(s) and 1 symlink(s)")).unwrap()),
+            (1, Regex::new(&regex::escape("Would copy 2 file(s) totalling 17B, would create 1 folder(s) and would copy 1 symlink(s)")).unwrap()),
+        ],
+        expected_filesystem_nodes: vec![
+            ("$TEMP/src", Some(&src)), // Source should always be unchanged
+            ("$TEMP/dest", Some(&dest)), // Dest should be unchanged too
+        ],
+        ..Default::default()
+    });
+}
+
+/// Checks that the --dry-run flag means that no changes are made, and that information about
+/// what _would_ happen is printed. Also checks when dest ancestor folders are missing, that 
+/// they are not created.
+#[test]
+fn dry_run_root_ancestors() {
+    let src = folder! {
+        "file" => file("contents"),
+        "folder" => folder! {
+            "c1" => file("contents1"),
+        },
+        "symlink" => symlink_file("bob")
+    };
+    run(TestDesc {
+        setup_filesystem_nodes: vec![
+            ("$TEMP/src", &src),
+        ],
+        args: vec![
+            "$TEMP/src".to_string(),
+            // Place the dest inside some non-existent folders, to check that root ancestors are not 
+            // created in dry-run mode
+            "$TEMP/dest1/dest2/dest3/dest".to_string(), 
+            "--dry-run".to_string(),
+        ],
+        expected_exit_code: 0,
+        expected_output_messages: vec![
+            (1, Regex::new(r"Would create dest root folder .*/dest1/dest2/dest3/dest").unwrap()),
+            (1, Regex::new(r"Would copy source file .*/src\\file' => dest file .*/dest\\file").unwrap()),
+            (1, Regex::new(r"Would create dest folder .*/dest\\folder").unwrap()),
+            (1, Regex::new(r"Would create dest symlink .*/dest\\symlink").unwrap()),
+            (1, Regex::new(r"Would copy source file .*/src\\folder\\c1' => dest file .*/dest\\folder\\c1").unwrap()),
+            (1, Regex::new(&regex::escape("Would copy 2 file(s) totalling 17B, would create 2 folder(s) and would copy 1 symlink(s)")).unwrap()),
+        ],
+        expected_filesystem_nodes: vec![
+            ("$TEMP/src", Some(&src)), // Source should always be unchanged
+            ("$TEMP/dest1", None), // Dest should be unchanged, with no ancestors created
+        ],
+        ..Default::default()
+    });
+}
+

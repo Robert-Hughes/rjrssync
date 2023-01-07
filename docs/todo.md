@@ -73,7 +73,6 @@ Performance
 Testing
 -------
 
-* Test for --dry-run
 * Test for --stats (maybe just all the command-line options...)
 * Tests for when filesystem operations fail, e.g. failing to read/write a file
 * Improve display of benchmark graph
@@ -84,7 +83,6 @@ Testing
    - https://github.com/ValdikSS/nat-traversal-github-actions-openvpn-wireguard/blob/master/README.md
 * Confirm that github actions nightly schedule is working
 * Various tests are leaving behind temporary folders, filling up with disk space! Especially benchmarks which are big!
-* "The source/dest root is never checked against the filter - this is always considered as included." - test this (maybe already have a unit test actually!)
 * Using tar for remote filesytem nodes messes about with symlinks when extracting on a different platform (Windows vs Linux)
 
 Misc
