@@ -394,6 +394,9 @@ fn run_benchmarks_for_target(args: &CliArgs, src_target: &Target, dest_target: &
     
     let mut results : TargetResults = vec![];
 
+    let both_local = matches!(src_target, Target::Local(..)) && matches!(dest_target, Target::Local(..));
+    let both_remote = matches!(src_target, Target::Remote{..}) && matches!(dest_target, Target::Remote{..});
+
     if args.programs.contains(&String::from("rjrssync")) {
         let rjrssync_path = env!("CARGO_BIN_EXE_rjrssync");
         results.push(("rjrssync", run_benchmarks_using_program(args, rjrssync_path, &["$SRC", "$DEST"], src_target.clone(), dest_target.clone())));
@@ -405,26 +408,26 @@ fn run_benchmarks_for_target(args: &CliArgs, src_target: &Target, dest_target: &
         results.push(("rsync", run_benchmarks_using_program(args, "rsync", &["--archive", "--delete", "$SRC/", "$DEST"], src_target.clone(), dest_target.clone())));
     }
 
-    if args.programs.contains(&String::from("scp")) {
+    if args.programs.contains(&String::from("scp")) && !both_remote { // scp has problems with two remotes (it hangs :O)
         results.push(("scp", run_benchmarks_using_program(args, "scp", &["-r", "-q", "$SRC", "$DEST"], src_target.clone(), dest_target.clone())));
     }
    
-    if args.programs.contains(&String::from("cp")) && matches!(dest_target, Target::Local(..)) { // cp is local only
+    if args.programs.contains(&String::from("cp")) && both_local { // cp is local only
         #[cfg(unix)]
         results.push(("cp", run_benchmarks_using_program(args, "cp", &["-r", "$SRC", "$DEST"], src_target.clone(), dest_target.clone())));
     }
 
-    if args.programs.contains(&String::from("xcopy")) && matches!(dest_target, Target::Local(..)) { // xcopy is local only
+    if args.programs.contains(&String::from("xcopy")) && both_local { // xcopy is local only
         #[cfg(windows)]
         results.push(("xcopy", run_benchmarks_using_program(args, "xcopy", &["/i", "/s", "/q", "/y", "$SRC", "$DEST"], src_target.clone(), dest_target.clone())));
     }
    
-    if args.programs.contains(&String::from("robocopy")) && matches!(dest_target, Target::Local(..)) { // robocopy is local only
+    if args.programs.contains(&String::from("robocopy")) && both_local { // robocopy is local only
         #[cfg(windows)]
         results.push(("robocopy", run_benchmarks_using_program(args, "robocopy", &["/MIR", "/nfl", "/NJH", "/NJS", "/nc", "/ns", "/np", "/ndl", "$SRC", "$DEST"], src_target.clone(), dest_target.clone())));
     }
 
-    if args.programs.contains(&String::from("apis")) && matches!(dest_target, Target::Local(..)) { // APIs are local only
+    if args.programs.contains(&String::from("apis")) && both_local { // APIs are local only
         results.push(("apis", run_benchmarks(args, "APIs", |src, dest| -> PeakMemoryUsage {
             if !Path::new(&dest).exists() {
                 std::fs::create_dir_all(&dest).expect("Failed to create dest folder");
