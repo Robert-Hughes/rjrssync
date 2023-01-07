@@ -68,11 +68,14 @@ pub struct BossCliArgs {
     /// If the first filter provided is an include (+), then only those entries matching this filter will be included.
     /// If the first filter provided is an exclude (-), then only those entries not matching this filter will be included.
     /// Further filters can then add or remove entries.
-    /// The regexes are matched against a normalized path relative to the root of the source/dest.
-    /// Normalized means that forward slashes are always used as directory separators, never backwards slashes.
-    /// If a folder does is excluded, then none of the contents of the folder will be seen, even if they would otherwise match.
+    /// The regexes are matched against a 'normalized' path relative to the root of the source/dest.
+    /// Normalized means:
+    ///    - forward slashes are always used as directory separators, never backwards slashes.
+    ///    - there are never any trailing slashes
+    /// If a folder is excluded, then none of the contents of the folder will be inspected, even if they would otherwise 
+    /// be included by the filter.
     /// The source/dest root is never checked against the filter - this is always considered as included.
-    /// The regex must match the entire relative path for it to have an effect, not just part of it.
+    /// The regex must match the entire normalized path for it to have an effect, not just a substring.
     #[arg(name="filter", long, allow_hyphen_values(true))]
     pub filters: Vec<String>,
     

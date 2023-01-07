@@ -163,6 +163,34 @@ fn test_remove_dest_folder_with_excluded_files() {
     });
 }
 
+/// Checks that the root folder is always included, regardless of any filters.
+/// Otherwise you would need to make sure to include the root, which has an empty normalized
+/// path and so would be quite awkward.
+#[test]
+fn root_always_included() {
+    let src_folder = folder! {
+        "c1" => file_with_modified("contents1", SystemTime::UNIX_EPOCH),
+    };
+    run(TestDesc {
+        setup_filesystem_nodes: vec![
+            ("$TEMP/src", &src_folder),
+        ],
+        args: vec![
+            "$TEMP/src".to_string(),
+            "$TEMP/dest".to_string(),
+            "--filter".to_string(),
+            "-.*".to_string(), // Exclude everything, but this shouldn't exclude the root!
+        ],
+        expected_exit_code: 0,
+        expected_output_messages: copied_files_and_folders(0, 1).into(),
+        expected_filesystem_nodes: vec![
+            ("$TEMP/src", Some(&src_folder)), // Source should always be unchanged
+            ("$TEMP/dest", Some(&empty_folder())), // Dest should just have the folder, not the file inside it
+        ],
+        ..Default::default()
+    });
+}
+
 // "Tag" these tests as they require remote platforms (GitHub Actions differentiates these)
 mod remote {
 
@@ -214,7 +242,9 @@ fn test_filter_normalized_paths() {
             "$REMOTE_WINDOWS_TEMP/src".to_string(),
             "$REMOTE_LINUX_TEMP/dest".to_string(),
             "--filter".to_string(),
-            "-Folder/EXCLUDE".to_string(), // note we use a forward slash - this should match the EXCLUDE subfolder on both Linux and Windows
+            // Note we use a forward slash - this should match the EXCLUDE subfolder on both Linux and Windows
+            // Note that there is no trailing slash on the EXCLUDE folder
+            "-Folder/EXCLUDE".to_string(), 
         ],
         expected_exit_code: 0,
         expected_output_messages: copied_files(1).into(),

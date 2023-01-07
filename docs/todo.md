@@ -6,7 +6,6 @@ Interface
 
 * Could have some kind of hierarchy of filters, so can exclude something without continuing to evaluate other filters?
 * Perhaps could have hard/soft includes/excludes - soft would keep evaluating other filters which may change the decision, hard would stop evaluating and keep that as the final decision.
-* If a dir is excluded by the filters (after resolving all filters), then we don't walk inside that dir, so stuff inside it will be excluded *even if the filters would have matched them*. Document and test this?
 * Ctrl-C doesn't seem to work very well at stopping rjrssync when it's running
 * Tidy up --help output - maybe we need a short and long version?
   - Things in the README or notes.md shouldn't be needed for a user as they won't necessarily have access to then. These would need to be in --help, so might need moving.
@@ -16,7 +15,7 @@ Interface
 * Decide if info! (and other) log messages should be on stdout or stderr
 * When showing multiple prompts, could remember the selection from previous time the same prompt was shown and use that as the default for the next one?
 * Maybe could make "Connecting" spinner actually spin, until the first message from ssh?
-* WHen it says "Copied X file(s)", maybe should also include the total bytes copied?
+* WHen it says "Copied X file(s)", maybe should also include the total bytes copied? This could be especially useful for --dry-run!
 
 
 Remote launching
@@ -77,7 +76,6 @@ Testing
 * Test for --dry-run
 * Test for --stats (maybe just all the command-line options...)
 * Tests for when filesystem operations fail, e.g. failing to read/write a file
-* Clarify if filters should expect to see trailing slashes on folder names or not? What about folder symlinks? Tests + docs for this
 * Improve display of benchmark graph
    - add memory (local and remote) to the page somehow
 * Make a note somewhere that because we're using WSL 1 on GHA, the "linux" filesystem performance won't be as good and might have "windows" characteristics (as the kernel is still windows)
@@ -95,6 +93,5 @@ Misc
 * On work PC this fails:
 `cargo run D:\TempSource\ robhug01@localhost:/home/robhug01/TempDest -v`
 ERROR | rjrssync::boss_frontend: Sync error: Unexpected response from dest GetEntries: Ok(Error("normalize_path failed: Illegal characters in path"))
-* Warning if filter doesn't match anything, possibly after GetEntries but before actually doing anything (to prevent mistaken filter?)
 * Would be nice to automatically detect cases where the version number hasn't been updated, e.g. if we could see that the Command/Response struct layout has changed.
 * Document that ssh is used for connecting and launching, and that the sync is performed over a different network port, and that it is encrypted.
