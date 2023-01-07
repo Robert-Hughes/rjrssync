@@ -163,10 +163,10 @@ impl NumActions {
             result.push((0, Regex::new("Copied|copied|created").unwrap()));
         }
         if self.deleted_files + self.deleted_folders + self.deleted_symlinks > 0 {
-            result.push((1, Regex::new(&regex::escape(&format!("Deleted {} file(s), {} folder(s) and {} symlink(s)",
+            result.push((1, Regex::new(&format!(r"Deleted {} file\(s\) .*, {} folder\(s\) and {} symlink\(s\)",
                 self.deleted_files,
                 self.deleted_folders,
-                self.deleted_symlinks))).unwrap()));
+                self.deleted_symlinks)).unwrap()));
         } else {
             result.push((0, Regex::new("Deleted|deleted").unwrap()));            
         }

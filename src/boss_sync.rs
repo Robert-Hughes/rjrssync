@@ -652,10 +652,10 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), String> {
     if (ctx.stats.num_files_deleted + ctx.stats.num_folders_deleted + ctx.stats.num_symlinks_deleted > 0) || ctx.show_stats {
         let delete_elapsed = ctx.stats.delete_end_time.unwrap() - ctx.stats.delete_start_time.unwrap();
         info!(
-            "{} {} file(s){}, {} folder(s) and {} symlink(s){}",
+            "{} {} file(s) totalling {}, {} folder(s) and {} symlink(s){}",
             if !ctx.dry_run { "Deleted" } else { "Would delete" },
             HumanCount(ctx.stats.num_files_deleted as u64),
-            if ctx.show_stats { format!(" totalling {}", HumanBytes(ctx.stats.num_bytes_deleted)) } else { "".to_string() },
+            HumanBytes(ctx.stats.num_bytes_deleted),
             HumanCount(ctx.stats.num_folders_deleted as u64),
             HumanCount(ctx.stats.num_symlinks_deleted as u64),
             if !ctx.dry_run && ctx.show_stats {
@@ -666,10 +666,10 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), String> {
     if (ctx.stats.num_files_copied + ctx.stats.num_folders_created + ctx.stats.num_symlinks_copied > 0) || ctx.show_stats {
         let copy_elapsed = ctx.stats.copy_end_time.unwrap() - ctx.stats.copy_start_time.unwrap();
         info!(
-            "{} {} file(s){}, {} {} folder(s) and {} {} symlink(s){}",
+            "{} {} file(s) totalling {}, {} {} folder(s) and {} {} symlink(s){}",
             if !ctx.dry_run { "Copied" } else { "Would copy" },
             HumanCount(ctx.stats.num_files_copied as u64),
-            if ctx.show_stats { format!(" totalling {}", HumanBytes(ctx.stats.num_bytes_copied)) } else { "".to_string() },
+            HumanBytes(ctx.stats.num_bytes_copied),
             if !ctx.dry_run { "created" } else { "would create" },
             HumanCount(ctx.stats.num_folders_created as u64),
             if !ctx.dry_run { "copied" } else { "would copy" },

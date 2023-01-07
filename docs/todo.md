@@ -15,7 +15,6 @@ Interface
 * Decide if info! (and other) log messages should be on stdout or stderr
 * When showing multiple prompts, could remember the selection from previous time the same prompt was shown and use that as the default for the next one?
 * Maybe could make "Connecting" spinner actually spin, until the first message from ssh?
-* WHen it says "Copied X file(s)", maybe should also include the total bytes copied? This could be especially useful for --dry-run!
 
 
 Remote launching
@@ -37,6 +36,7 @@ Syncing logic
   - hide progress bar for --dry-run?
   - hide progress bar for --quiet?
   - hide progress bar for --no-progress?
+  - show filenames as they are being copied?
 * What happens if src and dest both point to the same place?
    - Either directly, or via symlink(s)?
 * --dry-run isn't honoured when creating dest ancestors! It should instead say that it _would_ create the ancestors.

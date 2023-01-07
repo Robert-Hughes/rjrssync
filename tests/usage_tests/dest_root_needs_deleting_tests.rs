@@ -2,7 +2,7 @@ use std::time::{SystemTime};
 
 use regex::Regex;
 
-use crate::{folder, test_framework::{run, TestDesc}};
+use crate::{folder, test_framework::{run, TestDesc, NumActions}};
 use map_macro::map;
 use crate::filesystem_node::*;
 
@@ -66,10 +66,12 @@ fn prompt_delete() {
             String::from("1:.*:Delete"),
         ],
         expected_exit_code: 0,
-        expected_output_messages: vec![
+        expected_output_messages: [&[
             (1, Regex::new("dest root folder .* needs deleting").unwrap()),
-            (1, Regex::new(&regex::escape("Deleted 0 file(s), 1 folder(s)")).unwrap()), // The root folder is deleted
-        ],
+        ], &<NumActions as Into<Vec<(usize, Regex)>>>::into(NumActions { 
+            deleted_folders: 1,  // The root folder is deleted
+            copied_files: 1,
+            ..Default::default() })[..]].concat(),
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&src)), // Unchanged
             ("$TEMP/dest", Some(&src)), // Dest root deleted and replaced by src, so same as src
@@ -195,9 +197,11 @@ fn delete() {
             "delete".to_string(),
         ],
         expected_exit_code: 0,
-        expected_output_messages: vec![
-            (1, Regex::new(&regex::escape("Deleted 1 file(s), 1 folder(s)")).unwrap()), // The file inside and the root folder deleted
-        ],
+        // The file inside and the root folder deleted
+        expected_output_messages: NumActions { 
+            deleted_files: 1, deleted_folders: 1, 
+            copied_files: 1,
+            ..Default::default() }.into(), 
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&src)), // Unchanged
             ("$TEMP/dest", Some(&src)), // Dest root deleted and replaced by src, so same as src
