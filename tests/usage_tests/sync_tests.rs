@@ -173,6 +173,7 @@ fn test_large_file() {
 /// what _would_ happen is printed.
 #[test]
 fn dry_run() {
+    let slash = regex::escape(&std::path::MAIN_SEPARATOR.to_string());
     let src = folder! {
         "file" => file("contents"),
         "folder" => folder! {
@@ -199,14 +200,14 @@ fn dry_run() {
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
-            (1, Regex::new(r"Would delete dest file .*/dest\\folder2\\c12").unwrap()),
-            (1, Regex::new(r"Would delete dest symlink .*/dest\\symlink2").unwrap()),
-            (1, Regex::new(r"Would delete dest folder .*/dest\\folder2").unwrap()),
-            (1, Regex::new(r"Would delete dest file .*/dest\\file2").unwrap()),
-            (1, Regex::new(r"Would copy source file .*/src\\file' => dest file .*/dest\\file").unwrap()),
-            (1, Regex::new(r"Would create dest folder .*/dest\\folder").unwrap()),
-            (1, Regex::new(r"Would create dest symlink .*/dest\\symlink").unwrap()),
-            (1, Regex::new(r"Would copy source file .*/src\\folder\\c1' => dest file .*/dest\\folder\\c1").unwrap()),
+            (1, Regex::new(&format!(r"Would delete dest file .*/dest{slash}folder2{slash}c12")).unwrap()),
+            (1, Regex::new(&format!(r"Would delete dest symlink .*/dest{slash}symlink2")).unwrap()),
+            (1, Regex::new(&format!(r"Would delete dest folder .*/dest{slash}folder2")).unwrap()),
+            (1, Regex::new(&format!(r"Would delete dest file .*/dest{slash}file2")).unwrap()),
+            (1, Regex::new(&format!(r"Would copy source file .*/src{slash}file' => dest file .*/dest{slash}file")).unwrap()),
+            (1, Regex::new(&format!(r"Would create dest folder .*/dest{slash}folder")).unwrap()),
+            (1, Regex::new(&format!(r"Would create dest symlink .*/dest{slash}symlink")).unwrap()),
+            (1, Regex::new(&format!(r"Would copy source file .*/src{slash}folder{slash}c1' => dest file .*/dest{slash}folder{slash}c1")).unwrap()),
             (1, Regex::new(&regex::escape("Would delete 2 file(s) totalling 17B, 1 folder(s) and 1 symlink(s)")).unwrap()),
             (1, Regex::new(&regex::escape("Would copy 2 file(s) totalling 17B, would create 1 folder(s) and would copy 1 symlink(s)")).unwrap()),
         ],
@@ -223,6 +224,7 @@ fn dry_run() {
 /// they are not created.
 #[test]
 fn dry_run_root_ancestors() {
+    let slash = regex::escape(&std::path::MAIN_SEPARATOR.to_string());
     let src = folder! {
         "file" => file("contents"),
         "folder" => folder! {
@@ -243,11 +245,11 @@ fn dry_run_root_ancestors() {
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
-            (1, Regex::new(r"Would create dest root folder .*/dest1/dest2/dest3/dest").unwrap()),
-            (1, Regex::new(r"Would copy source file .*/src\\file' => dest file .*/dest\\file").unwrap()),
-            (1, Regex::new(r"Would create dest folder .*/dest\\folder").unwrap()),
-            (1, Regex::new(r"Would create dest symlink .*/dest\\symlink").unwrap()),
-            (1, Regex::new(r"Would copy source file .*/src\\folder\\c1' => dest file .*/dest\\folder\\c1").unwrap()),
+            (1, Regex::new(&format!(r"Would create dest root folder .*/dest1/dest2/dest3/dest")).unwrap()),
+            (1, Regex::new(&format!(r"Would copy source file .*/src{slash}file' => dest file .*/dest{slash}file")).unwrap()),
+            (1, Regex::new(&format!(r"Would create dest folder .*/dest{slash}folder")).unwrap()),
+            (1, Regex::new(&format!(r"Would create dest symlink .*/dest{slash}symlink")).unwrap()),
+            (1, Regex::new(&format!(r"Would copy source file .*/src{slash}folder{slash}c1' => dest file .*/dest{slash}folder{slash}c1")).unwrap()),
             (1, Regex::new(&regex::escape("Would copy 2 file(s) totalling 17B, would create 2 folder(s) and would copy 1 symlink(s)")).unwrap()),
         ],
         expected_filesystem_nodes: vec![
