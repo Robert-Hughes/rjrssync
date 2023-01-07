@@ -16,7 +16,7 @@ def main():
     args = parser.parse_args()
 
     #e.g. benchmark-results-wsl-2023-01-02-13-26-127ca5f54c8605f9f872548a1157f2b595981863.json
-    filename_regex = re.compile(".*?(\d+)-(\d+)-(\d+)-(\d+)-(\d+)-([0-9a-zA-Z]+).json")    
+    filename_regex = re.compile("benchmark-results-(.+)-(\d+)-(\d+)-(\d+)-(\d+)-(\d+)-([0-9a-zA-Z]+).json")
     all_results = pandas.DataFrame()
     for dirpath, dirs, files in os.walk(args.json_files):
         for filename in files:
@@ -27,8 +27,9 @@ def main():
                 print(f"Skipping {filename_abs}")
                 continue
 
-            timestamp = datetime(int(match.group(1)), int(match.group(2)), int(match.group(3)), int(match.group(4)), int(match.group(5)))
-            commit_hash = match.group(6)
+            platform = match.group(1)
+            timestamp = datetime(int(match.group(2)), int(match.group(3)), int(match.group(4)), int(match.group(5)), int(match.group(6)))
+            commit_hash = match.group(7)
 
             print(f"Loading {filename_abs}...")
             with open(filename_abs, "r") as f:
@@ -42,11 +43,14 @@ def main():
                                 if value is None:
                                     continue
                                 row = {
+                                    "platform": platform,
                                     "timestamp": timestamp,
                                     "commit-hash": commit_hash,
                                     "target-source": target["source"],
                                     "target-dest": target["dest"],
-                                    "target": target["source"] + " -> " + target["dest"],
+                                    # Note that we might have the same source and dest, but running on a different platform
+                                    # e.g. 'windows: Remote Linux -> Remote Windows' vs 'wsl: Remote Linux -> Remote Windows'
+                                    "target": f"{platform}: {target['source']} -> {target['dest']}",
                                     "program": program["program"],
                                     "case": case["case"],
                                     "measurement": measurement,

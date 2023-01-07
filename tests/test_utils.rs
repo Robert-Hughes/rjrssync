@@ -12,7 +12,6 @@ use rand::{thread_rng, distributions::DistString};
 pub struct ProcessOutput {
     pub exit_status: std::process::ExitStatus,
     pub stdout: String,
-    #[allow(unused)]
     pub stderr: String,
     pub peak_memory_usage: Option<usize>,
 }
@@ -27,7 +26,6 @@ pub fn run_process_with_live_output(c: &mut std::process::Command) -> ProcessOut
     run_process_with_live_output_impl(c, false, false, false)
 }
 
-#[allow(unused)] // Unusued in benchmarks.rs (we compile this file twice)
 pub fn assert_process_with_live_output(c: &mut std::process::Command) {
     let r = run_process_with_live_output_impl(c, false, false, false);
     assert!(r.exit_status.success());
@@ -225,10 +223,12 @@ fn get_peak_memory_usage(_process: &std::process::Child) -> Option<usize> {
 // a Windows and Linux remote hostname are required.
 // One way of achieving this is to use WSL.
 
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct RemotePlatform {
     pub user_and_host: String,
     pub test_folder: String,
     pub path_separator: char,
+    pub is_windows: bool,
 }
 
 impl RemotePlatform {
@@ -299,7 +299,7 @@ fn create_remote_windows_platform() -> RemotePlatform {
     // Confirm that we can connect to this remote host, to help debugging the test environment
     confirm_remote_test_environment(&user_and_host, &test_folder, "Windows");
 
-    RemotePlatform { user_and_host, test_folder, path_separator: '\\' }
+    RemotePlatform { user_and_host, test_folder, path_separator: '\\', is_windows: true }
 }
 
 /// Gets the remote host configuration to use for remote Linux tests.
@@ -343,7 +343,7 @@ fn create_remote_linux_platform() -> RemotePlatform {
     // Confirm that we can connect to this remote host, to help debugging the test environment
     confirm_remote_test_environment(&user_and_host, &test_folder, "Linux");
 
-    RemotePlatform { user_and_host, test_folder, path_separator: '/' }
+    RemotePlatform { user_and_host, test_folder, path_separator: '/', is_windows: false }
 }
 
 fn confirm_remote_test_environment(remote_user_and_host: &str, remote_folder: &str, expected_os: &str) {
@@ -380,4 +380,29 @@ pub fn get_unique_remote_temp_folder(remote_platform: &RemotePlatform) -> String
     assert_process_with_live_output(Command::new("ssh").arg(&remote_platform.user_and_host).arg(format!("mkdir {folder}")));
 
     folder
+}
+
+pub fn delete_remote_folder(folder: &str, remote_platform: &RemotePlatform) {
+    if remote_platform.is_windows {
+        // Use run_process_with_live_output to avoid messing up terminal line endings
+        let _ = run_process_with_live_output_impl(std::process::Command::new("ssh").arg(&remote_platform.user_and_host).arg(format!("rmdir /Q /S {folder}")), false, false, true);
+        // This one can fail, if the folder doesn't exist
+    } else {
+        let result = run_process_with_live_output_impl(std::process::Command::new("ssh").arg(&remote_platform.user_and_host).arg(format!("rm -rf '{folder}'")), false, false, true);
+        assert!(result.exit_status.success());
+    }
+}
+
+pub fn delete_and_recreate_remote_folder(folder: &str, remote_platform: &RemotePlatform) {
+    if remote_platform.is_windows {
+        // Use run_process_with_live_output to avoid messing up terminal line endings
+        let _ = run_process_with_live_output_impl(std::process::Command::new("ssh").arg(&remote_platform.user_and_host).arg(format!("rmdir /Q /S {folder}")), false, false, true);
+        // This one can fail, if the folder doesn't exist
+
+        let result = run_process_with_live_output_impl(std::process::Command::new("ssh").arg(&remote_platform.user_and_host).arg(format!("mkdir {folder}")), false, false, true);
+        assert!(result.exit_status.success());
+    } else {
+        let result = run_process_with_live_output_impl(std::process::Command::new("ssh").arg(&remote_platform.user_and_host).arg(format!("rm -rf '{folder}' && mkdir -p '{folder}'")), false, false, true);
+        assert!(result.exit_status.success());
+    }
 }

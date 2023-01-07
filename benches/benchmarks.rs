@@ -6,13 +6,19 @@ use fs_extra::dir::CopyOptions;
 use indicatif::HumanBytes;
 
 #[path = "../tests/test_utils.rs"]
+#[allow(unused)]
 mod test_utils;
+#[path = "../tests/filesystem_node.rs"]
+#[allow(unused)]
+mod filesystem_node;
 
 use test_utils::RemotePlatform;
 
 /// Global state
 struct Context {
     args: CliArgs,
+
+    local_temp_dir: PathBuf,
     
     /// The set of Targets that we have already set up source folders for,
     /// so that we don't need to do it again.
@@ -23,8 +29,7 @@ struct Context {
 enum Target {
     Local(PathBuf),
     Remote {
-        is_windows: bool,
-        user_and_host: String,
+        platform: RemotePlatform,
         folder: String,
     }
 }
@@ -40,7 +45,7 @@ impl Display for Target {
                     "Linux"
                 },
             },            
-            Target::Remote { is_windows, .. } => if *is_windows {
+            Target::Remote { platform, .. } => if platform.is_windows {
                 "Remote Windows"
             } else {
                 "Remote Linux"
@@ -82,22 +87,43 @@ fn set_up_src_folders(target: &Target, context: &mut Context) {
     // If we've already set up source folders on this target as part of an earlier benchmark
     // then don't repeat it.
     if context.src_folders_setup_on_targets.contains(target) {
+        println!("Skipping setup of {target} because it was already set up");
         return;
     }
 
-    let src_folder = match target {
-        Target::Local(p) => p.join("src"),
-        Target::Remote { .. } => unimplemented!(),
+    match target {
+        Target::Local(local_path) => {
+            let local_path = local_path.join("src");
+
+            // If the user requested to skip the setup if possible (assuming it's up-to-date from last time),
+            // then do so if the folder already exists
+            if local_path.exists() && context.args.skip_setup {
+                println!("Skipping setup of {target} because of --skip-setup. Beware this may be stale!");
+                return;
+            }
+
+            set_up_src_folders_impl_local(&local_path);
+        }
+        Target::Remote { folder, platform, .. } => {
+            // If the user requested to skip the setup if possible (assuming it's up-to-date from last time),
+            // then do so if the folder already exists
+            let remote_path = format!("{folder}{}src", platform.path_separator);
+            let r = test_utils::run_process_with_live_output(Command::new("ssh").arg(&platform.user_and_host).arg(format!("stat {remote_path} || dir {remote_path}")));
+            if r.exit_status.success() && context.args.skip_setup {
+                println!("Skipping setup of {target} because of --skip-setup. Beware this may be stale!");
+                return;
+            }
+        
+            set_up_src_folders_impl_remote(platform, &remote_path, context);
+        }
     };
-    let src_folder = &src_folder;
 
-    // If the user requested to skip the setup if possible (assuming it's up-to-date from last time),
-    // then do so if the folder already exists
-    if src_folder.exists() && context.args.skip_setup {
-        println!("Skipping setup. Beware this may be stale!");
-        return;
-    }
+    // Remember that we set up this target as a source, so we don't have to repeat
+    // it for other benchmark configs
+    context.src_folders_setup_on_targets.insert(target.clone());
+}
 
+fn set_up_src_folders_impl_local(src_folder: &Path) {
     // Delete any old stuff, so we start from a clean state each time
     if src_folder.exists() {
         std::fs::remove_dir_all(src_folder).expect("Failed to delete old src folder");
@@ -133,7 +159,7 @@ fn set_up_src_folders(target: &Target, context: &mut Context) {
     std::fs::remove_dir_all(src_folder.join("example-repo-slight-change/.git")).expect("Failed to delete .git");
 
     // Delete some particularly deeply-nested folders, which cause scp.exe on windows to crash with a
-    // stack overflow.
+    // stack overflow. https://github.com/PowerShell/Win32-OpenSSH/issues/1897
     std::fs::remove_dir_all(src_folder.join("example-repo/src/modules/previewpane/MonacoPreviewHandler/monacoSRC/min/vs")).expect("Failed to delete nested folders");
     std::fs::remove_dir_all(src_folder.join("example-repo/src/settings-ui/Settings.UI.UnitTests/BackwardsCompatibility/TestFiles/")).expect("Failed to delete nested folders");
   
@@ -154,27 +180,41 @@ fn set_up_src_folders(target: &Target, context: &mut Context) {
         let buf = [(i % 256) as u8; 1024];
         f.write_all(&buf).expect("Failed to write to file");
     }
+}
 
-    // Remember that we set up this target as a source, so we don't have to repeat
-    // it for other benchmark configs
-    context.src_folders_setup_on_targets.insert(target.clone());
+fn set_up_src_folders_impl_remote(platform: &RemotePlatform, remote_path: &str, context: &mut Context) {
+    let user_and_host = &platform.user_and_host;
+
+    // Delete any old stuff, so we start from a clean state each time.
+    // Note that we also make sure that all parent folders are there, hence the weird deletion/recreation here
+    test_utils::delete_and_recreate_remote_folder(remote_path, platform);
+    test_utils::delete_remote_folder(remote_path, platform);
+   
+    // First set up the source folders locally, then we copy these to the remote source folder
+    // Use the same local folder as for local targets, so we can avoid repeating the setup
+    set_up_src_folders(&Target::Local(context.local_temp_dir.clone()), context);
+
+    // Use the test framework's features to deploy it remotely, to avoid problems with scp
+    // stack overflow on Windows https://github.com/PowerShell/Win32-OpenSSH/issues/1897
+    println!("Deploying source data to {user_and_host}:{remote_path}...");
+    let node = filesystem_node::load_filesystem_node_from_disk_local(&context.local_temp_dir.join("src"));
+    filesystem_node::save_filesystem_node_to_disk_remote(&node.unwrap(), &format!("{user_and_host}:{remote_path}"));
 }
 
 fn main () {
     let args = CliArgs::parse();
 
     // Set up global state
+    let local_temp_dir = std::env::temp_dir().join("rjrssync-benchmarks");
     let mut context = Context {
         args: args.clone(),
+        local_temp_dir,
         src_folders_setup_on_targets: HashSet::new(),
     };
 
     // Create potential targets for use as source or dest
-    
-    let local_target = {
-        let local_temp_dir = std::env::temp_dir().join("rjrssync-benchmarks");
-        Target::Local(local_temp_dir)
-    };
+
+    let local_target = Target::Local(context.local_temp_dir.clone());
 
     let wsl_target = if cfg!(windows) {
         // Get the WSL distribution name, as we need this to find the path in \\wsl$
@@ -218,14 +258,12 @@ fn main () {
     };
 
     let remote_windows_target = Target::Remote { 
-        is_windows: true, 
-        user_and_host: RemotePlatform::get_windows().user_and_host.clone(), 
+        platform: RemotePlatform::get_windows().clone(), 
         folder: RemotePlatform::get_windows().test_folder.clone() + "\\" + "rjrssync-benchmarks",
     };
 
     let remote_linux_target = Target::Remote { 
-        is_windows: false, 
-        user_and_host: RemotePlatform::get_linux().user_and_host.clone(), 
+        platform: RemotePlatform::get_linux().clone(), 
         folder: RemotePlatform::get_linux().test_folder.clone() + "/" + "rjrssync-benchmarks",  
     };
 
@@ -255,6 +293,8 @@ fn main () {
     if !args.only_local {
         run_targets(&local_target, &remote_windows_target);
         run_targets(&local_target, &remote_linux_target);
+        run_targets(&remote_linux_target, &remote_windows_target);
+        run_targets(&remote_windows_target, &remote_linux_target);
     }
 
     println!();
@@ -359,7 +399,7 @@ fn run_benchmarks_for_target(args: &CliArgs, src_target: &Target, dest_target: &
         results.push(("rjrssync", run_benchmarks_using_program(args, rjrssync_path, &["$SRC", "$DEST"], src_target.clone(), dest_target.clone())));
     }
    
-    if args.programs.contains(&String::from("rsync")) && !matches!(dest_target, Target::Remote{ is_windows, .. } if *is_windows) { // rsync is Linux -> Linux only
+    if args.programs.contains(&String::from("rsync")) && !matches!(dest_target, Target::Remote{ platform, .. } if platform.is_windows) { // rsync is Linux -> Linux only
         #[cfg(unix)]
         // Note trailing slash on the src is important for rsync!
         results.push(("rsync", run_benchmarks_using_program(args, "rsync", &["--archive", "--delete", "$SRC/", "$DEST"], src_target.clone(), dest_target.clone())));
@@ -473,9 +513,13 @@ fn run_benchmarks<F>(cli_args: &CliArgs, id: &str, sync_fn: F,
 
         let src_prefix = match &src_target {
             Target::Local(d) => {
+                let d = d.join("src");
                 d.to_string_lossy().to_string() + &std::path::MAIN_SEPARATOR.to_string()
             }
-            _ => unimplemented!()
+            Target::Remote { platform, folder } => {
+                let folder = format!("{folder}{}src", platform.path_separator);
+                platform.user_and_host.clone() + ":" + &folder + &platform.path_separator.to_string()
+            }
         };
 
         // Delete any old dest folder from other subjects
@@ -488,22 +532,10 @@ fn run_benchmarks<F>(cli_args: &CliArgs, id: &str, sync_fn: F,
                 std::fs::create_dir(&d).expect("Failed to create dest dir");
                 d.to_string_lossy().to_string() + &std::path::MAIN_SEPARATOR.to_string()
             }
-            Target::Remote { is_windows, user_and_host, folder } => {
-                let remote_sep = if *is_windows { "\\" } else { "/" };
-                let folder = folder.clone() + remote_sep + "dest";
-                if *is_windows {
-                    // Use run_process_with_live_output to avoid messing up terminal line endings
-                    let _ = test_utils::run_process_with_live_output_impl(std::process::Command::new("ssh").arg(&user_and_host).arg(format!("rmdir /Q /S {folder}")), false, false, true);
-                    // This one can fail, if the folder doesn't exist
-
-                    let result = test_utils::run_process_with_live_output_impl(std::process::Command::new("ssh").arg(&user_and_host).arg(format!("mkdir {folder}")), false, false, true);
-                    assert!(result.exit_status.success());
-                } else {
-                    let result = test_utils::run_process_with_live_output_impl(std::process::Command::new("ssh").arg(&user_and_host).arg(format!("rm -rf '{folder}' && mkdir -p '{folder}'")), false, false, true);
-                    assert!(result.exit_status.success());
-                }
-                let remote_sep = if *is_windows { "\\" } else { "/" };
-                user_and_host.clone() + ":" + &folder + remote_sep
+            Target::Remote { platform, folder } => {
+                let folder = format!("{folder}{}dest", platform.path_separator);
+                test_utils::delete_and_recreate_remote_folder(&folder, platform);
+                platform.user_and_host.clone() + ":" + &folder + &platform.path_separator.to_string()
             }
         };
 
@@ -516,7 +548,7 @@ fn run_benchmarks<F>(cli_args: &CliArgs, id: &str, sync_fn: F,
 
         // Sync example-repo to an empty folder, so this means everything is copied
         println!("      {id} example-repo everything copied...");
-        let s = run(Path::new(&src_prefix).join("src").join("example-repo").to_string_lossy().to_string(), dest_prefix.clone() + "example-repo");
+        let s = run(src_prefix.clone() + "example-repo", dest_prefix.clone() + "example-repo");
         println!("      {id} example-repo everything copied: {:?}", s);
         everything_copied_results.push(s);
 
@@ -524,7 +556,7 @@ fn run_benchmarks<F>(cli_args: &CliArgs, id: &str, sync_fn: F,
         // Programs like scp will always copy everything, so there's no point running this part of the test
         if id.contains("rjrssync") || id.contains("robocopy") || id.contains("rsync") {
             println!("      {id} example-repo nothing copied...");
-            let s = run(Path::new(&src_prefix).join("src").join("example-repo").to_string_lossy().to_string(), dest_prefix.clone() + "example-repo");
+            let s = run(src_prefix.clone() + "example-repo", dest_prefix.clone() + "example-repo");
             println!("      {id} example-repo nothing copied: {:?}", s);
             nothing_copied_results.push(s);
         }
@@ -533,7 +565,7 @@ fn run_benchmarks<F>(cli_args: &CliArgs, id: &str, sync_fn: F,
         // Programs like scp will always copy everything, so there's no point running this part of the test
         if id.contains("rjrssync") || id.contains("robocopy") || id.contains("rsync") {
             println!("      {id} example-repo some copied...");
-            let s = run(Path::new(&src_prefix).join("src").join("example-repo-slight-change").to_string_lossy().to_string(), dest_prefix.clone() + "example-repo");
+            let s = run(src_prefix.clone() + "example-repo-slight-change", dest_prefix.clone() + "example-repo");
             println!("      {id} example-repo some copied: {:?}", s);
             some_copied_results.push(s);
         }
@@ -542,14 +574,14 @@ fn run_benchmarks<F>(cli_args: &CliArgs, id: &str, sync_fn: F,
         // Programs like scp will always copy everything, so there's no point running this part of the test
         if id.contains("rjrssync") || id.contains("robocopy") || id.contains("rsync") {
             println!("      {id} example-repo delete and copy...");
-            let s = run(Path::new(&src_prefix).join("src").join("example-repo-large-change").to_string_lossy().to_string(), dest_prefix.clone() + "example-repo");
+            let s = run(src_prefix.clone() + "example-repo-large-change", dest_prefix.clone() + "example-repo");
             println!("      {id} example-repo delete and copy: {:?}", s);
             delete_and_copy_results.push(s);
         }
 
         // Sync a single large file
         println!("      {id} example-repo single large file...");
-        let s = run(Path::new(&src_prefix).join("src").join("large-file").to_string_lossy().to_string(), dest_prefix.clone() + "large-file");
+        let s = run(src_prefix.clone() + "large-file", dest_prefix.clone() + "large-file");
         println!("      {id} example-repo single large file: {:?}", s);
         single_large_file_results.push(s);
     }
