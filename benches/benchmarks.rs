@@ -402,7 +402,8 @@ fn run_benchmarks_for_target(args: &CliArgs, src_target: &Target, dest_target: &
         results.push(("rjrssync", run_benchmarks_using_program(args, rjrssync_path, &["$SRC", "$DEST"], src_target.clone(), dest_target.clone())));
     }
    
-    if args.programs.contains(&String::from("rsync")) && !matches!(dest_target, Target::Remote{ platform, .. } if platform.is_windows) { // rsync is Linux -> Linux only
+    // rsync is Linux -> Linux only, and doesn't support both src and dest being remote.
+    if args.programs.contains(&String::from("rsync")) && !both_remote && !matches!(dest_target, Target::Remote{ platform, .. } if platform.is_windows) { 
         #[cfg(unix)]
         // Note trailing slash on the src is important for rsync!
         results.push(("rsync", run_benchmarks_using_program(args, "rsync", &["--archive", "--delete", "$SRC/", "$DEST"], src_target.clone(), dest_target.clone())));
