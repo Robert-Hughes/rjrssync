@@ -12,6 +12,7 @@ use regex::Regex;
 use yaml_rust::{YamlLoader, Yaml};
 use lazy_static::{lazy_static};
 
+use crate::boss_progress::Progress;
 use crate::profiling::{dump_all_profiling, start_timer, stop_timer, self};
 use crate::{boss_launch::*, profile_this, function_name};
 use crate::boss_sync::*;
@@ -743,7 +744,7 @@ impl<B: Copy> ResolvePromptResult<B> {
     }
 }
 
-pub fn resolve_prompt<B: Copy>(prompt: String, progress_bar: Option<&ProgressBar>,
+pub fn resolve_prompt<B: Copy>(prompt: String, progress_bar: Option<&Progress>,
     options: &[(&str, B)], include_always_versions: bool, cancel_behaviour: B) -> ResolvePromptResult<B> {
 
     let mut items = vec![];

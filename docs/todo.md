@@ -33,10 +33,11 @@ Syncing logic
 * Compare and sync file permissions?
 * Progress bar
   - when copying large files, the progress bar won't move. Maybe have a sub-bar per-file for large files? Or change the bar to be total bytes rather than total files?
-  - hide progress bar for --dry-run?
+  - hide progress bar for --dry-run? Confirm behaviour of all the progress code, as I think some is being skipped for dry run and some isn't (inconsistent)
   - hide progress bar for --quiet?
   - hide progress bar for --no-progress?
   - show filenames as they are being copied?
+  - show bytes or entries per seconds in the text as it goes?
 * What happens if src and dest both point to the same place?
    - Either directly, or via symlink(s)?
 * --dry-run isn't honoured when creating dest ancestors! It should instead say that it _would_ create the ancestors.
@@ -83,7 +84,9 @@ Testing
    - https://github.com/ValdikSS/nat-traversal-github-actions-openvpn-wireguard/blob/master/README.md
 * Confirm that github actions nightly schedule is working
 * Various tests are leaving behind temporary folders, filling up with disk space! Especially benchmarks which are big!
-* Using tar for remote filesytem nodes messes about with symlinks when extracting on a different platform (Windows vs Linux)
+* Using tar for remote filesytem nodes messes about with symlinks when extracting on a different platform (Windows vs Linux)c
+* Add test for multiple syncs with remote doer (to make sure it stays alive and can be used for multiple syncs) spec file
+
 
 Misc
 -----
@@ -93,3 +96,8 @@ Misc
 ERROR | rjrssync::boss_frontend: Sync error: Unexpected response from dest GetEntries: Ok(Error("normalize_path failed: Illegal characters in path"))
 * Would be nice to automatically detect cases where the version number hasn't been updated, e.g. if we could see that the Command/Response struct layout has changed.
 * Document that ssh is used for connecting and launching, and that the sync is performed over a different network port, and that it is encrypted.
+* Split boss_sync.rs up into multiple files/functions
+* In boss_sync.rs, src_entries, src_entries_lookup and progres.inc_total_for_copy() - these three things need to be done together and kept in sync - can we enforce this (custom type?). Same for dest_
+* Add to readme list of features to "advertise" the program 
+
+

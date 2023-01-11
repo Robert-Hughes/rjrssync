@@ -4,6 +4,7 @@ use const_format::concatcp;
 mod boss_frontend;
 mod boss_launch;
 mod boss_sync;
+mod boss_progress;
 mod doer;
 mod encrypted_comms;
 mod memory_bound_channel;
@@ -17,7 +18,7 @@ use profiling::*;
 
 // We include the profiling config in the version number, as profiling and non-profiling builds are not compatible
 // (because a non-profiling doer won't record any events).
-pub const VERSION: &str = concatcp!("122", if cfg!(feature="profiling") { "+profiling"} else { "" });
+pub const VERSION: &str = concatcp!("124", if cfg!(feature="profiling") { "+profiling"} else { "" });
 
 // Message printed by a doer copy of the program to indicate that it has loaded and is ready
 // to receive data over its stdin. Once the boss receives this, it knows that ssh has connected

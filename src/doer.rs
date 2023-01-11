@@ -142,6 +142,28 @@ pub enum FilterKind {
     Exclude,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ProgressMarker {
+    /// How much work (in arbitrary units) has been completed.
+    pub completed_work: u64,
+    /// Whereabouts are we in more descriptive terms.
+    pub phase: ProgressPhase,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ProgressPhase {
+    Deleting {
+        num_entries_deleted: u32,
+    },
+    Copying {
+        num_entries_copied: u32,
+        /// Especially useful for when large files are being copied, this indicates how many total bytes have been copied,
+        /// which can increase even though num_entries_copied remains the same.
+        num_bytes_copied: u64,
+    },
+    Done
+}
+
 /// Commands are sent from the boss to the doer, to request something to be done.
 #[derive(Serialize, Deserialize)]
 pub enum Command {
@@ -195,7 +217,7 @@ pub enum Command {
     /// The boss can't update the progress bar as soon as it sends a command, as the doer hasn't actually done 
     /// anything yet, so instead it inserts a marker and when the doer echoes this marker back 
     /// (meaning it got this far), the boss updates the progress bar.
-    Marker(u64),
+    Marker(ProgressMarker),
 
     Shutdown,
 }
@@ -356,7 +378,7 @@ pub enum Response {
     ProfilingData(ProcessProfilingData),
 
     /// The doer echoes back Marker commands, so the boss can keep track of the doer's progress.
-    Marker(u64),
+    Marker(ProgressMarker),
 
     Error(String),
 }
