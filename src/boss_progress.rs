@@ -1,9 +1,9 @@
 use std::{ops::{AddAssign, SubAssign}, time::{Instant, Duration}, thread, sync::{Arc}};
 
 use crossbeam::atomic::AtomicCell;
-use indicatif::{ProgressBar, HumanCount, HumanBytes, ProgressStyle, WeakProgressBar};
+use indicatif::{ProgressBar, HumanCount, HumanBytes, ProgressStyle, WeakProgressBar, ProgressDrawTarget};
 
-use crate::{doer::{EntryDetails, ProgressPhase, ProgressMarker}};
+use crate::{doer::{EntryDetails, ProgressPhase, ProgressMarker, RootRelativePath}};
 
 /// Set of related measurements for progress.
 #[derive(Default, PartialEq, Eq, Debug, Clone)]
@@ -65,11 +65,12 @@ impl SubAssign for ProgressValues {
 }
 
 /// State to communicate with the background thread.
-#[derive(Default)]
 struct BarState {
     is_deleting: bool,
     completed: ProgressValues,
     total: ProgressValues,
+    //TODO: PrettyPath? or at least some parts of it?
+    current_entry: Option<RootRelativePath>, //TODO: check if it's OK to be updating a string frequently (overhead?)
 }
 
 /// Wrapper around progress-bar related logic.
@@ -122,10 +123,20 @@ pub struct Progress {
     /// The time at which we received a progress marker from the dest doer showing that it had finished
     /// the deletes and had moved on to the copies.
     first_copy_time: Option<Instant>,
+
+    /// Lists of source and dest entries, so that we can match up entry IDs
+    /// from progress markers to filenames to display on the progress bar.
+    src_entries: Vec<RootRelativePath>,
+    dest_entries: Vec<RootRelativePath>,
+
+    /// The current entry ID which the doer is processing
+    current_entry_id: Option<u32>,
 }
 impl Progress {
     pub fn new() -> Self {
         let bar = ProgressBar::new_spinner().with_message("Querying...");
+         // We control the update rate ourselves with our background thread, so disable(reduce) the built-in limiting
+        bar.set_draw_target(ProgressDrawTarget::stderr_with_hz(60));
         let new_bar_state = Arc::new(AtomicCell::new(None));
 
         let bar2 = bar.downgrade(); // Weak reference for the background thread
@@ -141,7 +152,15 @@ impl Progress {
             new_bar_state,
             last_progress_marker: 0,
             first_copy_time: None,
+            src_entries: vec![],
+            dest_entries: vec![],
+            current_entry_id: None,
         }
+    }
+
+    pub fn set_entries(&mut self, src_entries: Vec<RootRelativePath>, dest_entries: Vec<RootRelativePath>) {
+        self.src_entries = src_entries;
+        self.dest_entries = dest_entries;
     }
 
     /// Forwards to ProgressBar::suspend(). We avoid exposing the ProgressBar directly so that
@@ -186,8 +205,22 @@ impl Progress {
     }
 
     /// Gets a ProgressMarker to be sent to the dest doer to mark the amount of work
-    /// that has been already sent.
-    pub fn get_progress_marker(&mut self) -> ProgressMarker {
+    /// that has been already sent, including the entry ID of the thing about to be processed
+    /// so we can display the filenames as they get copied/deleted.
+    /// This might return None if the last update was sent too recently, to avoid too much overhead
+    /// from the progress markers.
+    pub fn get_progress_marker_limited(&mut self, current_entry_id: Option<u32>) -> Option<ProgressMarker> {
+        // Don't send progress markers too often, to avoid overhead
+        if self.sent.work - self.last_progress_marker < 1024*1024 {
+            return None
+        }
+        Some(self.get_progress_marker(current_entry_id))
+    }
+
+    /// Gets a ProgressMarker to be sent to the dest doer to mark the amount of work
+    /// that has been already sent, including the entry ID of the thing about to be processed
+    /// so we can display the filenames as they get copied/deleted.
+    pub fn get_progress_marker(&mut self, current_entry_id: Option<u32>) -> ProgressMarker {
         // Remember when we last sent a marker, so that we don't do it too often
         self.last_progress_marker = self.sent.work;
 
@@ -199,8 +232,11 @@ impl Progress {
             // Still sending deletes
             ProgressMarker { 
                 completed_work: self.sent.work,
-                phase: ProgressPhase::Deleting { num_entries_deleted: self.sent.delete }
-            }           
+                phase: ProgressPhase::Deleting { 
+                    num_entries_deleted: self.sent.delete,
+                    current_entry_id,
+                },
+            }         
         } else {
             // Finished sending deletes, but still sending copies
             // Note that we might have actually finished sending all the copies too, and so we are Done,
@@ -210,33 +246,20 @@ impl Progress {
                 completed_work: self.sent.work,
                 phase: ProgressPhase::Copying { 
                     num_entries_copied: self.sent.copy, 
-                    num_bytes_copied: self.sent.copy_bytes 
+                    num_bytes_copied: self.sent.copy_bytes,
+                    current_entry_id,
                 }
             }
         }
     }
 
     /// Increases the sent counters to account for the given entry being deleted.
-    /// Returns a ProgressMarker that should be sent to the dest doer to mark this point of progress.
-    pub fn delete_sent(&mut self, e: &EntryDetails) -> Option<ProgressMarker> {
+    pub fn delete_sent(&mut self, e: &EntryDetails) {
         self.sent += ProgressValues::for_delete(e);
-        // Don't send progress markers too often, to avoid overhead
-        if self.sent.work - self.last_progress_marker > 1024*1024 {
-            Some(self.get_progress_marker())
-        } else {
-            None
-        }       
     }
     /// Increases the sent counters to account for the given entry being copied.
-    /// Returns a ProgressMarker that should be sent to the dest doer to mark this point of progress.
-    pub fn copy_sent(&mut self, e: &EntryDetails) -> Option<ProgressMarker> {
+    pub fn copy_sent(&mut self, e: &EntryDetails) {
         self.sent += ProgressValues::for_copy(e);
-        // Don't send progress markers too often, to avoid overhead
-        if self.sent.work - self.last_progress_marker > 1024*1024 {
-            Some(self.get_progress_marker())
-        } else {
-            None
-        }
     }
 
     /// Called when all work has been sent to the dest doer.
@@ -255,7 +278,7 @@ impl Progress {
         self.completed.work = marker.completed_work;
 
         match marker.phase {
-            ProgressPhase::Deleting { num_entries_deleted } => {
+            ProgressPhase::Deleting { num_entries_deleted, current_entry_id } => {
                 // If this is the first progress marker for deleting, then reset from its Querying... state:
                 if num_entries_deleted == 0 {
                     // We don't yet know how many entries need deleting/copying, so can't draw an accurate progress bar.
@@ -265,15 +288,18 @@ impl Progress {
                     // for the user. Instead we show the percentage, and include a custom message where we print more details
                     self.bar.reset();
                     self.bar.set_length(self.total.work);
-                    self.bar.set_style(ProgressStyle::with_template("{percent}% {bar:40.green/black} {msg}").unwrap());
+                    // Note the use of "wide_msg" vs "msg", which prevents the message from wrapping to the next line
+                    // which causes problems.
+                    self.bar.set_style(ProgressStyle::with_template("{percent}% {bar:40.green/black} {wide_msg}").unwrap());
                 }
 
                 self.completed.delete = num_entries_deleted;
+                self.current_entry_id = current_entry_id;
 
                 // Update the progress bar based on the progress that the dest doer has made.
                 self.update_bar_limited();
             }
-            ProgressPhase::Copying { num_entries_copied, num_bytes_copied } => {
+            ProgressPhase::Copying { num_entries_copied, num_bytes_copied, current_entry_id } => {
                 // If this is the first progress marker for Copying, then update stat timers as we know 
                 // we have finished all the deletes and are now about to start the copies
                 if self.first_copy_time.is_none() && num_entries_copied == 0 {
@@ -282,6 +308,7 @@ impl Progress {
 
                 self.completed.copy = num_entries_copied;
                 self.completed.copy_bytes = num_bytes_copied;
+                self.current_entry_id = current_entry_id;
 
                 // Update the progress bar based on the progress that the dest doer has made.
                 self.update_bar_limited();
@@ -297,10 +324,22 @@ impl Progress {
     fn update_bar_limited(&mut self) {
         // Note that we don't format the message string here, because this function will be called a lot
         // and that would be too slow. Instead we format it on the background thread, once we're about to use it.
+       
+        let current_entry = if let Some(current_entry_id) = self.current_entry_id {        
+            if self.first_copy_time.is_none() {
+                Some(self.dest_entries[current_entry_id as usize].clone())
+            } else {
+                Some(self.src_entries[current_entry_id as usize].clone())
+            }
+        } else {
+            None
+        };
+
         let new_state = Box::new(BarState {
             is_deleting: self.first_copy_time.is_none(),
             completed: self.completed.clone(),
             total: self.total.clone(),
+            current_entry,
         });
         // (static assert) Depending on what type put in the AtomicCell it might use locks, so we choose something that should collapse to a single pointer and thus be lock-free.
         debug_assert!(AtomicCell::<Option<Box<BarState>>>::is_lock_free()); 
@@ -336,7 +375,7 @@ impl Progress {
             // (static assert) Depending on what type we put in the AtomicCell it might use locks, so we choose something that should collapse to a single pointer and thus be lock-free.
             debug_assert!(AtomicCell::<Option<Box<BarState>>>::is_lock_free());
             if let Some(new_state) = new_bar_state.take() {
-                let message = if new_state.is_deleting {
+                let mut message = if new_state.is_deleting {
                     // The doer is deleting entries, and will be some amount behind the boss which may have queued
                     // up many more deletes. Show the progress through these delete operations.
                     format!("Deleting {:>7}/{:>7}", 
@@ -351,7 +390,10 @@ impl Progress {
                     format!("Copying  {:>7}/{:>7} {:>11}/{:>11}", 
                         HumanCount(new_state.completed.copy as u64).to_string(), HumanCount(new_state.total.copy as u64).to_string(),
                         HumanBytes(new_state.completed.copy_bytes as u64).to_string(), HumanBytes(new_state.total.copy_bytes as u64).to_string())
-                };
+                };                
+                if let Some(e) = new_state.current_entry {
+                    message += &format!(" {}", e);
+                }
 
                 bar.set_length(new_state.total.work);
                 bar.set_position(new_state.completed.work);

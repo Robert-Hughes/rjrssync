@@ -15,6 +15,7 @@ Interface
 * Decide if info! (and other) log messages should be on stdout or stderr
 * When showing multiple prompts, could remember the selection from previous time the same prompt was shown and use that as the default for the next one?
 * Maybe could make "Connecting" spinner actually spin, until the first message from ssh?
+* Long prompt messages (multi-line) duplicate themselves once answered. Same with progress bar if the terminal window is too narrow! (maybe check in terminals other than the VS code one! POwershell, window terminal, bash etc.). wide_msg fixed this for progress bar, maybe the same can be used for prompts?
 
 
 Remote launching
@@ -86,6 +87,7 @@ Testing
 * Various tests are leaving behind temporary folders, filling up with disk space! Especially benchmarks which are big!
 * Using tar for remote filesytem nodes messes about with symlinks when extracting on a different platform (Windows vs Linux)c
 * Add test for multiple syncs with remote doer (to make sure it stays alive and can be used for multiple syncs) spec file
+* Tests for progress bar
 
 
 Misc

@@ -153,13 +153,19 @@ pub struct ProgressMarker {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ProgressPhase {
     Deleting {
+        /// The number of entries already deleted.
         num_entries_deleted: u32,
+        /// The ID of the (dest) entry that is being deleted next, so we can show the filename.
+        current_entry_id: Option<u32>,
     },
     Copying {
+        /// The number of entries already copied.
         num_entries_copied: u32,
         /// Especially useful for when large files are being copied, this indicates how many total bytes have been copied,
         /// which can increase even though num_entries_copied remains the same.
         num_bytes_copied: u64,
+        /// The ID of the (src) entry that is being copied next, so we can show the filename.
+        current_entry_id: Option<u32>,
     },
     Done
 }

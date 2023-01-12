@@ -544,15 +544,16 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), String> {
     // see test_remove_dest_folder_with_excluded_files())
 
     // Update progress to start the deleting phase
-    ctx.progress.update_completed(&ProgressMarker { completed_work: 0, phase: ProgressPhase::Deleting { num_entries_deleted: 0 }});
+    ctx.progress.set_entries(src_entries.iter().map(|e| e.0.clone()).collect(), dest_entries.iter().map(|e| e.0.clone()).collect()); //TODO: ideally we don't have to copy all these
+    ctx.progress.update_completed(&ProgressMarker { completed_work: 0, phase: ProgressPhase::Deleting { num_entries_deleted: 0, current_entry_id: None }});
 
     {
         profile_this!("Sending delete commands");
         ctx.stats.delete_start_time = Some(Instant::now());
-        for (dest_path, dest_details) in dest_entries.iter().rev() {
+        for (dest_entry_id, (dest_path, dest_details)) in dest_entries.iter().rev().enumerate() {
             let s = src_entries_lookup.get(dest_path);
             if !s.is_some() || should_delete(s.unwrap(), dest_details, dest_platform_differentiates_symlinks) {
-                delete_dest_entry(&mut ctx, dest_details, dest_path)?;
+                delete_dest_entry(&mut ctx, dest_details, dest_entry_id as u32, dest_path)?;
             } else {
                 // No need to delete this entry, so we can reduce the total progress
                 ctx.progress.dec_total_for_delete(&dest_details); 
@@ -564,8 +565,8 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), String> {
     {
         profile_this!("Sending copy commands");
         // Mark the exact start of copying, to make sure our timing stats are split accurately between copying and deleting
-        ctx.dest_comms.send_command(Command::Marker(ctx.progress.get_progress_marker()))?; 
-        for (path, src_details) in src_entries {
+        ctx.dest_comms.send_command(Command::Marker(ctx.progress.get_progress_marker(None)))?; 
+        for (src_entry_id, (path, src_details)) in src_entries.iter().enumerate() {
             let dest_details = dest_entries_lookup.get(&path);
             match dest_details {
                 Some(dest_details) if !should_delete (&src_details, dest_details, dest_platform_differentiates_symlinks) => {
@@ -576,7 +577,7 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), String> {
                                 EntryDetails::File { modified_time, .. } => modified_time,
                                 _ => panic!("Wrong entry type"), // This should never happen as we check the type in the .find() above
                             };
-                            handle_existing_file(&path, &src_details, size, &mut ctx, src_modified_time,
+                            handle_existing_file(&path, &src_details, src_entry_id as u32, *size, &mut ctx, *src_modified_time,
                                 *dest_modified_time)?;
                         },
                         EntryDetails::Folder |  // Folders are always up-to-date
@@ -593,10 +594,13 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), String> {
                 _ => match src_details {
                     EntryDetails::File { size, modified_time: src_modified_time } => {
                         debug!("{} doesn't exist on dest - copying", ctx.pretty_src(&path, &src_details));
-                        copy_file(&path, &src_details, size, src_modified_time, &mut ctx)?
+                        copy_file(&path, &src_details, src_entry_id as u32, *size, *src_modified_time, &mut ctx)?
                     }
                     EntryDetails::Folder => {
                         debug!("{} doesn't exist on dest - creating", ctx.pretty_src(&path, &src_details));
+                        if let Some(m) = ctx.progress.get_progress_marker_limited(Some(src_entry_id as u32)) {
+                            ctx.dest_comms.send_command(Command::Marker(m))?;                         
+                        }                    
                         ctx.stats.num_folders_created += 1;
                         if !ctx.dry_run {
                             ctx.dest_comms
@@ -607,12 +611,13 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), String> {
                             // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be copied
                             info!("Would create {}", ctx.pretty_dest_kind(&path, "folder"));
                         }
-                        if let Some(m) = ctx.progress.copy_sent(&src_details) {
-                            ctx.dest_comms.send_command(Command::Marker(m))?;                         
-                        }
+                        ctx.progress.copy_sent(&src_details);
                     },
                     EntryDetails::Symlink { ref kind, ref target } => {
                         debug!("{} doesn't exist on dest - copying", ctx.pretty_src(&path, &src_details));
+                        if let Some(m) = ctx.progress.get_progress_marker_limited(Some(src_entry_id as u32)) {
+                            ctx.dest_comms.send_command(Command::Marker(m))?;                         
+                        }                    
                         ctx.stats.num_symlinks_copied += 1;
                         if !ctx.dry_run {
                             ctx.dest_comms
@@ -625,9 +630,7 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), String> {
                             // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be copied
                             info!("Would create {}", ctx.pretty_dest_kind(&path, "symlink"));
                         }
-                        if let Some(m) = ctx.progress.copy_sent(&src_details) {
-                            ctx.dest_comms.send_command(Command::Marker(m))?;                         
-                        }
+                        ctx.progress.copy_sent(&src_details);
                     }
                 },
             }
@@ -729,7 +732,8 @@ pub fn should_delete(src: &EntryDetails, dest: &EntryDetails, dest_platform_diff
     }
 }
 
-fn delete_dest_entry(ctx: &mut SyncContext, dest_details: &EntryDetails, dest_path: &RootRelativePath) -> Result<(), String> {
+fn delete_dest_entry(ctx: &mut SyncContext, dest_details: &EntryDetails,
+    dest_entry_id: u32, dest_path: &RootRelativePath) -> Result<(), String> {
     let msg = format!(
         "{} needs deleting as it doesn't exist on the src (or is incompatible)",
         ctx.pretty_dest(dest_path, dest_details));
@@ -785,6 +789,10 @@ fn delete_dest_entry(ctx: &mut SyncContext, dest_details: &EntryDetails, dest_pa
                     }
                 }
             };
+            if let Some(m) = ctx.progress.get_progress_marker_limited(Some(dest_entry_id)) {
+                ctx.dest_comms.send_command(Command::Marker(m))?;                         
+            }
+
             let result = Ok(if !ctx.dry_run {
                 ctx.dest_comms.send_command(c)?;
 
@@ -794,9 +802,7 @@ fn delete_dest_entry(ctx: &mut SyncContext, dest_details: &EntryDetails, dest_pa
                 info!("Would delete {}", ctx.pretty_dest(dest_path, dest_details));
             });
             
-            if let Some(m) = ctx.progress.delete_sent(&dest_details) {
-                ctx.dest_comms.send_command(Command::Marker(m))?;                         
-            }
+            ctx.progress.delete_sent(&dest_details);
 
             result
         }
@@ -806,6 +812,7 @@ fn delete_dest_entry(ctx: &mut SyncContext, dest_details: &EntryDetails, dest_pa
 fn handle_existing_file(
     path: &RootRelativePath,
     src_entry: &EntryDetails,
+    src_entry_id: u32,
     size: u64,
     ctx: &mut SyncContext,
     src_modified_time: SystemTime, dest_modified_time: SystemTime,
@@ -891,7 +898,7 @@ fn handle_existing_file(
         }
     };
     if copy {                    
-        copy_file(&path, src_entry, size, src_modified_time, ctx)?
+        copy_file(&path, src_entry, src_entry_id, size, src_modified_time, ctx)?
     } else {
         // No need to copy this entry, so we can reduce the total progress
         ctx.progress.dec_total_for_copy(src_entry); 
@@ -902,10 +909,15 @@ fn handle_existing_file(
 fn copy_file(
     path: &RootRelativePath,
     src_entry: &EntryDetails,
+    src_entry_id: u32,
     size: u64,
     modified_time: SystemTime,
     ctx: &mut SyncContext) -> Result<(), String> 
 {
+    if let Some(m) = ctx.progress.get_progress_marker_limited(Some(src_entry_id)) {
+        ctx.dest_comms.send_command(Command::Marker(m))?;                         
+    }
+
     if !ctx.dry_run {
         trace!("Fetching from {}", ctx.pretty_src_kind(&path, "file"));
         ctx.src_comms
@@ -951,9 +963,7 @@ fn copy_file(
     ctx.stats.copied_file_size_hist.add(size);
 
     //TODO: this needs to be inside the chunking loop so we can update progress as the file is copied?
-    if let Some(m) = ctx.progress.copy_sent(src_entry) {
-        ctx.dest_comms.send_command(Command::Marker(m))?;                         
-    }
+    ctx.progress.copy_sent(src_entry);
 
     Ok(())
 }
