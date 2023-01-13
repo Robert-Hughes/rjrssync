@@ -447,88 +447,13 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), String> {
     {
         profile_this!("Sending delete commands");
         ctx.stats.delete_start_time = Some(Instant::now());
-        for (dest_entry_id, (dest_path, dest_details)) in dest_entries.iter().rev().enumerate() {
-            let s = src_entries_lookup.get(dest_path);
-            if !s.is_some() || should_delete(s.unwrap(), dest_details, dest_platform_differentiates_symlinks) {
-                delete_dest_entry(&mut ctx, dest_details, dest_entry_id as u32, dest_path)?;
-            } else {
-                // No need to delete this entry, so we can reduce the total progress
-                ctx.progress.dec_total_for_delete(&dest_details); 
-            }
-        }
+        send_delete_commands(&mut ctx, &src_entries_lookup, &dest_entries, dest_platform_differentiates_symlinks)?;
     }
 
     // Copy entries that don't exist, or do exist but are out-of-date.
     {
         profile_this!("Sending copy commands");
-        // Mark the exact start of copying, to make sure our timing stats are split accurately between copying and deleting
-        ctx.dest_comms.send_command(Command::Marker(ctx.progress.get_progress_marker(None)))?; 
-        for (src_entry_id, (path, src_details)) in src_entries.iter().enumerate() {
-            let dest_details = dest_entries_lookup.get(&path);
-            match dest_details {
-                Some(dest_details) if !should_delete (&src_details, dest_details, dest_platform_differentiates_symlinks) => {
-                    // Dest already has this entry - check if it is up-to-date
-                    match src_details {
-                        EntryDetails::File { size, modified_time: src_modified_time } => {
-                            let dest_modified_time = match dest_details {
-                                EntryDetails::File { modified_time, .. } => modified_time,
-                                _ => panic!("Wrong entry type"), // This should never happen as we check the type in the .find() above
-                            };
-                            handle_existing_file(&path, &src_details, src_entry_id as u32, *size, &mut ctx, *src_modified_time,
-                                *dest_modified_time)?;
-                        },
-                        EntryDetails::Folder |  // Folders are always up-to-date
-                        EntryDetails::Symlink { .. }  // Symlinks are always up-to-date, if should_delete indicated that we shouldn't delete it
-                        => {
-                            trace!("{} already exists at {} - nothing to do", 
-                                ctx.pretty_src(&path, &src_details),
-                                ctx.pretty_dest(&path, dest_details));
-                            // No need to copy this entry, so we can reduce the total progress
-                            ctx.progress.dec_total_for_copy(&src_details); 
-                        },
-                    }
-                },
-                _ => match src_details {
-                    EntryDetails::File { size, modified_time: src_modified_time } => {
-                        debug!("{} doesn't exist on dest - copying", ctx.pretty_src(&path, &src_details));
-                        copy_file(&path, src_entry_id as u32, *size, *src_modified_time, &mut ctx)?
-                    }
-                    EntryDetails::Folder => {
-                        debug!("{} doesn't exist on dest - creating", ctx.pretty_src(&path, &src_details));
-                        ctx.send_progress_marker_limited(src_entry_id as u32)?;
-                        ctx.stats.num_folders_created += 1;
-                        if !ctx.dry_run {
-                            ctx.dest_comms
-                                .send_command(Command::CreateFolder {
-                                    path: path.clone(),
-                                })?;
-                        } else {
-                            // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be copied
-                            info!("Would create {}", ctx.pretty_dest_kind(&path, "folder"));
-                        }
-                        ctx.progress.copy_sent(&src_details);
-                    },
-                    EntryDetails::Symlink { ref kind, ref target } => {
-                        debug!("{} doesn't exist on dest - copying", ctx.pretty_src(&path, &src_details));
-                        ctx.send_progress_marker_limited(src_entry_id as u32)?;
-                        ctx.stats.num_symlinks_copied += 1;
-                        if !ctx.dry_run {
-                            ctx.dest_comms
-                                .send_command(Command::CreateSymlink {
-                                    path: path.clone(),
-                                    kind: *kind,
-                                    target: target.clone(),
-                                })?;
-                        } else {
-                            // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be copied
-                            info!("Would create {}", ctx.pretty_dest_kind(&path, "symlink"));
-                        }
-                        ctx.progress.copy_sent(&src_details);
-                    }
-                },
-            }
-            process_dest_responses(ctx.dest_comms, &mut ctx.progress, false)?;
-        }
+        send_copy_commands(&mut ctx, &src_entries, &dest_entries_lookup, dest_platform_differentiates_symlinks)?;
     }
 
     // Wait for the dest doer to finish processing all its Commands so that everything is finished.
@@ -568,6 +493,19 @@ fn show_post_query_stats(ctx: &SyncContext, query_elapsed_secs: f32) {
         info!("{}", ctx.stats.src_file_size_hist);
         info!("Queried in {:.2} seconds", query_elapsed_secs);
     }
+}
+
+fn send_delete_commands(ctx: &mut SyncContext, src_entries_lookup: &HashMap::<RootRelativePath, EntryDetails>, 
+    dest_entries: &Vec<(RootRelativePath, EntryDetails)>, dest_platform_differentiates_symlinks: bool) -> Result<(), String> {
+    Ok(for (dest_entry_id, (dest_path, dest_details)) in dest_entries.iter().rev().enumerate() {
+        let s = src_entries_lookup.get(dest_path);
+        if !s.is_some() || should_delete(s.unwrap(), dest_details, dest_platform_differentiates_symlinks) {
+            delete_dest_entry(ctx, dest_details, dest_entry_id as u32, dest_path)?;
+        } else {
+            // No need to delete this entry, so we can reduce the total progress
+            ctx.progress.dec_total_for_delete(&dest_details); 
+        }
+    })
 }
 
 /// Checks if a given src entry could be updated to match the dest, or if it needs
@@ -670,6 +608,80 @@ fn delete_dest_entry(ctx: &mut SyncContext, dest_details: &EntryDetails,
             result
         }
     }
+}
+
+fn send_copy_commands(ctx: &mut SyncContext, src_entries: &Vec<(RootRelativePath, EntryDetails)>,
+    dest_entries_lookup: &HashMap::<RootRelativePath, EntryDetails>, dest_platform_differentiates_symlinks: bool
+) -> Result<(), String> { 
+    // Mark the exact start of copying, to make sure our timing stats are split accurately between copying and deleting
+    ctx.dest_comms.send_command(Command::Marker(ctx.progress.get_progress_marker(None)))?; 
+    for (src_entry_id, (path, src_details)) in src_entries.iter().enumerate() {
+        let dest_details = dest_entries_lookup.get(&path);
+        match dest_details {
+            Some(dest_details) if !should_delete (&src_details, dest_details, dest_platform_differentiates_symlinks) => {
+                // Dest already has this entry - check if it is up-to-date
+                match src_details {
+                    EntryDetails::File { size, modified_time: src_modified_time } => {
+                        let dest_modified_time = match dest_details {
+                            EntryDetails::File { modified_time, .. } => modified_time,
+                            _ => panic!("Wrong entry type"), // This should never happen as we check the type in the .find() above
+                        };
+                        handle_existing_file(&path, &src_details, src_entry_id as u32, *size, ctx, *src_modified_time,
+                            *dest_modified_time)?;
+                    },
+                    EntryDetails::Folder |  // Folders are always up-to-date
+                    EntryDetails::Symlink { .. }  // Symlinks are always up-to-date, if should_delete indicated that we shouldn't delete it
+                    => {
+                        trace!("{} already exists at {} - nothing to do", 
+                            ctx.pretty_src(&path, &src_details),
+                            ctx.pretty_dest(&path, dest_details));
+                        // No need to copy this entry, so we can reduce the total progress
+                        ctx.progress.dec_total_for_copy(&src_details); 
+                    },
+                }
+            },
+            _ => match src_details {
+                EntryDetails::File { size, modified_time: src_modified_time } => {
+                    debug!("{} doesn't exist on dest - copying", ctx.pretty_src(&path, &src_details));
+                    copy_file(&path, src_entry_id as u32, *size, *src_modified_time, ctx)?
+                }
+                EntryDetails::Folder => {
+                    debug!("{} doesn't exist on dest - creating", ctx.pretty_src(&path, &src_details));
+                    ctx.send_progress_marker_limited(src_entry_id as u32)?;
+                    ctx.stats.num_folders_created += 1;
+                    if !ctx.dry_run {
+                        ctx.dest_comms
+                            .send_command(Command::CreateFolder {
+                                path: path.clone(),
+                            })?;
+                    } else {
+                        // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be copied
+                        info!("Would create {}", ctx.pretty_dest_kind(&path, "folder"));
+                    }
+                    ctx.progress.copy_sent(&src_details);
+                },
+                EntryDetails::Symlink { ref kind, ref target } => {
+                    debug!("{} doesn't exist on dest - copying", ctx.pretty_src(&path, &src_details));
+                    ctx.send_progress_marker_limited(src_entry_id as u32)?;
+                    ctx.stats.num_symlinks_copied += 1;
+                    if !ctx.dry_run {
+                        ctx.dest_comms
+                            .send_command(Command::CreateSymlink {
+                                path: path.clone(),
+                                kind: *kind,
+                                target: target.clone(),
+                            })?;
+                    } else {
+                        // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be copied
+                        info!("Would create {}", ctx.pretty_dest_kind(&path, "symlink"));
+                    }
+                    ctx.progress.copy_sent(&src_details);
+                }
+            },
+        }
+        process_dest_responses(ctx.dest_comms, &mut ctx.progress, false)?;
+    }
+    Ok(())
 }
 
 fn handle_existing_file(
