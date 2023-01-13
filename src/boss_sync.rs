@@ -1,6 +1,6 @@
 use std::{
     cmp::Ordering,
-    fmt::{Display, Write}, time::{Instant, SystemTime}, collections::HashMap,
+    fmt::{Display}, time::{Instant, SystemTime}, collections::HashMap,
 };
 
 use console::{Style};
@@ -8,58 +8,7 @@ use indicatif::{HumanCount, HumanBytes};
 use log::{debug, info, trace};
 use regex::{RegexSet};
 
-use crate::{*, boss_progress::{Progress}};
-
-#[derive(Default)]
-struct FileSizeHistogram {
-    buckets: Vec<u32>,
-}
-impl FileSizeHistogram {
-    fn add(&mut self, val: u64) {
-        let bucket = (val as f64).log10() as usize;
-        while self.buckets.len() <= bucket {
-            self.buckets.push(0);
-        }
-        self.buckets[bucket] += 1;
-    }
-}
-impl Display for FileSizeHistogram {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f)?;
-
-        if self.buckets.is_empty() {
-            writeln!(f, "Empty")?;
-            return Ok(());
-        }
-
-        let h = 5;
-        let max = *self.buckets.iter().max().unwrap();
-        for y in 0..h {
-            let mut l = "".to_string();
-            for x in 0..self.buckets.len() {
-                if self.buckets[x] as f32 / max as f32 > (h - y - 1) as f32 / h as f32 {
-                    l += "#";
-                } else {
-                    l += " ";
-                }
-            }
-            writeln!(f, "{}", l)?;
-        }
-
-        let mut l = "".to_string();
-        for x in 0..self.buckets.len() {
-            match x {
-                3 => l += "K",
-                6 => l += "M",
-                9 => l += "G",
-                _ => write!(&mut l, "{x}").unwrap(),
-            }
-        }
-        writeln!(f, "{}", l)?;
-
-        std::fmt::Result::Ok(())
-    }
-}
+use crate::{*, boss_progress::{Progress}, histogram::FileSizeHistogram};
 
 #[derive(Default)]
 struct Stats {
@@ -96,6 +45,8 @@ enum Side {
     Source,
     Dest
 }
+
+//TODO: move this into new file along with rest of RootRelativePath stuff
 
 /// For user-friendly display of a RootRelativePath on the source or dest.
 /// Formats a path which is relative to the root, so that it is easier to understand for the user.

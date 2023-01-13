@@ -4,6 +4,7 @@ use const_format::concatcp;
 mod boss_frontend;
 mod boss_launch;
 mod boss_sync;
+mod histogram;
 mod boss_progress;
 mod doer;
 mod encrypted_comms;

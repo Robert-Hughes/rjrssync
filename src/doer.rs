@@ -170,6 +170,8 @@ pub enum ProgressPhase {
     Done
 }
 
+//TODO: move command/response and other boss <> doer interface stuff to separate file?
+
 /// Commands are sent from the boss to the doer, to request something to be done.
 #[derive(Serialize, Deserialize)]
 pub enum Command {
