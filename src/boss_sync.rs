@@ -6,7 +6,7 @@ use indicatif::{HumanCount, HumanBytes};
 use log::{debug, info, trace};
 use regex::{RegexSet};
 
-use crate::{*, boss_progress::{Progress}, histogram::FileSizeHistogram, root_relative_path::{RootRelativePath, PrettyPath, Side}};
+use crate::{*, boss_progress::{Progress}, histogram::FileSizeHistogram, root_relative_path::{RootRelativePath, PrettyPath, Side}, boss_doer_interface::{ProgressPhase, EntryDetails, Response, Command, Filters, FilterKind, ProgressMarker}};
 
 #[derive(Default)]
 struct Stats {

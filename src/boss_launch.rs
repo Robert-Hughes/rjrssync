@@ -21,6 +21,7 @@ use std::{
 use tempdir::TempDir;
 
 use crate::*;
+use crate::boss_doer_interface::{Response, Command};
 use crate::encrypted_comms::AsyncEncryptedComms;
 
 /// Abstraction of two-way communication channel between this boss and a doer, which might be

@@ -3,7 +3,7 @@ use std::{ops::{AddAssign, SubAssign}, time::{Instant, Duration}, thread, sync::
 use crossbeam::atomic::AtomicCell;
 use indicatif::{ProgressBar, HumanCount, HumanBytes, ProgressStyle, WeakProgressBar, ProgressDrawTarget};
 
-use crate::{doer::{EntryDetails, ProgressPhase, ProgressMarker}, root_relative_path::RootRelativePath};
+use crate::{boss_doer_interface::{EntryDetails, ProgressPhase, ProgressMarker}, root_relative_path::RootRelativePath};
 
 /// FPS of progress bar update.
 const BAR_UPDATE_RATE : f32 = 20.0;
