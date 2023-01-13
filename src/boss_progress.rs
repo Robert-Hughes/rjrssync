@@ -5,7 +5,14 @@ use indicatif::{ProgressBar, HumanCount, HumanBytes, ProgressStyle, WeakProgress
 
 use crate::{doer::{EntryDetails, ProgressPhase, ProgressMarker, RootRelativePath}};
 
+/// FPS of progress bar update.
+const BAR_UPDATE_RATE : f32 = 20.0;
+/// The file size below which we assume that overhead is dominant, so the work is constant.
 const MIN_FILE_SIZE : u64 = 1024*1024;
+/// The minimum amount of work between progress markers.
+const MARKER_THRESHOLD: u64 = 1024*1024;
+/// The amount of work for deletes.
+const DELETE_WORK: u64 = 1024*1024;
 
 /// Set of related measurements for progress.
 #[derive(Default, PartialEq, Eq, Debug, Clone)]
@@ -33,7 +40,7 @@ impl ProgressValues {
                 }
             },
             EntryDetails::Folder | EntryDetails::Symlink{..} => ProgressValues { 
-                work: 1024*1024,
+                work: MIN_FILE_SIZE, // Assume that folders/symlinks are equivalent to a small file
                 copy: 1,
                 ..Default::default()
             }
@@ -75,7 +82,7 @@ impl ProgressValues {
     /// Creates a set of ProgressValues to represent the deletion of a single entry.
     fn for_delete(_e: &EntryDetails) -> Self {
         ProgressValues { 
-            work: 512*1024,
+            work: DELETE_WORK,
             delete: 1,
             ..Default::default()
         }
@@ -245,7 +252,7 @@ impl Progress {
     /// from the progress markers.
     pub fn get_progress_marker_limited(&mut self, current_entry_id: Option<u32>) -> Option<ProgressMarker> {
         // Don't send progress markers too often, to avoid overhead
-        if self.sent.work - self.last_progress_marker < 1024*1024 {
+        if self.sent.work - self.last_progress_marker < MARKER_THRESHOLD {
             return None
         }
         Some(self.get_progress_marker(current_entry_id))
@@ -396,7 +403,7 @@ impl Progress {
     /// limits calls to any APIs on the ProgressBar.
     fn background_updater(bar: WeakProgressBar, new_bar_state: Arc<AtomicCell<Option<Box<BarState>>>>) {
         loop {
-            thread::sleep(Duration::from_millis(50));
+            thread::sleep(Duration::from_secs_f32(1.0 / BAR_UPDATE_RATE));
 
             // If the main thread has dropped the ProgressBar, or marked it as finished, stop this background thread.
             // Without this, we would keep trying to update it forever.
@@ -442,4 +449,41 @@ impl Progress {
     }
 }
 
-//TODO: unit tests for this file?
+#[cfg(test)]
+mod tests {
+    use std::time::SystemTime;
+
+    use super::*;
+
+    #[test]
+    fn progress_values() {
+        // Small files of different sizes still have the same work
+        assert_eq!(
+            ProgressValues::for_copy(&EntryDetails::File { modified_time: SystemTime::UNIX_EPOCH, size: 1 }).work,
+            ProgressValues::for_copy(&EntryDetails::File { modified_time: SystemTime::UNIX_EPOCH, size: 100 }).work
+        );
+
+        // But big files scale linearly
+        assert_eq!(
+            ProgressValues::for_copy(&EntryDetails::File { modified_time: SystemTime::UNIX_EPOCH, size: 10_000_000_000 }).work,
+            ProgressValues::for_copy(&EntryDetails::File { modified_time: SystemTime::UNIX_EPOCH, size: 1_000_000_000 }).work * 10
+        );
+        
+        // Several partial copies add up to the same total as the whole file - small file
+        let mut p = ProgressValues::for_copy_partial(0, 100, 1000);
+        p += ProgressValues::for_copy_partial(100, 100, 1000);
+        p += ProgressValues::for_copy_partial(200, 800, 1000);
+        assert_eq!(p,
+            ProgressValues::for_copy(&EntryDetails::File { modified_time: SystemTime::UNIX_EPOCH, size: 1000 })
+        );        
+
+        // Several partial copies add up to the same total as the whole file - large file
+        let mut p = ProgressValues::for_copy_partial(0, 100, 1_000_000_000);
+        p += ProgressValues::for_copy_partial(100, 100, 1_000_000_000);
+        p += ProgressValues::for_copy_partial(200, 800, 1_000_000_000);
+        p += ProgressValues::for_copy_partial(1000, 999_999_000, 1_000_000_000);
+        assert_eq!(p,
+            ProgressValues::for_copy(&EntryDetails::File { modified_time: SystemTime::UNIX_EPOCH, size: 1_000_000_000 })
+        );        
+    }
+}
