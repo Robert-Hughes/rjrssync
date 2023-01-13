@@ -259,6 +259,14 @@ impl<'a> SyncContext<'a> {
     fn pretty_dest_kind<'b>(&'b self, path: &'b RootRelativePath, kind: &'static str) -> PrettyPath {
         PrettyPath { side: Side::Dest, dir_separator: self.dest_dir_separator.unwrap_or('/'), root: &self.dest_root, path, kind }
     }
+
+    fn send_progress_marker_limited(&mut self, current_entry_id: u32) -> Result<(), String> {
+        if let Some(m) = self.progress.get_progress_marker_limited(Some(current_entry_id)) {
+            self.dest_comms.send_command(Command::Marker(m))                      
+        } else {
+            Ok(())
+        }
+    }
 }
 
 pub fn sync(
@@ -598,9 +606,7 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), String> {
                     }
                     EntryDetails::Folder => {
                         debug!("{} doesn't exist on dest - creating", ctx.pretty_src(&path, &src_details));
-                        if let Some(m) = ctx.progress.get_progress_marker_limited(Some(src_entry_id as u32)) {
-                            ctx.dest_comms.send_command(Command::Marker(m))?;                         
-                        }                    
+                        ctx.send_progress_marker_limited(src_entry_id as u32)?;
                         ctx.stats.num_folders_created += 1;
                         if !ctx.dry_run {
                             ctx.dest_comms
@@ -615,9 +621,7 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), String> {
                     },
                     EntryDetails::Symlink { ref kind, ref target } => {
                         debug!("{} doesn't exist on dest - copying", ctx.pretty_src(&path, &src_details));
-                        if let Some(m) = ctx.progress.get_progress_marker_limited(Some(src_entry_id as u32)) {
-                            ctx.dest_comms.send_command(Command::Marker(m))?;                         
-                        }                    
+                        ctx.send_progress_marker_limited(src_entry_id as u32)?;
                         ctx.stats.num_symlinks_copied += 1;
                         if !ctx.dry_run {
                             ctx.dest_comms
@@ -789,9 +793,7 @@ fn delete_dest_entry(ctx: &mut SyncContext, dest_details: &EntryDetails,
                     }
                 }
             };
-            if let Some(m) = ctx.progress.get_progress_marker_limited(Some(dest_entry_id)) {
-                ctx.dest_comms.send_command(Command::Marker(m))?;                         
-            }
+            ctx.send_progress_marker_limited(dest_entry_id)?;
 
             let result = Ok(if !ctx.dry_run {
                 ctx.dest_comms.send_command(c)?;
@@ -913,9 +915,7 @@ fn copy_file(
     modified_time: SystemTime,
     ctx: &mut SyncContext) -> Result<(), String> 
 {
-    if let Some(m) = ctx.progress.get_progress_marker_limited(Some(src_entry_id)) {
-        ctx.dest_comms.send_command(Command::Marker(m))?;                         
-    }
+    ctx.send_progress_marker_limited(src_entry_id)?;
 
     if !ctx.dry_run {
         trace!("Fetching from {}", ctx.pretty_src_kind(&path, "file"));
@@ -927,10 +927,8 @@ fn copy_file(
         let mut chunk_offset: u64 = 0;
         loop {
             // Add progress markers during copies of large files, so we can see the progress (in bytes)
-            if let Some(m) = ctx.progress.get_progress_marker_limited(Some(src_entry_id)) {
-                ctx.dest_comms.send_command(Command::Marker(m))?;                         
-            }
-        
+            ctx.send_progress_marker_limited(src_entry_id)?;
+
             let (data, more_to_follow) = match ctx.src_comms.receive_response()? {
                 Response::FileContent { data, more_to_follow } => (data, more_to_follow),
                 x => return Err(format!(
@@ -960,6 +958,7 @@ fn copy_file(
             }
         }
     } else {
+        ctx.progress.copy_sent_partial(0, size, size);
         // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be copied
         info!("Would copy {} => {}",
             ctx.pretty_src_kind(&path, "file"),
