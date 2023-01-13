@@ -3,7 +3,7 @@ use clap::Parser;
 use env_logger::Env;
 use indicatif::HumanBytes;
 use log::{debug, error, trace, info};
-use regex::{RegexSet, SetMatches};
+use regex::{RegexSet};
 use serde::{Deserialize, Serialize, Serializer, Deserializer, de::Error};
 use std::io::{ErrorKind, Read};
 use std::path;
@@ -18,6 +18,7 @@ use crate::*;
 use crate::encrypted_comms::AsyncEncryptedComms;
 use crate::memory_bound_channel::{Sender, Receiver};
 use crate::parallel_walk_dir::parallel_walk_dir;
+use crate::root_relative_path::RootRelativePath;
 
 #[derive(clap::Parser)]
 struct DoerCliArgs {
@@ -34,78 +35,6 @@ struct DoerCliArgs {
     log_filter: String,
     #[arg(long)]
     dump_memory_usage: bool,
-}
-
-fn normalize_path(p: &Path) -> Result<RootRelativePath, String> {
-    if p.is_absolute() {
-        return Err("Must be relative".to_string());
-    }
-
-    let mut result = String::new();
-    for c in p.iter() {
-        let cs = match c.to_str() {
-            Some(x) => x,
-            None => return Err("Can't convert path component".to_string()),
-        };
-        if cs.contains('/') || cs.contains('\\') {
-            // Slashes in any component would mess things up, once we change which slash is significant
-            return Err("Illegal characters in path".to_string());
-        }
-        if !result.is_empty() {
-            result += "/";
-        }
-        result += cs;
-    }
-
-    Ok(RootRelativePath { inner: result })
-}
-
-/// Converts a platform-specific relative path (inside the source or dest root)
-/// to something that can be sent over our comms. We can't simply use PathBuf
-/// because the syntax of this path might differ between the boss and doer
-/// platforms (e.g. Windows vs Linux), and so the type might have different
-/// meaning/behaviour on each side.
-/// We instead convert to a normalized representation using forward slashes (i.e. Unix-style).
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
-pub struct RootRelativePath {
-    inner: String,
-}
-impl RootRelativePath {
-    pub fn root() -> RootRelativePath {
-        RootRelativePath { inner: "".to_string() }
-    }
-
-    /// Does this path refer to the root itself?
-    pub fn is_root(&self) -> bool {
-        self.inner.is_empty()
-    }
-
-    /// Gets the full path consisting of the root and this root-relative path.
-    pub fn get_full_path(&self, root: &Path) -> PathBuf {
-        if self.is_root() { root.to_path_buf() } else { root.join(&self.inner) }
-    }
-
-    /// Rather than exposing the inner string, expose just regex matching.
-    /// This reduces the risk of incorrect usage of the raw string value (e.g. by using
-    /// local-platform Path functions).
-    pub fn regex_set_matches(&self, r: &RegexSet) -> SetMatches {
-        r.matches(&self.inner)
-    }
-
-    /// Puts the slashes back to what is requested, so that the path is appropriate for
-    /// another platform.
-    pub fn to_platform_path(&self, dir_separator: char) -> String {
-        self.inner.replace('/', &dir_separator.to_string())
-    }
-}
-impl Display for RootRelativePath {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.is_root() {
-            write!(f, "<ROOT>")
-        } else {
-            write!(f, "{}", self.inner)
-        }
-    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -319,8 +248,8 @@ fn entry_details_from_metadata(m: std::fs::Metadata, path: &Path) -> Result<Entr
         // Attempt to normalize the target, if possible, so that we can convert the slashes on
         // the destination platform (which might be different).
         // We use RootRelativePath for this even though it might not be root-relative, but this does the right thing
-        let target = match normalize_path(&target) {
-            Ok(r) => SymlinkTarget::Normalized(r.inner),
+        let target = match RootRelativePath::try_from(&target as &Path) {
+            Ok(r) => SymlinkTarget::Normalized(r.to_string()),
             Err(_) => SymlinkTarget::NotNormalized(target.to_string_lossy().to_string()),
         };
 
@@ -892,7 +821,7 @@ fn filter_func(entry: &std::fs::DirEntry, root: &Path, filters: &Filters) -> Res
     // The strip_prefix should always be successful, because the entry has to be inside the root.
     let path = entry.path().strip_prefix(root).expect("Strip prefix failed").to_path_buf();
     // Convert to platform-agnostic representation
-    let path = match normalize_path(&path) {
+    let path = match RootRelativePath::try_from(&path as &Path) {
         Ok(p) => p,
         Err(e) => return Err(format!("normalize_path failed on '{}': {e}", path.display())),
     };
@@ -1044,41 +973,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_normalize_path_is_root() {
-        let x = normalize_path(Path::new(""));
-        assert_eq!(x, Ok(RootRelativePath::root()));
-        assert_eq!(x.unwrap().is_root(), true);
-    }
-
-    #[test]
-    fn test_normalize_path_absolute() {
-        let x = if cfg!(windows) {
-            "C:\\Windows"
-        } else {
-            "/etc/hello"
-        };
-        assert_eq!(normalize_path(Path::new(x)), Err("Must be relative".to_string()));
-    }
-
-    #[cfg(unix)] // This test isn't possible on Windows, because both kinds of slashes are valid separators
-    #[test]
-    fn test_normalize_path_slashes_in_component() {
-        assert_eq!(normalize_path(Path::new("a path with\\backslashes/adsa")), Err("Illegal characters in path".to_string()));
-    }
-
-    #[test]
-    fn test_normalize_path_multiple_components() {
-        assert_eq!(normalize_path(Path::new("one/two/three")), Ok(RootRelativePath { inner: "one/two/three".to_string() }));
-    }
-
-    #[test]
     fn test_apply_filters_root() {
         // Filters specify to exclude everything
         let filters = Filters { 
             regex_set: RegexSet::new(&["^.*$"]).unwrap(),
             kinds: vec![FilterKind::Exclude]
         };
-        assert_eq!(apply_filters(&RootRelativePath { inner: "will be excluded".to_string() }, &filters), FilterResult::Exclude);
+        assert_eq!(apply_filters(&RootRelativePath::try_from(Path::new("will be excluded")).unwrap(), &filters), FilterResult::Exclude);
         // But the root is always included anyway
         assert_eq!(apply_filters(&RootRelativePath::root(), &filters), FilterResult::Include);
     }
@@ -1089,8 +990,8 @@ mod tests {
             regex_set: RegexSet::empty(),
             kinds: vec![]
         };
-        assert_eq!(apply_filters(&RootRelativePath { inner: "yes".to_string() }, &filters), FilterResult::Include);
-        assert_eq!(apply_filters(&RootRelativePath { inner: "no".to_string() }, &filters), FilterResult::Include);
+        assert_eq!(apply_filters(&RootRelativePath::try_from(Path::new("yes")).unwrap(), &filters), FilterResult::Include);
+        assert_eq!(apply_filters(&RootRelativePath::try_from(Path::new("no")).unwrap(), &filters), FilterResult::Include);
     }
 
     #[test]
@@ -1099,8 +1000,8 @@ mod tests {
             regex_set: RegexSet::new(&["^yes$"]).unwrap(),
             kinds: vec![FilterKind::Include]
         };
-        assert_eq!(apply_filters(&RootRelativePath { inner: "yes".to_string() }, &filters), FilterResult::Include);
-        assert_eq!(apply_filters(&RootRelativePath { inner: "no".to_string() }, &filters), FilterResult::Exclude);
+        assert_eq!(apply_filters(&RootRelativePath::try_from(Path::new("yes")).unwrap(), &filters), FilterResult::Include);
+        assert_eq!(apply_filters(&RootRelativePath::try_from(Path::new("no")).unwrap(), &filters), FilterResult::Exclude);
     }
 
     #[test]
@@ -1109,8 +1010,8 @@ mod tests {
             regex_set: RegexSet::new(&["^no$"]).unwrap(),
             kinds: vec![FilterKind::Exclude]
         };
-        assert_eq!(apply_filters(&RootRelativePath { inner: "yes".to_string() }, &filters), FilterResult::Include);
-        assert_eq!(apply_filters(&RootRelativePath { inner: "no".to_string() }, &filters), FilterResult::Exclude);
+        assert_eq!(apply_filters(&RootRelativePath::try_from(Path::new("yes")).unwrap(), &filters), FilterResult::Include);
+        assert_eq!(apply_filters(&RootRelativePath::try_from(Path::new("no")).unwrap(), &filters), FilterResult::Exclude);
     }
 
     #[test]
@@ -1131,12 +1032,12 @@ mod tests {
                 FilterKind::Exclude,
             ]
         };
-        assert_eq!(apply_filters(&RootRelativePath { inner: "README".to_string() }, &filters), FilterResult::Include);
-        assert_eq!(apply_filters(&RootRelativePath { inner: "build/file.o".to_string() }, &filters), FilterResult::Exclude);
-        assert_eq!(apply_filters(&RootRelativePath { inner: "git/hash".to_string() }, &filters), FilterResult::Exclude);
-        assert_eq!(apply_filters(&RootRelativePath { inner: "build/rob".to_string() }, &filters), FilterResult::Exclude);
-        assert_eq!(apply_filters(&RootRelativePath { inner: "build/output.exe".to_string() }, &filters), FilterResult::Include);
-        assert_eq!(apply_filters(&RootRelativePath { inner: "src/build/file.o".to_string() }, &filters), FilterResult::Exclude);
-        assert_eq!(apply_filters(&RootRelativePath { inner: "src/source.cpp".to_string() }, &filters), FilterResult::Include);
+        assert_eq!(apply_filters(&RootRelativePath::try_from(Path::new("README")).unwrap(), &filters), FilterResult::Include);
+        assert_eq!(apply_filters(&RootRelativePath::try_from(Path::new("build/file.o")).unwrap(), &filters), FilterResult::Exclude);
+        assert_eq!(apply_filters(&RootRelativePath::try_from(Path::new("git/hash")).unwrap(), &filters), FilterResult::Exclude);
+        assert_eq!(apply_filters(&RootRelativePath::try_from(Path::new("build/rob")).unwrap(), &filters), FilterResult::Exclude);
+        assert_eq!(apply_filters(&RootRelativePath::try_from(Path::new("build/output.exe")).unwrap(), &filters), FilterResult::Include);
+        assert_eq!(apply_filters(&RootRelativePath::try_from(Path::new("src/build/file.o")).unwrap(), &filters), FilterResult::Exclude);
+        assert_eq!(apply_filters(&RootRelativePath::try_from(Path::new("src/source.cpp")).unwrap(), &filters), FilterResult::Include);
     }
 }

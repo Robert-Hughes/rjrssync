@@ -7,6 +7,7 @@ mod boss_sync;
 mod histogram;
 mod boss_progress;
 mod doer;
+mod root_relative_path;
 mod encrypted_comms;
 mod memory_bound_channel;
 mod profiling;

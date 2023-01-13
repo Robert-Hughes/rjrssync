@@ -8,7 +8,7 @@ use indicatif::{HumanCount, HumanBytes};
 use log::{debug, info, trace};
 use regex::{RegexSet};
 
-use crate::{*, boss_progress::{Progress}, histogram::FileSizeHistogram};
+use crate::{*, boss_progress::{Progress}, histogram::FileSizeHistogram, root_relative_path::RootRelativePath};
 
 #[derive(Default)]
 struct Stats {
