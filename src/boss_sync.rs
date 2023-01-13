@@ -1,14 +1,12 @@
 use std::{
-    cmp::Ordering,
-    fmt::{Display}, time::{Instant, SystemTime}, collections::HashMap,
+    cmp::Ordering, time::{Instant, SystemTime}, collections::HashMap,
 };
 
-use console::{Style};
 use indicatif::{HumanCount, HumanBytes};
 use log::{debug, info, trace};
 use regex::{RegexSet};
 
-use crate::{*, boss_progress::{Progress}, histogram::FileSizeHistogram, root_relative_path::RootRelativePath};
+use crate::{*, boss_progress::{Progress}, histogram::FileSizeHistogram, root_relative_path::{RootRelativePath, PrettyPath, Side}};
 
 #[derive(Default)]
 struct Stats {
@@ -39,53 +37,6 @@ struct Stats {
     pub num_symlinks_copied: u32,
     pub copied_file_size_hist: FileSizeHistogram,
     pub copy_end_time: Option<Instant>,
-}
-
-enum Side {
-    Source,
-    Dest
-}
-
-//TODO: move this into new file along with rest of RootRelativePath stuff
-
-/// For user-friendly display of a RootRelativePath on the source or dest.
-/// Formats a path which is relative to the root, so that it is easier to understand for the user.
-/// Especially if path is empty (i.e. referring to the root itself)
-struct PrettyPath<'a> {
-    side: Side,
-    dir_separator: char,
-    root: &'a str,
-    path: &'a RootRelativePath,
-    kind: &'static str, // e.g. 'folder', 'file'
-}
-impl<'a> Display for PrettyPath<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let side = match self.side {
-            Side::Source { .. } => "source",
-            Side::Dest { .. } => "dest",
-        };
-        let root = self.root;
-        let path = self.path;
-        let kind = self.kind;
-
-        // Use styling to highlight which part of the path is the root, and which is the root-relative path.
-        // We don't play with any characters in the path (e.g. adding brackets) so that the user can copy-paste the 
-        // full paths if they want
-        // The styling plays nicely with piping output to a file, as they are simply ignored (part of the `console` crate)
-        let root_style = Style::new().italic();
-        if self.path.is_root() {
-            write!(f, "{side} root {kind} '{}'", root_style.apply_to(root))
-        } else {
-            let root_with_trailing_slash = if root.ends_with(self.dir_separator) {
-                root.to_string()
-            } else {
-                root.to_string() + &self.dir_separator.to_string()
-            };
-            // Convert the path from normalized (forward slashes) to the native representation for that platform
-            let path_with_appropriate_slashes = path.to_platform_path(self.dir_separator);
-            write!(f, "{side} {kind} '{}{path_with_appropriate_slashes}'", root_style.apply_to(root_with_trailing_slash))
-        }
-    }
 }
 
 /// Validates if a trailing slash was provided incorrectly on the given entry.
