@@ -179,30 +179,9 @@ pub fn sync(
     dest_comms: &mut Comms,
 ) -> Result<(), String> {
     // Parse and compile the filter strings
-    let filters = {
-        let mut patterns = vec![];
-        let mut kinds = vec![];
-        for f in &sync_spec.filters {
-            // Check if starts with a + (include) or a - (exclude)
-            match f.chars().nth(0) {
-                Some('+') => kinds.push(FilterKind::Include),
-                Some('-') => kinds.push(FilterKind::Exclude),
-                _ => return Err(format!("Invalid filter '{}': Must start with a '+' or '-'", f)),
-            }
-            let pattern = f.split_at(1).1.to_string();
-            // Wrap in ^...$ to make it match the whole string, otherwise it's too easy
-            // to make a mistake with filters that unintentionally match something else
-            let pattern = format!("^{pattern}$");
-            patterns.push(pattern);
-        }
-        let regex_set = match RegexSet::new(patterns) {
-            Ok(r) => r,
-            Err(e) => {
-                // Note that the error reported by RegexSet includes the pattern being compiled, so we don't need to duplicate this
-                return Err(format!("Invalid filter: {e}"));
-            }
-        };
-        Filters { regex_set, kinds }
+    let filters = match compile_filters(sync_spec) {
+        Ok(f) => f,
+        Err(e) => return Err(e),
     };
 
     // Make context object, to avoid having to pass around a bunch of individual variables everywhere
@@ -226,6 +205,32 @@ pub fn sync(
     // Call into separate function, to avoid the original function parameters being mis-used instead
     // of the context fields
     sync_impl(context)
+}
+
+fn compile_filters(sync_spec: &SyncSpec) -> Result<Filters, String> {
+    let mut patterns = vec![];
+    let mut kinds = vec![];
+    for f in &sync_spec.filters {
+        // Check if starts with a + (include) or a - (exclude)
+        match f.chars().nth(0) {
+            Some('+') => kinds.push(FilterKind::Include),
+            Some('-') => kinds.push(FilterKind::Exclude),
+            _ => return Err(format!("Invalid filter '{}': Must start with a '+' or '-'", f)),
+        }
+        let pattern = f.split_at(1).1.to_string();
+        // Wrap in ^...$ to make it match the whole string, otherwise it's too easy
+        // to make a mistake with filters that unintentionally match something else
+        let pattern = format!("^{pattern}$");
+        patterns.push(pattern);
+    }
+    let regex_set = match RegexSet::new(patterns) {
+        Ok(r) => r,
+        Err(e) => {
+            // Note that the error reported by RegexSet includes the pattern being compiled, so we don't need to duplicate this
+            return Err(format!("Invalid filter: {e}"));
+        }
+    };
+    Ok(Filters { regex_set, kinds })
 }
 
 fn sync_impl(mut ctx: SyncContext) -> Result<(), String> {
@@ -425,27 +430,9 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), String> {
 
     stop_timer(timer);
 
-    let query_elapsed = sync_start.elapsed().as_secs_f32();
-
-    if ctx.show_stats {
-        info!("Source: {} file(s) totalling {}, {} folder(s) and {} symlink(s)",
-            HumanCount(ctx.stats.num_src_files as u64),
-            HumanBytes(ctx.stats.src_total_bytes),
-            HumanCount(ctx.stats.num_src_folders as u64),
-            HumanCount(ctx.stats.num_src_symlinks as u64),
-        );
-        info!("  =>");
-        info!("Dest: {} file(s) totalling {}, {} folder(s) and {} symlink(s)",
-            HumanCount(ctx.stats.num_dest_files as u64),
-            HumanBytes(ctx.stats.dest_total_bytes),
-            HumanCount(ctx.stats.num_dest_folders as u64),
-            HumanCount(ctx.stats.num_dest_symlinks as u64),
-        );
-        info!("Source file size distribution:");
-        info!("{}", ctx.stats.src_file_size_hist);
-        info!("Queried in {:.2} seconds", query_elapsed);
-    }
-
+    let query_elapsed_secs = sync_start.elapsed().as_secs_f32();
+    show_post_query_stats(&ctx, query_elapsed_secs);
+    
     // Delete dest entries that don't exist on the source. This needs to be done first in case there
     // are entries with the same name but incompatible (e.g. files vs folders).
     // We do this in reverse to make sure that files are deleted before their parent folder
@@ -557,58 +544,30 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), String> {
     ctx.stats.copy_start_time = ctx.progress.get_first_copy_time();
     ctx.stats.copy_end_time = Some(Instant::now());
 
-    // Note that we print all the stats at the end (even though we could print the delete stats earlier),
-    // so that they are together in the output (e.g. for dry run or --verbose, they could be a lot of other
-    // messages between them)
-    if (ctx.stats.num_files_deleted + ctx.stats.num_folders_deleted + ctx.stats.num_symlinks_deleted > 0) || ctx.show_stats {
-        let delete_elapsed = ctx.stats.delete_end_time.unwrap() - ctx.stats.delete_start_time.unwrap();
-        info!(
-            "{} {} file(s) totalling {}, {} folder(s) and {} symlink(s){}",
-            if !ctx.dry_run { "Deleted" } else { "Would delete" },
-            HumanCount(ctx.stats.num_files_deleted as u64),
-            HumanBytes(ctx.stats.num_bytes_deleted),
-            HumanCount(ctx.stats.num_folders_deleted as u64),
-            HumanCount(ctx.stats.num_symlinks_deleted as u64),
-            if !ctx.dry_run && ctx.show_stats {
-                format!(", in {:.2} seconds", delete_elapsed.as_secs_f32())
-            } else { "".to_string() },
-        );
-    }
-    if (ctx.stats.num_files_copied + ctx.stats.num_folders_created + ctx.stats.num_symlinks_copied > 0) || ctx.show_stats {
-        let copy_elapsed = ctx.stats.copy_end_time.unwrap() - ctx.stats.copy_start_time.unwrap();
-        info!(
-            "{} {} file(s) totalling {}, {} {} folder(s) and {} {} symlink(s){}",
-            if !ctx.dry_run { "Copied" } else { "Would copy" },
-            HumanCount(ctx.stats.num_files_copied as u64),
-            HumanBytes(ctx.stats.num_bytes_copied),
-            if !ctx.dry_run { "created" } else { "would create" },
-            HumanCount(ctx.stats.num_folders_created as u64),
-            if !ctx.dry_run { "copied" } else { "would copy" },
-            HumanCount(ctx.stats.num_symlinks_copied as u64),
-            if !ctx.dry_run && ctx.show_stats {
-                format!(", in {:.2} seconds ({}/s)",
-                    copy_elapsed.as_secs_f32(), HumanBytes((ctx.stats.num_bytes_copied as f32 / copy_elapsed.as_secs_f32()).round() as u64))
-            } else { "".to_string() },
-        );
-        if ctx.show_stats {
-            info!("{} file size distribution:",
-                if !ctx.dry_run { "Copied" } else { "Would copy" },
-            );
-            info!("{}", ctx.stats.copied_file_size_hist);
-        }
-    }
-    if ctx.stats.num_files_deleted
-        + ctx.stats.num_folders_deleted
-        + ctx.stats.num_symlinks_deleted
-        + ctx.stats.num_files_copied
-        + ctx.stats.num_folders_created
-        + ctx.stats.num_symlinks_copied
-        == 0
-    {
-        info!("Nothing to do!");
-    }
+    show_post_sync_stats(&ctx);
 
     Ok(())
+}
+
+fn show_post_query_stats(ctx: &SyncContext, query_elapsed_secs: f32) {
+    if ctx.show_stats {
+        info!("Source: {} file(s) totalling {}, {} folder(s) and {} symlink(s)",
+            HumanCount(ctx.stats.num_src_files as u64),
+            HumanBytes(ctx.stats.src_total_bytes),
+            HumanCount(ctx.stats.num_src_folders as u64),
+            HumanCount(ctx.stats.num_src_symlinks as u64),
+        );
+        info!("  =>");
+        info!("Dest: {} file(s) totalling {}, {} folder(s) and {} symlink(s)",
+            HumanCount(ctx.stats.num_dest_files as u64),
+            HumanBytes(ctx.stats.dest_total_bytes),
+            HumanCount(ctx.stats.num_dest_folders as u64),
+            HumanCount(ctx.stats.num_dest_symlinks as u64),
+        );
+        info!("Source file size distribution:");
+        info!("{}", ctx.stats.src_file_size_hist);
+        info!("Queried in {:.2} seconds", query_elapsed_secs);
+    }
 }
 
 /// Checks if a given src entry could be updated to match the dest, or if it needs
@@ -872,4 +831,57 @@ fn copy_file(
     ctx.stats.copied_file_size_hist.add(size);
 
     Ok(())
+}
+
+fn show_post_sync_stats(ctx: &SyncContext) {
+    // Note that we print all the stats at the end (even though we could print the delete stats earlier),
+    // so that they are together in the output (e.g. for dry run or --verbose, they could be a lot of other
+    // messages between them)
+    if (ctx.stats.num_files_deleted + ctx.stats.num_folders_deleted + ctx.stats.num_symlinks_deleted > 0) || ctx.show_stats {
+        let delete_elapsed = ctx.stats.delete_end_time.unwrap() - ctx.stats.delete_start_time.unwrap();
+        info!(
+            "{} {} file(s) totalling {}, {} folder(s) and {} symlink(s){}",
+            if !ctx.dry_run { "Deleted" } else { "Would delete" },
+            HumanCount(ctx.stats.num_files_deleted as u64),
+            HumanBytes(ctx.stats.num_bytes_deleted),
+            HumanCount(ctx.stats.num_folders_deleted as u64),
+            HumanCount(ctx.stats.num_symlinks_deleted as u64),
+            if !ctx.dry_run && ctx.show_stats {
+                format!(", in {:.2} seconds", delete_elapsed.as_secs_f32())
+            } else { "".to_string() },
+        );
+    }
+    if (ctx.stats.num_files_copied + ctx.stats.num_folders_created + ctx.stats.num_symlinks_copied > 0) || ctx.show_stats {
+        let copy_elapsed = ctx.stats.copy_end_time.unwrap() - ctx.stats.copy_start_time.unwrap();
+        info!(
+            "{} {} file(s) totalling {}, {} {} folder(s) and {} {} symlink(s){}",
+            if !ctx.dry_run { "Copied" } else { "Would copy" },
+            HumanCount(ctx.stats.num_files_copied as u64),
+            HumanBytes(ctx.stats.num_bytes_copied),
+            if !ctx.dry_run { "created" } else { "would create" },
+            HumanCount(ctx.stats.num_folders_created as u64),
+            if !ctx.dry_run { "copied" } else { "would copy" },
+            HumanCount(ctx.stats.num_symlinks_copied as u64),
+            if !ctx.dry_run && ctx.show_stats {
+                format!(", in {:.2} seconds ({}/s)",
+                    copy_elapsed.as_secs_f32(), HumanBytes((ctx.stats.num_bytes_copied as f32 / copy_elapsed.as_secs_f32()).round() as u64))
+            } else { "".to_string() },
+        );
+        if ctx.show_stats {
+            info!("{} file size distribution:",
+                if !ctx.dry_run { "Copied" } else { "Would copy" },
+            );
+            info!("{}", ctx.stats.copied_file_size_hist);
+        }
+    }
+    if ctx.stats.num_files_deleted
+        + ctx.stats.num_folders_deleted
+        + ctx.stats.num_symlinks_deleted
+        + ctx.stats.num_files_copied
+        + ctx.stats.num_folders_created
+        + ctx.stats.num_symlinks_copied
+        == 0
+    {
+        info!("Nothing to do!");
+    }
 }
