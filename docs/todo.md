@@ -87,7 +87,7 @@ Testing
 * Various tests are leaving behind temporary folders, filling up with disk space! Especially benchmarks which are big!
 * Using tar for remote filesytem nodes messes about with symlinks when extracting on a different platform (Windows vs Linux)c
 * Add test for multiple syncs with remote doer (to make sure it stays alive and can be used for multiple syncs) spec file
-* Tests for progress bar
+* Tests for progress bar (large files, small files, deleting and copying files)
 
 
 Misc

@@ -5,6 +5,8 @@ use indicatif::{ProgressBar, HumanCount, HumanBytes, ProgressStyle, WeakProgress
 
 use crate::{doer::{EntryDetails, ProgressPhase, ProgressMarker, RootRelativePath}};
 
+const MIN_FILE_SIZE : u64 = 1024*1024;
+
 /// Set of related measurements for progress.
 #[derive(Default, PartialEq, Eq, Debug, Clone)]
 struct ProgressValues {
@@ -24,7 +26,7 @@ impl ProgressValues {
         match e {
             EntryDetails::File { size, .. } => {
                 ProgressValues { 
-                    work: std::cmp::max(*size, 1024*1024), // Even small files will take some minimum amount of time to copy
+                    work: std::cmp::max(*size, MIN_FILE_SIZE), // Even small files will take some minimum amount of time to copy
                     copy: 1,
                     copy_bytes: *size,
                     ..Default::default()
@@ -33,6 +35,38 @@ impl ProgressValues {
             EntryDetails::Folder | EntryDetails::Symlink{..} => ProgressValues { 
                 work: 1024*1024,
                 copy: 1,
+                ..Default::default()
+            }
+        }
+    }
+
+    /// Creates a set of ProgressValues to represent the copying of some amount (chunk) of a single file.
+    fn for_copy_partial(chunk_start: u64, chunk_size: u64, file_size: u64) -> Self {
+        // For files smaller than a threshold, we use a constant amount of work to account for the overhead.
+        // We put all this overhead into the final chunk, as we assume that the chunk size is going to be larger
+        // than the threshold so it doesn't matter anyway
+        if chunk_start + chunk_size < file_size {
+            // Non-final chunks of the file
+            ProgressValues { 
+                work: if file_size > MIN_FILE_SIZE {
+                    chunk_size
+                } else {
+                    0
+                },
+                copy: 0, // Only once the file is complete will be increase this
+                copy_bytes: chunk_size,
+                ..Default::default()
+            }    
+        } else {
+            // The last chunk of the file
+            ProgressValues { 
+                work: if file_size > MIN_FILE_SIZE {
+                    chunk_size
+                } else {
+                    MIN_FILE_SIZE
+                },
+                copy: 1,
+                copy_bytes: chunk_size,
                 ..Default::default()
             }
         }
@@ -261,6 +295,10 @@ impl Progress {
     pub fn copy_sent(&mut self, e: &EntryDetails) {
         self.sent += ProgressValues::for_copy(e);
     }
+    /// Increases the sent counters to account for the given entry being partially copied (a chunk).
+    pub fn copy_sent_partial(&mut self, chunk_start: u64, chunk_size: u64, file_size: u64) {
+        self.sent += ProgressValues::for_copy_partial(chunk_start, chunk_size, file_size);
+    }
 
     /// Called when all work has been sent to the dest doer.
     /// Returns a ProgressMarker that should be sent to the dest doer to mark this point of progress.
@@ -358,7 +396,7 @@ impl Progress {
     /// limits calls to any APIs on the ProgressBar.
     fn background_updater(bar: WeakProgressBar, new_bar_state: Arc<AtomicCell<Option<Box<BarState>>>>) {
         loop {
-            thread::sleep(Duration::from_millis(100));
+            thread::sleep(Duration::from_millis(50));
 
             // If the main thread has dropped the ProgressBar, or marked it as finished, stop this background thread.
             // Without this, we would keep trying to update it forever.
@@ -392,7 +430,7 @@ impl Progress {
                         HumanBytes(new_state.completed.copy_bytes as u64).to_string(), HumanBytes(new_state.total.copy_bytes as u64).to_string())
                 };                
                 if let Some(e) = new_state.current_entry {
-                    message += &format!(" {}", e);
+                    message += &format!("   {}", e);
                 }
 
                 bar.set_length(new_state.total.work);
@@ -403,3 +441,5 @@ impl Progress {
         }
     }
 }
+
+//TODO: unit tests for this file?

@@ -594,7 +594,7 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), String> {
                 _ => match src_details {
                     EntryDetails::File { size, modified_time: src_modified_time } => {
                         debug!("{} doesn't exist on dest - copying", ctx.pretty_src(&path, &src_details));
-                        copy_file(&path, &src_details, src_entry_id as u32, *size, *src_modified_time, &mut ctx)?
+                        copy_file(&path, src_entry_id as u32, *size, *src_modified_time, &mut ctx)?
                     }
                     EntryDetails::Folder => {
                         debug!("{} doesn't exist on dest - creating", ctx.pretty_src(&path, &src_details));
@@ -898,7 +898,7 @@ fn handle_existing_file(
         }
     };
     if copy {                    
-        copy_file(&path, src_entry, src_entry_id, size, src_modified_time, ctx)?
+        copy_file(&path, src_entry_id, size, src_modified_time, ctx)?
     } else {
         // No need to copy this entry, so we can reduce the total progress
         ctx.progress.dec_total_for_copy(src_entry); 
@@ -908,7 +908,6 @@ fn handle_existing_file(
 
 fn copy_file(
     path: &RootRelativePath,
-    src_entry: &EntryDetails,
     src_entry_id: u32,
     size: u64,
     modified_time: SystemTime,
@@ -925,7 +924,13 @@ fn copy_file(
                 path: path.clone(),
             })?;
         // Large files are split into chunks, loop until all chunks are transferred.
+        let mut chunk_offset: u64 = 0;
         loop {
+            // Add progress markers during copies of large files, so we can see the progress (in bytes)
+            if let Some(m) = ctx.progress.get_progress_marker_limited(Some(src_entry_id)) {
+                ctx.dest_comms.send_command(Command::Marker(m))?;                         
+            }
+        
             let (data, more_to_follow) = match ctx.src_comms.receive_response()? {
                 Response::FileContent { data, more_to_follow } => (data, more_to_follow),
                 x => return Err(format!(
@@ -933,6 +938,7 @@ fn copy_file(
                 )),
             };
             trace!("Create/update {}", ctx.pretty_dest_kind(&path, "file"));
+            let chunk_size = data.len();
             ctx.dest_comms
                 .send_command(Command::CreateOrUpdateFile {
                     path: path.clone(),
@@ -941,7 +947,9 @@ fn copy_file(
                     more_to_follow,
                 })?;
 
-            //TODO: send some progress updates partway through the file so we can see the bytes increase!
+            // This needs to be inside the chunking loop so we can update progress as the file is copied
+            ctx.progress.copy_sent_partial(chunk_offset, chunk_size as u64, size);
+            chunk_offset += chunk_size as u64;
 
             // For large files, it might be a while before process_dest_responses is called in the main sync function,
             // so check it periodically here too. 
@@ -961,9 +969,6 @@ fn copy_file(
     ctx.stats.num_files_copied += 1;
     ctx.stats.num_bytes_copied += size;
     ctx.stats.copied_file_size_hist.add(size);
-
-    //TODO: this needs to be inside the chunking loop so we can update progress as the file is copied?
-    ctx.progress.copy_sent(src_entry);
 
     Ok(())
 }
