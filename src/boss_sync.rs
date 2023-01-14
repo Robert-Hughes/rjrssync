@@ -1,12 +1,12 @@
 use std::{
-    cmp::Ordering, time::{Instant, SystemTime}, collections::HashMap,
+    cmp::Ordering, time::{Instant, SystemTime},
 };
 
 use indicatif::{HumanCount, HumanBytes};
 use log::{debug, info, trace};
 use regex::{RegexSet};
 
-use crate::{*, boss_progress::{Progress}, histogram::FileSizeHistogram, root_relative_path::{RootRelativePath, PrettyPath, Side}, boss_doer_interface::{ProgressPhase, EntryDetails, Response, Command, Filters, FilterKind, ProgressMarker}};
+use crate::{*, boss_progress::{Progress}, histogram::FileSizeHistogram, root_relative_path::{RootRelativePath, PrettyPath, Side}, boss_doer_interface::{ProgressPhase, EntryDetails, Response, Command, Filters, FilterKind, ProgressMarker}, entries_list::EntriesList};
 
 #[derive(Default)]
 struct Stats {
@@ -263,7 +263,7 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), String> {
         }
     }
 
-    let (src_entries, src_entries_lookup, dest_entries, dest_entries_lookup) = query_entries(&mut ctx, src_root_details, dest_root_details)?;
+    let (src_entries, dest_entries) = query_entries(&mut ctx, src_root_details, dest_root_details)?;
 
     let query_elapsed_secs = sync_start.elapsed().as_secs_f32();
     show_post_query_stats(&ctx, query_elapsed_secs);
@@ -282,13 +282,13 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), String> {
     {
         profile_this!("Sending delete commands");
         ctx.stats.delete_start_time = Some(Instant::now());
-        send_delete_commands(&mut ctx, &src_entries_lookup, &dest_entries, dest_platform_differentiates_symlinks)?;
+        send_delete_commands(&mut ctx, &src_entries, &dest_entries, dest_platform_differentiates_symlinks)?;
     }
 
     // Copy entries that don't exist, or do exist but are out-of-date.
     {
         profile_this!("Sending copy commands");
-        send_copy_commands(&mut ctx, &src_entries, &dest_entries_lookup, dest_platform_differentiates_symlinks)?;
+        send_copy_commands(&mut ctx, &src_entries, &dest_entries, dest_platform_differentiates_symlinks)?;
     }
 
     // Wait for the dest doer to finish processing all its Commands so that everything is finished.
@@ -400,16 +400,14 @@ fn check_dest_root_delete_ok(ctx: &mut SyncContext, src_root_details: &EntryDeta
 }
 
 fn query_entries(ctx: &mut SyncContext, src_root_details: EntryDetails, dest_root_details: Option<EntryDetails>) -> 
-    Result<(Vec<(RootRelativePath, EntryDetails)>, HashMap<RootRelativePath, EntryDetails>, Vec<(RootRelativePath, EntryDetails)>, HashMap<RootRelativePath, EntryDetails>), String> 
+    Result<(EntriesList, EntriesList), String> 
 {
     profile_this!();
 
-    let mut src_entries = Vec::new();
-    let mut src_entries_lookup = HashMap::<RootRelativePath, EntryDetails>::new();
+    let mut src_entries = EntriesList::new();
     let mut src_done = true;
 
-    src_entries.push((RootRelativePath::root(), src_root_details.clone()));
-    src_entries_lookup.insert(RootRelativePath::root(), src_root_details.clone());
+    src_entries.add(RootRelativePath::root(), src_root_details.clone());
     ctx.progress.inc_total_for_copy(&src_root_details);
 
     if matches!(src_root_details, EntryDetails::Folder) {
@@ -417,15 +415,13 @@ fn query_entries(ctx: &mut SyncContext, src_root_details: EntryDetails, dest_roo
         src_done = false;
     }
 
-    let mut dest_entries = Vec::new();
-    let mut dest_entries_lookup = HashMap::<RootRelativePath, EntryDetails>::new();
+    let mut dest_entries = EntriesList::new();
     let mut dest_done = true;
 
     if let Some(d) = &dest_root_details {
         // Assume the worse case that we will need to delete every dest entry to calculate an initial total progress
         ctx.progress.inc_total_for_delete(&d);
-        dest_entries.push((RootRelativePath::root(), d.clone()));
-        dest_entries_lookup.insert(RootRelativePath::root(), d.clone());
+        dest_entries.add(RootRelativePath::root(), d.clone());
     }
 
     if matches!(dest_root_details, Some(EntryDetails::Folder)) {
@@ -450,8 +446,7 @@ fn query_entries(ctx: &mut SyncContext, src_root_details: EntryDetails, dest_roo
                     }
                     // Assume the worse case that we will need to copy every src entry to calculate an initial total progress
                     ctx.progress.inc_total_for_copy(&d);
-                    src_entries.push((p.clone(), d.clone()));
-                    src_entries_lookup.insert(p, d);
+                    src_entries.add(p, d);
                 }
                 Response::EndOfEntries => src_done = true,
                 r => return Err(format!("Unexpected response getting entries from src: {:?}", r)),
@@ -469,8 +464,7 @@ fn query_entries(ctx: &mut SyncContext, src_root_details: EntryDetails, dest_roo
                     }
                     // Assume the worse case that we will need to delete every dest entry to calculate an initial total progress
                     ctx.progress.inc_total_for_delete(&d);
-                    dest_entries.push((p.clone(), d.clone()));
-                    dest_entries_lookup.insert(p, d);
+                    dest_entries.add(p, d);
                 }
                 Response::EndOfEntries => dest_done = true,
                 r => return Err(format!("Unexpected response getting entries from dest: {:?}", r)),
@@ -482,7 +476,7 @@ fn query_entries(ctx: &mut SyncContext, src_root_details: EntryDetails, dest_roo
     ctx.stats.num_src_entries = src_entries.len() as u32;
     ctx.stats.num_dest_entries = dest_entries.len() as u32;
 
-    Ok((src_entries, src_entries_lookup, dest_entries, dest_entries_lookup))
+    Ok((src_entries, dest_entries))
 }
 
 fn show_post_query_stats(ctx: &SyncContext, query_elapsed_secs: f32) {
@@ -506,10 +500,10 @@ fn show_post_query_stats(ctx: &SyncContext, query_elapsed_secs: f32) {
     }
 }
 
-fn send_delete_commands(ctx: &mut SyncContext, src_entries_lookup: &HashMap::<RootRelativePath, EntryDetails>, 
-    dest_entries: &Vec<(RootRelativePath, EntryDetails)>, dest_platform_differentiates_symlinks: bool) -> Result<(), String> {
+fn send_delete_commands(ctx: &mut SyncContext, src_entries: &EntriesList, 
+    dest_entries: &EntriesList, dest_platform_differentiates_symlinks: bool) -> Result<(), String> {
     Ok(for (dest_entry_id, (dest_path, dest_details)) in dest_entries.iter().rev().enumerate() {
-        let s = src_entries_lookup.get(dest_path);
+        let s = src_entries.lookup(dest_path);
         if !s.is_some() || should_delete(s.unwrap(), dest_details, dest_platform_differentiates_symlinks) {
             delete_dest_entry(ctx, dest_details, dest_entry_id as u32, dest_path)?;
         } else {
@@ -621,13 +615,13 @@ fn delete_dest_entry(ctx: &mut SyncContext, dest_details: &EntryDetails,
     }
 }
 
-fn send_copy_commands(ctx: &mut SyncContext, src_entries: &Vec<(RootRelativePath, EntryDetails)>,
-    dest_entries_lookup: &HashMap::<RootRelativePath, EntryDetails>, dest_platform_differentiates_symlinks: bool
+fn send_copy_commands(ctx: &mut SyncContext, src_entries: &EntriesList,
+    dest_entries: &EntriesList, dest_platform_differentiates_symlinks: bool
 ) -> Result<(), String> { 
     // Mark the exact start of copying, to make sure our timing stats are split accurately between copying and deleting
     ctx.dest_comms.send_command(Command::Marker(ctx.progress.get_progress_marker(None)))?; 
     for (src_entry_id, (path, src_details)) in src_entries.iter().enumerate() {
-        let dest_details = dest_entries_lookup.get(&path);
+        let dest_details = dest_entries.lookup(&path);
         match dest_details {
             Some(dest_details) if !should_delete (&src_details, dest_details, dest_platform_differentiates_symlinks) => {
                 // Dest already has this entry - check if it is up-to-date
