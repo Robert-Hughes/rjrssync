@@ -1,3 +1,4 @@
+use exe::{VecPE, ResourceDirectoryMut, PE};
 use log::{debug, error, info};
 use rust_embed::RustEmbed;
 use std::borrow::Cow;
@@ -32,6 +33,8 @@ const EMBEDDED_CARGO_LOCK : &[u8] = include_bytes!("../Cargo.lock");
 
 /// Deploys the source code of rjrssync to the given remote computer and builds it, ready to be executed.
 pub fn deploy_to_remote(remote_hostname: &str, remote_user: &str, reason: &str, needs_deploy_behaviour: NeedsDeployBehaviour) -> Result<(), ()> {
+    binary_bweeh();
+    
     // We're about to show a bunch of output from scp/ssh, so this log message may as well be the same severity,
     // so the user knows what's happening.
     info!("Deploying onto '{}'", &remote_hostname); 
@@ -353,3 +356,43 @@ where S : std::io::Read {
     }
 }
 
+/// Binary embedding for quick deployment to new remotes.
+/// This is quite confusing because of the recursive resource embedding.
+/// We need to 'break the chain' to avoid a binary that contains itself (and thus is impossible).
+///
+/// Within our embedded resources, we have a set of binaries for each supported
+/// target platform (e.g. Windows x86 and Linux x86). These binaries are "lite" binaries as 
+/// they do not have any embedded binaries themselves - just the rjrssync code. This is as opposed
+/// to our currently executing binary, which is a "big" binary as it contains embedded binaries
+/// for the target platforms. A "big" binary therefore contains a set of "lite" binaries.
+///
+/// When we want to deploy to a target platform, we could just extract and use the "lite" binary,
+/// but then this binary wouldn't itself be able to deploy to other targets which might be annoying
+/// and confusing, because you would have to keep track of which copies of rjrssync are lite and which
+/// are big. Instead, we create a new big binary for the target platform, by embedding all the lite binaries
+/// inside the lite binary for the target platform.
+///
+/// Big_p = Lite_p + Embed(Lite_0, Lite_1, ..., Lite_n)
+fn binary_bweeh() {
+    // https://0xrick.github.io/win-internals/pe5/
+    // https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#the-rsrc-section
+    // https://docs.rs/exe/latest/exe/index.html
+    
+    let src_exe = "D:\\Programming\\Utilities\\rjrssync\\target\\debug\\rjrssync.exe";
+    let mut image = VecPE::from_disk_file(src_exe).unwrap();
+    
+    println!("Section table = {:?}", image.get_section_table());
+    println!("Has resources? = {}", image.has_data_directory(exe::ImageDirectoryEntry::Resource));
+    println!("Sectoin rsrc? = {:?}", image.get_section_by_name(".rsrc"));
+    println!("Sectoin text? = {:?}", image.get_section_by_name(".text"));
+    //image.add_section(section)
+    let resources = ResourceDirectoryMut::parse(&mut image).unwrap();
+
+    // Looks like we need to add a new section called ".rsrc"
+    // Maybe also need to fill in the data directory entry for Resource, to point to that section.
+    // Not sure though, as it looks like this might be for things that need loading into memory, and resources
+    // probably shouldn't be always loaded into memory, so maybe we skip this?
+
+    //TODO: add test that remotely deployed binary can then itself also remotely deploy (all binaries
+    // are equal, no lite binaries every actually exist on disk)
+}
