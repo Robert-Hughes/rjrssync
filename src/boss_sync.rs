@@ -240,66 +240,7 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), String> {
 
     // First get details of the root file/folder etc. of each side, as this might affect the sync
     // before we start it (e.g. errors, or changing the dest root)
-
-    // Source SetRoot
-    let timer = start_timer("SetRoot src");
-    ctx.src_comms.send_command(Command::SetRoot { root: ctx.src_root.to_string() })?;
-    let src_root_details = match ctx.src_comms.receive_response()? {
-        Response::RootDetails { root_details, platform_differentiates_symlinks: _, platform_dir_separator } => {
-            match &root_details {
-                None => return Err(format!("src path '{}' doesn't exist!", ctx.src_root)),
-                Some(d) => if let Err(e) = validate_trailing_slash(&ctx.src_root, &d) {
-                    return Err(format!("src path {}", e));
-                }
-            };
-            ctx.src_dir_separator = Some(platform_dir_separator);
-            root_details
-        }
-        r => return Err(format!("Unexpected response getting root details from src: {:?}", r)),
-    };
-    let src_root_details = src_root_details.unwrap();
-    stop_timer(timer);
-
-    // Dest SetRoot
-    let timer = start_timer("SetRoot dest");
-    ctx.dest_comms.send_command(Command::SetRoot { root: ctx.dest_root.clone() })?;
-    let (mut dest_root_details, dest_platform_differentiates_symlinks) = match ctx.dest_comms.receive_response()? {
-        Response::RootDetails { root_details, platform_differentiates_symlinks, platform_dir_separator } => {
-            match &root_details {
-                None => (), // Dest root doesn't exist, but that's fine (we will create it later)
-                Some(d) => if let Err(e) = validate_trailing_slash(&ctx.dest_root, &d) {
-                    return Err(format!("dest path {}", e));
-                }
-            }
-            ctx.dest_dir_separator = Some(platform_dir_separator);
-            (root_details, platform_differentiates_symlinks)
-        }
-        r => return Err(format!("Unexpected response getting root details from dest: {:?}", r)),
-    };
-    stop_timer(timer);
-
-    // If src is a file (or symlink, which we treat as a file), and the dest path ends in a slash, 
-    // then we want to sync the file _inside_ the folder, rather then replacing the folder with the file
-    // (see README for reasoning).
-    // To do this, we modify the dest path and then continue as if that was the path provided by the
-    // user.
-    let last_dest_char = ctx.dest_root.chars().last();
-    // Note that we can't use std::path::is_separator (or similar) because this might be a remote path, so the current platform
-    // isn't appropriate.
-    let dest_trailing_slash = last_dest_char == Some('/') || last_dest_char == Some('\\');
-    if matches!(src_root_details, EntryDetails::File {..} | EntryDetails::Symlink { .. }) && dest_trailing_slash {
-        let src_filename = ctx.src_root.split(|c| c == '/' || c == '\\').last();
-        if let Some(c) = src_filename {
-            ctx.dest_root = ctx.dest_root + c;
-            debug!("Modified dest path to {}", ctx.dest_root);
-
-            ctx.dest_comms.send_command(Command::SetRoot { root: ctx.dest_root.clone() })?;
-            dest_root_details = match ctx.dest_comms.receive_response()? {
-                Response::RootDetails { root_details, platform_differentiates_symlinks: _, platform_dir_separator: _ } => root_details,
-                r => return Err(format!("Unexpected response getting root details from dest: {:?}", r)),
-            }
-        }
-    }
+    let (src_root_details, dest_root_details, dest_platform_differentiates_symlinks) = get_root_details(&mut ctx)?;
 
     // Check if the dest root will need deleting, and potentially prompt the user.
     // We need to do this explicitly before starting to delete anything 
@@ -385,6 +326,70 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), String> {
     show_post_sync_stats(&ctx);
 
     Ok(())
+}
+
+fn get_root_details(ctx: &mut SyncContext) -> Result<(EntryDetails, Option<EntryDetails>, bool), String> {
+    // Source SetRoot
+    let timer = start_timer("SetRoot src");
+    ctx.src_comms.send_command(Command::SetRoot { root: ctx.src_root.to_string() })?;
+    let src_root_details = match ctx.src_comms.receive_response()? {
+        Response::RootDetails { root_details, platform_differentiates_symlinks: _, platform_dir_separator } => {
+            match &root_details {
+                None => return Err(format!("src path '{}' doesn't exist!", ctx.src_root)),
+                Some(d) => if let Err(e) = validate_trailing_slash(&ctx.src_root, &d) {
+                    return Err(format!("src path {}", e));
+                }
+            };
+            ctx.src_dir_separator = Some(platform_dir_separator);
+            root_details
+        }
+        r => return Err(format!("Unexpected response getting root details from src: {:?}", r)),
+    };
+    let src_root_details = src_root_details.unwrap();
+    stop_timer(timer);
+
+    // Dest SetRoot
+    let timer = start_timer("SetRoot dest");
+    ctx.dest_comms.send_command(Command::SetRoot { root: ctx.dest_root.clone() })?;
+    let (mut dest_root_details, dest_platform_differentiates_symlinks) = match ctx.dest_comms.receive_response()? {
+        Response::RootDetails { root_details, platform_differentiates_symlinks, platform_dir_separator } => {
+            match &root_details {
+                None => (), // Dest root doesn't exist, but that's fine (we will create it later)
+                Some(d) => if let Err(e) = validate_trailing_slash(&ctx.dest_root, &d) {
+                    return Err(format!("dest path {}", e));
+                }
+            }
+            ctx.dest_dir_separator = Some(platform_dir_separator);
+            (root_details, platform_differentiates_symlinks)
+        }
+        r => return Err(format!("Unexpected response getting root details from dest: {:?}", r)),
+    };
+    stop_timer(timer);
+
+    // If src is a file (or symlink, which we treat as a file), and the dest path ends in a slash, 
+    // then we want to sync the file _inside_ the folder, rather then replacing the folder with the file
+    // (see README for reasoning).
+    // To do this, we modify the dest path and then continue as if that was the path provided by the
+    // user.
+    let last_dest_char = ctx.dest_root.chars().last();
+    // Note that we can't use std::path::is_separator (or similar) because this might be a remote path, so the current platform
+    // isn't appropriate.
+    let dest_trailing_slash = last_dest_char == Some('/') || last_dest_char == Some('\\');
+    if matches!(src_root_details, EntryDetails::File {..} | EntryDetails::Symlink { .. }) && dest_trailing_slash {
+        let src_filename = ctx.src_root.split(|c| c == '/' || c == '\\').last();
+        if let Some(c) = src_filename {
+            ctx.dest_root = ctx.dest_root.clone() + c;
+            debug!("Modified dest path to {}", ctx.dest_root);
+
+            ctx.dest_comms.send_command(Command::SetRoot { root: ctx.dest_root.clone() })?;
+            dest_root_details = match ctx.dest_comms.receive_response()? {
+                Response::RootDetails { root_details, platform_differentiates_symlinks: _, platform_dir_separator: _ } => root_details,
+                r => return Err(format!("Unexpected response getting root details from dest: {:?}", r)),
+            }
+        }
+    }
+
+    Ok((src_root_details, dest_root_details, dest_platform_differentiates_symlinks))
 }
 
 fn query_entries(ctx: &mut SyncContext, src_root_details: EntryDetails, dest_root_details: Option<EntryDetails>) -> 
