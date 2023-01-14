@@ -248,31 +248,12 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), String> {
     // dest root folder before getting to the root itself, so the prompt/error would be too late!
     if let Some(d) = &dest_root_details {
         if should_delete(&src_root_details, d, dest_platform_differentiates_symlinks) {
-            let msg = format!(
-                "{} needs deleting as it is incompatible with {}",
-                ctx.pretty_dest(&RootRelativePath::root(), d),
-                ctx.pretty_src(&RootRelativePath::root(), &src_root_details));
-            let resolved_behaviour = match ctx.dest_root_needs_deleting_behaviour {
-                DestRootNeedsDeletingBehaviour::Prompt => {
-                    let prompt_result = resolve_prompt(format!("{msg}. What do?"),
-                        Some(&ctx.progress), 
-                        &[
-                            ("Skip", DestRootNeedsDeletingBehaviour::Skip),
-                            ("Delete", DestRootNeedsDeletingBehaviour::Delete),
-                            ], false, DestRootNeedsDeletingBehaviour::Error);
-                    prompt_result.immediate_behaviour
-                },
-                x => x,
-            };
-            match resolved_behaviour {
-                DestRootNeedsDeletingBehaviour::Prompt => panic!("Should have been alredy resolved!"),
-                DestRootNeedsDeletingBehaviour::Error => return Err(format!("{msg}. Will not delete. See --dest-root-needs-deleting")),
-                DestRootNeedsDeletingBehaviour::Skip => return Ok(()), // Don't raise an error, but we can't continue as it will fail, so skip the entire sync
-                DestRootNeedsDeletingBehaviour::Delete => (), // We will delete it anyway later on
+            if !check_dest_root_delete_ok(&mut ctx, &src_root_details, d)? {
+                // Don't raise an error if we've been told to skip, but we can't continue as it will fail, so skip the entire sync
+                return Ok(());
             }
         }
     }
-
 
     // If the dest doesn't yet exist, make sure that all its ancestors are created, so that
     // when we come to create the dest path itself, it can succeed
@@ -390,6 +371,32 @@ fn get_root_details(ctx: &mut SyncContext) -> Result<(EntryDetails, Option<Entry
     }
 
     Ok((src_root_details, dest_root_details, dest_platform_differentiates_symlinks))
+}
+
+fn check_dest_root_delete_ok(ctx: &mut SyncContext, src_root_details: &EntryDetails, dest_root_details: &EntryDetails) 
+    -> Result<bool, String> {
+    let msg = format!(
+        "{} needs deleting as it is incompatible with {}",
+        ctx.pretty_dest(&RootRelativePath::root(), dest_root_details),
+        ctx.pretty_src(&RootRelativePath::root(), &src_root_details));
+    let resolved_behaviour = match ctx.dest_root_needs_deleting_behaviour {
+        DestRootNeedsDeletingBehaviour::Prompt => {
+            let prompt_result = resolve_prompt(format!("{msg}. What do?"),
+                Some(&ctx.progress), 
+                &[
+                    ("Skip", DestRootNeedsDeletingBehaviour::Skip),
+                    ("Delete", DestRootNeedsDeletingBehaviour::Delete),
+                    ], false, DestRootNeedsDeletingBehaviour::Error);
+            prompt_result.immediate_behaviour
+        },
+        x => x,
+    };
+    match resolved_behaviour {
+        DestRootNeedsDeletingBehaviour::Prompt => panic!("Should have been alredy resolved!"),
+        DestRootNeedsDeletingBehaviour::Error => return Err(format!("{msg}. Will not delete. See --dest-root-needs-deleting")),
+        DestRootNeedsDeletingBehaviour::Skip => return Ok(false), // Don't raise an error, but we can't continue as it will fail, so skip the entire sync
+        DestRootNeedsDeletingBehaviour::Delete => return Ok(true), // We will delete it anyway later on
+    }
 }
 
 fn query_entries(ctx: &mut SyncContext, src_root_details: EntryDetails, dest_root_details: Option<EntryDetails>) -> 
