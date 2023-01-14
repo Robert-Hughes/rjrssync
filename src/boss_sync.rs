@@ -341,20 +341,63 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), String> {
         }
     }
 
-    // Fetch all the entries for the source path and the dest path, if they are folders
-    // Send off both GetEntries commands and wait for the results in parallel, rather than doing
-    // one after the other (for performance)
-    let timer = start_timer("GetEntries x 2");
+    let (src_entries, src_entries_lookup, dest_entries, dest_entries_lookup) = query_entries(&mut ctx, src_root_details, dest_root_details)?;
 
-    // Source GetEntries
+    let query_elapsed_secs = sync_start.elapsed().as_secs_f32();
+    show_post_query_stats(&ctx, query_elapsed_secs);
+    
+    // Delete dest entries that don't exist on the source. This needs to be done first in case there
+    // are entries with the same name but incompatible (e.g. files vs folders).
+    // We do this in reverse to make sure that files are deleted before their parent folder
+    // (otherwise deleting the parent is harder/more risky - possibly would also have problems with
+    // files being filtered so the folder is needed still as there are filtered-out files in there,
+    // see test_remove_dest_folder_with_excluded_files())
+
+    // Update progress to start the deleting phase
+    ctx.progress.set_entries(src_entries.iter().map(|e| e.0.clone()).collect(), dest_entries.iter().map(|e| e.0.clone()).collect()); //TODO: ideally we don't have to copy all these
+    ctx.progress.update_completed(&ProgressMarker { completed_work: 0, phase: ProgressPhase::Deleting { num_entries_deleted: 0, current_entry_id: None }});
+
+    {
+        profile_this!("Sending delete commands");
+        ctx.stats.delete_start_time = Some(Instant::now());
+        send_delete_commands(&mut ctx, &src_entries_lookup, &dest_entries, dest_platform_differentiates_symlinks)?;
+    }
+
+    // Copy entries that don't exist, or do exist but are out-of-date.
+    {
+        profile_this!("Sending copy commands");
+        send_copy_commands(&mut ctx, &src_entries, &dest_entries_lookup, dest_platform_differentiates_symlinks)?;
+    }
+
+    // Wait for the dest doer to finish processing all its Commands so that everything is finished.
+    // We don't need to wait for the src doer, because the dest doer is always last to finish.
+    let m = ctx.progress.all_work_sent();
+    ctx.dest_comms.send_command(Command::Marker(m))?;
+    {
+        profile_this!("Waiting for dest to finish");
+        process_dest_responses(ctx.dest_comms, &mut ctx.progress, true)?;
+    }
+
+    ctx.stats.delete_end_time = ctx.progress.get_first_copy_time();
+    ctx.stats.copy_start_time = ctx.progress.get_first_copy_time();
+    ctx.stats.copy_end_time = Some(Instant::now());
+
+    show_post_sync_stats(&ctx);
+
+    Ok(())
+}
+
+fn query_entries(ctx: &mut SyncContext, src_root_details: EntryDetails, dest_root_details: Option<EntryDetails>) -> 
+    Result<(Vec<(RootRelativePath, EntryDetails)>, HashMap<RootRelativePath, EntryDetails>, Vec<(RootRelativePath, EntryDetails)>, HashMap<RootRelativePath, EntryDetails>), String> 
+{
+    profile_this!();
+
     let mut src_entries = Vec::new();
     let mut src_entries_lookup = HashMap::<RootRelativePath, EntryDetails>::new();
     let mut src_done = true;
 
-    // Add the root entry - we already got the details for this before
     src_entries.push((RootRelativePath::root(), src_root_details.clone()));
     src_entries_lookup.insert(RootRelativePath::root(), src_root_details.clone());
-    // Assume the worse case that we will need to copy every src entry to calculate an initial total progress
     ctx.progress.inc_total_for_copy(&src_root_details);
 
     if matches!(src_root_details, EntryDetails::Folder) {
@@ -362,12 +405,10 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), String> {
         src_done = false;
     }
 
-    // Dest GetEntries
     let mut dest_entries = Vec::new();
     let mut dest_entries_lookup = HashMap::<RootRelativePath, EntryDetails>::new();
     let mut dest_done = true;
 
-    // Add the root entry - we already got the details for this before
     if let Some(d) = &dest_root_details {
         // Assume the worse case that we will need to delete every dest entry to calculate an initial total progress
         ctx.progress.inc_total_for_delete(&d);
@@ -425,53 +466,11 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), String> {
             _ => panic!("Invalid index"),
         }
     }
+
     ctx.stats.num_src_entries = src_entries.len() as u32;
     ctx.stats.num_dest_entries = dest_entries.len() as u32;
 
-    stop_timer(timer);
-
-    let query_elapsed_secs = sync_start.elapsed().as_secs_f32();
-    show_post_query_stats(&ctx, query_elapsed_secs);
-    
-    // Delete dest entries that don't exist on the source. This needs to be done first in case there
-    // are entries with the same name but incompatible (e.g. files vs folders).
-    // We do this in reverse to make sure that files are deleted before their parent folder
-    // (otherwise deleting the parent is harder/more risky - possibly would also have problems with
-    // files being filtered so the folder is needed still as there are filtered-out files in there,
-    // see test_remove_dest_folder_with_excluded_files())
-
-    // Update progress to start the deleting phase
-    ctx.progress.set_entries(src_entries.iter().map(|e| e.0.clone()).collect(), dest_entries.iter().map(|e| e.0.clone()).collect()); //TODO: ideally we don't have to copy all these
-    ctx.progress.update_completed(&ProgressMarker { completed_work: 0, phase: ProgressPhase::Deleting { num_entries_deleted: 0, current_entry_id: None }});
-
-    {
-        profile_this!("Sending delete commands");
-        ctx.stats.delete_start_time = Some(Instant::now());
-        send_delete_commands(&mut ctx, &src_entries_lookup, &dest_entries, dest_platform_differentiates_symlinks)?;
-    }
-
-    // Copy entries that don't exist, or do exist but are out-of-date.
-    {
-        profile_this!("Sending copy commands");
-        send_copy_commands(&mut ctx, &src_entries, &dest_entries_lookup, dest_platform_differentiates_symlinks)?;
-    }
-
-    // Wait for the dest doer to finish processing all its Commands so that everything is finished.
-    // We don't need to wait for the src doer, because the dest doer is always last to finish.
-    let m = ctx.progress.all_work_sent();
-    ctx.dest_comms.send_command(Command::Marker(m))?;
-    {
-        profile_this!("Waiting for dest to finish");
-        process_dest_responses(ctx.dest_comms, &mut ctx.progress, true)?;
-    }
-
-    ctx.stats.delete_end_time = ctx.progress.get_first_copy_time();
-    ctx.stats.copy_start_time = ctx.progress.get_first_copy_time();
-    ctx.stats.copy_end_time = Some(Instant::now());
-
-    show_post_sync_stats(&ctx);
-
-    Ok(())
+    Ok((src_entries, src_entries_lookup, dest_entries, dest_entries_lookup))
 }
 
 fn show_post_query_stats(ctx: &SyncContext, query_elapsed_secs: f32) {
