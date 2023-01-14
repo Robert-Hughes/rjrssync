@@ -1221,7 +1221,7 @@ mod tests {
             syncs:
             - dest_file_newer_behaviour: notallowed
         "#).unwrap();
-        assert!(parse_spec_file(s.path()).unwrap_err().contains("Invalid variant: notallowed"));
+        assert!(parse_spec_file(s.path()).unwrap_err().contains("invalid variant: notallowed"));
     }
 
     /// Tests that command-line args can be used to override things set in the spec file.

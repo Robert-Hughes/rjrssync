@@ -1,4 +1,5 @@
 use aes_gcm::aead::generic_array::GenericArray;
+use base64::Engine;
 use clap::Parser;
 use env_logger::Env;
 use log::{debug, error, trace, info};
@@ -194,7 +195,7 @@ pub fn doer_main() -> ExitCode {
     }
     secret.pop(); // remove trailing newline
 
-    let secret_bytes = match base64::decode(secret) {
+    let secret_bytes = match base64::engine::general_purpose::STANDARD.decode(secret) {
         Ok(b) => b,
         Err(e) => {
             error!("Failed to decode secret: {}", e);

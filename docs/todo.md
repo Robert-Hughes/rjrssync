@@ -15,7 +15,7 @@ Interface
 * Decide if info! (and other) log messages should be on stdout or stderr
 * When showing multiple prompts, could remember the selection from previous time the same prompt was shown and use that as the default for the next one?
 * Maybe could make "Connecting" spinner actually spin, until the first message from ssh?
-* Long prompt messages (multi-line) duplicate themselves once answered. Same with progress bar if the terminal window is too narrow! (maybe check in terminals other than the VS code one! POwershell, window terminal, bash etc.). wide_msg fixed this for progress bar, maybe the same can be used for prompts?
+* Long prompt messages (multi-line) duplicate themselves once answered.
 * Could warn or similar when filters will lead to an error, like trying to delete a folder that isn't empty (because the filters hid the files inside)
 
 
@@ -99,8 +99,7 @@ Misc
 ERROR | rjrssync::boss_frontend: Sync error: Unexpected response from dest GetEntries: Ok(Error("normalize_path failed: Illegal characters in path"))
 * Would be nice to automatically detect cases where the version number hasn't been updated, e.g. if we could see that the Command/Response struct layout has changed.
 * Document that ssh is used for connecting and launching, and that the sync is performed over a different network port, and that it is encrypted.
-* Split boss_sync.rs up into multiple files/functions
-* In boss_sync.rs, src_entries, src_entries_lookup and progres.inc_total_for_copy() - these three things need to be done together and kept in sync - can we enforce this (custom type?). Same for dest_
+* In boss_sync.rs, src_entries and progres.inc_total_for_copy/delete() - these things need to be done together and kept in sync - can we enforce this (custom type?). Same for dest_entries.
 * Add to readme list of features to "advertise" the program 
 
 

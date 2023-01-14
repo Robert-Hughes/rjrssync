@@ -1,5 +1,6 @@
 use aes_gcm::aead::{OsRng};
 use aes_gcm::{Aes128Gcm, KeyInit, Key};
+use base64::Engine;
 use log::{debug, error, info, log, trace};
 use rust_embed::RustEmbed;
 use std::borrow::Cow;
@@ -585,7 +586,7 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str, remote_port_for
                     debug!("Sending secret key");
                     // Note that we generate a new key for each doer, otherwise the nonces would be re-used with the same key
                     let key = Aes128Gcm::generate_key(&mut OsRng);
-                    let mut msg = base64::encode(key).as_bytes().to_vec();
+                    let mut msg = base64::engine::general_purpose::STANDARD.encode(key).as_bytes().to_vec();
                     msg.push(b'\n');
                     if let Err(e) = ssh_stdin.write_all(&msg) {
                         error!("Failed to send secret: {}", e);
