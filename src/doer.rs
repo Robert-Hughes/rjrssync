@@ -13,7 +13,7 @@ use std::{
 };
 
 use crate::*;
-use crate::boss_doer_interface::{EntryDetails, SymlinkTarget, Response, Command, SymlinkKind, Filters, FilterKind};
+use crate::boss_doer_interface::{EntryDetails, SymlinkTarget, Response, Command, SymlinkKind, Filters, FilterKind, HANDSHAKE_STARTED_MSG, VERSION, HANDSHAKE_COMPLETED_MSG};
 use crate::encrypted_comms::AsyncEncryptedComms;
 use crate::memory_bound_channel::{Sender, Receiver};
 use crate::parallel_walk_dir::parallel_walk_dir;

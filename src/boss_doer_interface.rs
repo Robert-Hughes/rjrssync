@@ -1,3 +1,4 @@
+use const_format::concatcp;
 use indicatif::HumanBytes;
 use regex::{RegexSet};
 use serde::{Deserialize, Serialize, Serializer, Deserializer, de::Error};
@@ -9,6 +10,21 @@ use std::{
 use crate::encrypted_comms;
 use crate::profiling::ProcessProfilingData;
 use crate::root_relative_path::RootRelativePath;
+
+// We include the profiling config in the version number, as profiling and non-profiling builds are not compatible
+// (because a non-profiling doer won't record any events).
+pub const VERSION: &str = concatcp!("126", if cfg!(feature="profiling") { "+profiling"} else { "" });
+
+// Message printed by a doer copy of the program to indicate that it has loaded and is ready
+// to receive data over its stdin. Once the boss receives this, it knows that ssh has connected
+// correctly etc. It also identifies its version, so the boss side can decide
+// if it can continue to communicate or needs to copy over an updated copy of the doer program.
+// Note that this format needs to always be backwards-compatible, so is very basic.
+pub const HANDSHAKE_STARTED_MSG: &str = "rjrssync doer v"; // Version number will be appended
+
+// Message sent by the doer back to the boss to indicate that it has received the secret key and
+// is listening on a network port for a connection.
+pub const HANDSHAKE_COMPLETED_MSG: &str = "Waiting for incoming network connection on port "; // Port number will be appended.
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Filters {

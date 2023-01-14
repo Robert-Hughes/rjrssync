@@ -22,8 +22,18 @@ use std::{
 use tempdir::TempDir;
 
 use crate::*;
-use crate::boss_doer_interface::{Response, Command};
+use crate::boss_doer_interface::{Response, Command, HANDSHAKE_STARTED_MSG, HANDSHAKE_COMPLETED_MSG, VERSION};
 use crate::encrypted_comms::AsyncEncryptedComms;
+
+pub const REMOTE_TEMP_UNIX: &str = "/var/tmp/"; // Use /var/tmp rather than /tmp so it doesn't get wiped on reboot (and thus requiring a re-deploy)
+pub const REMOTE_TEMP_WINDOWS: &str = r"%TEMP%\";
+
+/// Rough maximum amount of memory we allow to be buffered in our cross-thread communication channels
+/// between boss and doer. If this is set too high (or we didn't set a limit at all), then we would
+/// buffer unlimited amounts of data in the case that one side of the transfer is faster than the 
+/// other and this would take up too much memory. If set too small, then we won't buffer enough
+/// and this could lead to reduced performance.
+pub const BOSS_DOER_CHANNEL_MEMORY_CAPACITY : usize = 100*1024*1024;
 
 /// Abstraction of two-way communication channel between this boss and a doer, which might be
 /// remote (communicating over an encrypted TCP connection) or local (communicating via a channel to a background thread).
