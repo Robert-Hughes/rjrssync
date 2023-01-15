@@ -433,39 +433,36 @@ fn create_binary_for_target(target_triple: &str, output_binary: &Path) -> Result
         return Ok(());
     }
 
-    //TODO: proper error handling - fallback to source deploy?
+    // Get the embedded binaries from the current executables
+    let embedded_binary_data = get_embedded_binaries(&current_exe)?;
 
-    // https://0xrick.github.io/win-internals/pe5/
-    // https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#the-rsrc-section
-    // https://docs.rs/exe/latest/exe/index.html
-
-    // println!("EMBEDDED_DATA_TEST = {:?}", EMBEDDED_DATA_TEST);
-
-    // Find the embedded lite binary for the target platform
-    let current_image = VecPE::from_disk_file(current_exe).expect("Failed to parse EXE");
-    let embedded_binary_section = current_image.get_section_by_name(".rsrc1").expect("Missing section");
-    let embedded_binary_data = embedded_binary_section.read(&current_image).expect("Failed to read data").clone();
- //  println!("Embedded binary data {} {} {} {}", embedded_binary_data[0], embedded_binary_data[1], embedded_binary_data[3], embedded_binary_data[4]);
-   
+    // Extract the binary data for the target platform
+    let target_platform_binary = embedded_binary_data.clone();
     
-    // Create a new PE image for it
-    let mut new_image = VecPE::from_disk_data(embedded_binary_data);
+    // Create new executable for the target platform
+    if target_triple.contains("windows") {
+        // Create a new PE image for it
+        let mut new_image = VecPE::from_disk_data(&target_platform_binary);
 
-    // Extend it with the embedded lite binaries for all platforms, to turn it into a big binary
-    let mut new_section = ImageSectionHeader::default();
-    new_section.set_name(Some(".rsrc1")); // The special section name we use - needs to match other places TODO: use constant!
-    let mut new_section = new_image.append_section(&new_section).expect("Failed to append section");
-    new_section.size_of_raw_data = embedded_binary_data.len() as u32;
-    new_section.characteristics = SectionCharacteristics::CNT_INITIALIZED_DATA;
-    new_section.virtual_size = 0x1000; //TODO: this is needed for it to work, but not sure what it should be set to!
+        // Extend it with the embedded lite binaries for all platforms, to turn it into a big binary
+        let mut new_section = ImageSectionHeader::default();
+        new_section.set_name(Some(".rsrc1")); // The special section name we use - needs to match other places TODO: use constant!
+        let mut new_section = new_image.append_section(&new_section).map_err(|e| e.to_string())?;
+        new_section.size_of_raw_data = embedded_binary_data.len() as u32;
+        new_section.characteristics = SectionCharacteristics::CNT_INITIALIZED_DATA;
+        new_section.virtual_size = 0x1000; //TODO: this is needed for it to work, but not sure what it should be set to!
 
-    new_image.append(embedded_binary_data);
+        new_image.append(embedded_binary_data);
 
-    new_image.pad_to_alignment().expect("Failed to pad");
-    new_image.fix_image_size().expect("Failed to fix_image_size");
+        new_image.pad_to_alignment().map_err(|e| e.to_string())?;
+        new_image.fix_image_size().map_err(|e| e.to_string())?;
 
-    new_image.save("T:\\Temp\\rjrssync-inception\\rjrssync.exe").expect("Failed to save!");
-    
+        new_image.save(output_binary).map_err(|e| e.to_string())?;
+
+        Ok(())
+    } else {
+        Err("Unsupported target platform".to_string())
+    }
   //  let src_exe = "D:\\Programming\\Utilities\\rjrssync\\target\\debug\\rjrssync.exe";
   //  let mut image = VecPE::from_disk_file(src_exe).unwrap();
     
@@ -491,7 +488,18 @@ fn create_binary_for_target(target_triple: &str, output_binary: &Path) -> Result
     // Technically we could get this by downgrading the big binary to a lite binary before embedding it
     // (by deleting the appended section), but this would be more complicated.
 
-    Err("wssup".to_string())
+}
+
+#[cfg(windows)]
+fn get_embedded_binaries(exe_path: &Path) -> Result<Vec<u8>, String> {
+    // https://0xrick.github.io/win-internals/pe5/
+    // https://learn.microsoft.com/en-us/windows/win32/debug/pe-format
+    // https://docs.rs/exe/latest/exe/index.html
+
+    // Find the embedded lite binary for the target platform
+    let current_image = VecPE::from_disk_file(exe_path).map_err(|e| e.to_string())?;
+    let embedded_binary_section = current_image.get_section_by_name(".rsrc1").map_err(|e| e.to_string())?;
+    Ok(embedded_binary_section.read(&current_image).map_err(|e| e.to_string())?.to_vec())
 }
 
 // For creating the initial big binary from Cargo, which needs to include all the embedded lite 
@@ -515,6 +523,8 @@ include!(concat!(env!("OUT_DIR"), "/embedded_binaries.rs"));
 
 
 //TODO: tests for both source deployment and binary deployment
+//TODO: tests for different combinations of platforms, as there are different executable formats.
+//TODO: also tests for deploying from an already-deployed (non-progenitor) binary, again, to all platforms? :O
 //TODO: source deployment will now be even slower, as the remote will need to build all of the embedded
 // lite binaries for different targets!
 //TODO: deploying a big binary to "less powerful"/slower targets may be bad because it will take

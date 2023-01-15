@@ -1,4 +1,14 @@
-use std::{env, process::Command, path::{Path}, collections::HashMap};
+use std::{env, process::{Command, Stdio}, path::{Path}, collections::HashMap};
+
+//TODO: musl?
+/// The set of target triples that we build and embed binaries for.
+/// This means that we can deploy onto these platforms without needing
+/// to build from source.
+const EMBEDDED_BINARY_TARGET_TRIPLES: &[&str] = &[
+    "x86_64-pc-windows-msvc",
+    //"x86_64-unknown-linux-gnu",
+    //"aarch64-unknown-linux-gnu"
+];
 
 /// There is logic that will be built into rjrssync to create a "big" binary from its
 /// embedded resources, but we need a way of creating this initial big binary.
@@ -20,78 +30,96 @@ fn main() {
     }
 
     // Build lite binaries for all supported targets
-    //TODO: at the moment we're just building native - expand!
     // Note that we do need to include the lite binary for the native build, as this will be needed if 
     // the big binary is used to produce a new big binary for a different platform - that new big binary will 
     // need to have the lite binary for the native platform.
     // Technically we could get this by downgrading the big binary to a lite binary before embedding it, but this would 
     // be more complicated.
     let cargo = env::var("CARGO").unwrap(); // Use this to make sure we use the same cargo binary as the one we were called from (in case it isn't the default one)
+    // Build the lite binaries into a nested build folder. We can put all the different target
+    // builds into this same target folder, because cargo automatically makes a subfolder for each target
     let lite_target_dir = Path::new(&env::var("OUT_DIR").unwrap()).join("lite");
-    //TODO: pass through other arguments, like profile, features, etc.
-
-    let mut cargo_cmd = Command::new(cargo);
-    cargo_cmd.arg("build").arg("--bin").arg("rjrssync")
-        // Disable the progenitor feature, so that this is a lite binary
-        .arg("--no-default-features")
+    for target in EMBEDDED_BINARY_TARGET_TRIPLES {
         // Build the lite binaries into a nested build folder
-        .arg("--target-dir").arg(&lite_target_dir);
+   //     let lite_target_dir = Path::new(&env::var("OUT_DIR").unwrap()).join(format!("lite-{target}"));
 
-    // Prevent passing through environment variables that cargo has set for this build script.
-    // This leads to problems because the build script that cargo will call would then see these env vars
-    // which were not meant for it. Particularly the CARGO_FEATURE_progenitor var should NOT be set 
-    // for the child build script, but it IS set for us, and so it would be inherited and cause an infinitely
-    // recursive build!
-    // We do however want to pass through other environment variables, as the user may have other stuff set 
-    // that needs to be preserved.
-    cargo_cmd.env_clear().envs(
-        env::vars().filter(|&(ref v, _)| !v.starts_with("CARGO_")).collect::<HashMap<String, String>>());
+        let mut cargo_cmd = Command::new(&cargo);
+        cargo_cmd.arg("build").arg("--bin").arg("rjrssync")
+            // Disable the progenitor feature, so that this is a lite binary
+            .arg("--no-default-features")
+            .arg(format!("--target={target}"))
+            .arg("--target-dir").arg(&lite_target_dir);
+        //TODO: pass through other arguments, like profile, features, etc.
 
-    println!("Running {:?}", cargo_cmd);
-    let cargo_status = cargo_cmd.status().expect("Failed to run cargo");
-    assert!(cargo_status.success());
+        // Prevent passing through environment variables that cargo has set for this build script.
+        // This leads to problems because the build script that cargo will call would then see these env vars
+        // which were not meant for it. Particularly the CARGO_FEATURE_progenitor var should NOT be set 
+        // for the child build script, but it IS set for us, and so it would be inherited and cause an infinitely
+        // recursive build!
+        // We do however want to pass through other environment variables, as the user may have other stuff set 
+        // that needs to be preserved.
+        cargo_cmd.env_clear().envs(
+            env::vars().filter(|&(ref v, _)| !v.starts_with("CARGO_")).collect::<HashMap<String, String>>());
 
-    let lite_binary = lite_target_dir.join("debug").join("rjrssync.exe"); //TODO: get this from cargo properly, .e.g https://zameermanji.com/blog/2021/6/17/embedding-a-rust-binary-in-another-rust-binary/
+        println!("Running {:?}", cargo_cmd);
+        let cargo_status = cargo_cmd.status().expect("Failed to run cargo");
+        assert!(cargo_status.success());
 
-    // On Windows, we could embed the lite binaries as proper resources (Windows binaries have this concept),
-    // but this isn't a thing on Linux, so we choose to use the same approach for both and so don't use this Windows feature.
-    // Instead we append the embedded binaries as sections in the final binary (.exe/.elf) (both platforms
-    // have the concept of sections in their executable formats). Because we'll need to manipulate the binaries
-    // anyway at runtime when building a new big binary, we're gonna need to mess around with the sections anyway.
+        // We need the filename of the executable that cargo built, but this isn't easily findable as
+        // it depends on debug vs release and possibly other cargo implementation details that we don't 
+        // want to rely on. The "proper" way of getting this is to use the JSON output from cargo, but this
+        // is mutually exclusive with the regular (human) output. We want to keep the human output because
+        // it will contain useful error messages, so unfortunately we now have to run cargo _again_, to get 
+        // the JSON output. This should be fast though, because the build is already done.
+        cargo_cmd.arg("--message-format=json");
+        println!("Running {:?}", cargo_cmd);
+        let cargo_output = cargo_cmd.output().expect("Failed to run cargo");
+        assert!(cargo_output.status.success());
+        println!("JSON = {}...", &String::from_utf8_lossy(&cargo_output.stdout)[0..10]);
 
-    // #[cfg(windows)]
-    // {
-    //     // Generate a .rc file to define the resources that we want to include in the Windows binary
-    //     // First field is the resource name, then resource type (not sure how this matters, just using a custom string), then the path to the resource data
-    //     // Need to escape the backslashes for the .rc file to be interpreted correctly
-    //     let rc_contents = format!("EMBEDDED_LITE_BINARY BINARY \"{}\"", lite_binary.display().to_string().replace(r"\", r"\\"));
-    //     //let rc_contents = format!("EMBEDDED_LITE_BINARY BINARY \"{}\"", r"D:\\Programming\\Utilities\\rjrssync\\.gitignore");
-    //     let rc_file = Path::new(&env::var("OUT_DIR").unwrap()).join("embedded_binaries.rc");
-    //     std::fs::write(&rc_file, rc_contents).expect("Failed to write rc file");
+        continue;
 
-    //     embed_resource::compile_for(rc_file, &["rjrssync"]); // Build resources only into rjrssync (not any other binaries)
-    // }
+        let lite_binary = lite_target_dir.join("debug").join("rjrssync.exe"); //TODO: get this from cargo properly, .e.g https://zameermanji.com/blog/2021/6/17/embedding-a-rust-binary-in-another-rust-binary/
 
-    //println!("cargo:rustc-link-arg=/OPT:NOREF");
+        // On Windows, we could embed the lite binaries as proper resources (Windows binaries have this concept),
+        // but this isn't a thing on Linux, so we choose to use the same approach for both and so don't use this Windows feature.
+        // Instead we append the embedded binaries as sections in the final binary (.exe/.elf) (both platforms
+        // have the concept of sections in their executable formats). Because we'll need to manipulate the binaries
+        // anyway at runtime when building a new big binary, we're gonna need to mess around with the sections anyway.
 
-    let embedded_binary_size = std::fs::metadata(&lite_binary).unwrap().len();
+        // #[cfg(windows)]
+        // {
+        //     // Generate a .rc file to define the resources that we want to include in the Windows binary
+        //     // First field is the resource name, then resource type (not sure how this matters, just using a custom string), then the path to the resource data
+        //     // Need to escape the backslashes for the .rc file to be interpreted correctly
+        //     let rc_contents = format!("EMBEDDED_LITE_BINARY BINARY \"{}\"", lite_binary.display().to_string().replace(r"\", r"\\"));
+        //     //let rc_contents = format!("EMBEDDED_LITE_BINARY BINARY \"{}\"", r"D:\\Programming\\Utilities\\rjrssync\\.gitignore");
+        //     let rc_file = Path::new(&env::var("OUT_DIR").unwrap()).join("embedded_binaries.rc");
+        //     std::fs::write(&rc_file, rc_contents).expect("Failed to write rc file");
 
-    let generated_rs_contents = format!(
-    r#"
-        // Put it in a section that won't be optimised out (special name for MSVC, for resources,
-        // even though we are not actually using resources!)
-        #[link_section = ".rsrc1"] 
-        // We don't actually use this symbol anywhere - it's only used to get the embedded data into
-        // the big binary during the cargo build. When we need this data, we read it directly from the 
-        // exe, because this symbol won't be available in the lite binary build (for deploying from an already-deployed
-        // binary)
-        #[used]
-        //static EMBEDDED_DATA_TEST: [u8;16] = [ 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15];
-        static _EMBEDDED_DATA_TEST: [u8;{}] = *include_bytes!(r"{}");
-    "#, embedded_binary_size, lite_binary.display().to_string());
-    //let rc_contents = format!("EMBEDDED_LITE_BINARY BINARY \"{}\"", r"D:\\Programming\\Utilities\\rjrssync\\.gitignore");
-    let generated_rs_file = Path::new(&env::var("OUT_DIR").unwrap()).join("embedded_binaries.rs");
-    std::fs::write(&generated_rs_file, generated_rs_contents).expect("Failed to write generated rs file");
+        //     embed_resource::compile_for(rc_file, &["rjrssync"]); // Build resources only into rjrssync (not any other binaries)
+        // }
 
+        //println!("cargo:rustc-link-arg=/OPT:NOREF");
+
+        let embedded_binary_size = std::fs::metadata(&lite_binary).unwrap().len();
+
+        let generated_rs_contents = format!(
+        r#"
+            // Put it in a section that won't be optimised out (special name for MSVC, for resources,
+            // even though we are not actually using resources!)
+            #[link_section = ".rsrc1"] 
+            // We don't actually use this symbol anywhere - it's only used to get the embedded data into
+            // the big binary during the cargo build. When we need this data, we read it directly from the 
+            // exe, because this symbol won't be available in the lite binary build (for deploying from an already-deployed
+            // binary)
+            #[used]
+            //static EMBEDDED_DATA_TEST: [u8;16] = [ 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15];
+            static _EMBEDDED_DATA_TEST: [u8;{}] = *include_bytes!(r"{}");
+        "#, embedded_binary_size, lite_binary.display().to_string());
+        //let rc_contents = format!("EMBEDDED_LITE_BINARY BINARY \"{}\"", r"D:\\Programming\\Utilities\\rjrssync\\.gitignore");
+        let generated_rs_file = Path::new(&env::var("OUT_DIR").unwrap()).join("embedded_binaries.rs");
+        std::fs::write(&generated_rs_file, generated_rs_contents).expect("Failed to write generated rs file");
+    }
 }
 
