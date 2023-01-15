@@ -63,9 +63,6 @@ rand = "0.8.5"
 json = { version = "0.12.4"}
 
 [features]
-# By default, build a progenitor (a binary that includes copies of binaries for other platforms),
-# so that it can be easily deployed to other platforms
-default=["progenitor"] 
 profiling=["dep:json"]
 # If enabled (which it is by default), build a binary which contains "lite" binaries for 
 # other platforms, to enable easy deployment. If disabled, build a "lite" binary that doesn't
@@ -73,6 +70,12 @@ profiling=["dep:json"]
 # to become a "big binary", which is what happens when we create new big binaries for deploy.
 # A progenitor is always big, but big is not always a progenitor.
 progenitor=[] 
+# By default, build a progenitor (a binary that includes copies of binaries for other platforms),
+# so that it can be easily deployed to other platforms.
+# Also the guidance on Cargo features is to make them "additive", i.e. to add functionality not 
+# have a feature which removes functionality.
+# If you want to explicitly build a lite binary, then you have to pass --no-default-features
+default=["progenitor"] 
 
 # Note this is orthogonal to the profiling _feature_, and is for including symbols in a release build so that an
 # external profiling tool can be used.

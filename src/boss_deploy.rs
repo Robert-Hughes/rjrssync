@@ -90,7 +90,12 @@ pub fn deploy_to_remote(remote_hostname: &str, remote_user: &str, reason: &str, 
     let staging_dir = staging_dir.path().join("rjrssync");
 
     // Check if we can deploy a binary, as this will be a lot faster than deploying and building source
-    let target_triple = if is_windows { "x86_64-pc-windows-msvc" } else { "x86_64-unknown-linux-gnu" }; //TODO: too simple!
+    //TODO: too simple!
+    //TODO: we need to be "sure" that this is correct, otherwise if we mis-identify a target then we 
+    // will deploy a binary that won't work, and it will crash/explode when isntead we would want to fall
+    // back to deploying from source, so we would make things worse than current main!
+    //TODO: add detection of arm
+    let target_triple = if is_windows { "x86_64-pc-windows-msvc" } else { "x86_64-unknown-linux-gnu" }; 
     debug!("Target triple = {target_triple}");
     // Put the binary in the same place it would be if we built from source, for consistency
     let binary_folder = staging_dir.join("target").join("release");
