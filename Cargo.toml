@@ -60,16 +60,16 @@ rand = "0.8.5"
 json = { version = "0.12.4"}
 
 [features]
-# By default, build a big binary (so can be easily deployed to other platforms)
-default=["big_binary"] 
+# By default, build a progenitor (a binary that includes copies of binaries for other platforms),
+# so that it can be easily deployed to other platforms
+default=["progenitor"] 
 profiling=["dep:json"]
 # If enabled (which it is by default), build a binary which contains "lite" binaries for 
-# other platforms, to enable easy deployment. If enabled, build a "lite" binary that doesn'T
-# contain any embedded binaries.
-# This is a bit of a misnomer, as a build without this feature could be subsequently augmented
-# to become a big binary. TODO: rename this to be more like "progenitor", to distinguish it from "big"
+# other platforms, to enable easy deployment. If disabled, build a "lite" binary that doesn't
+# contain any embedded binaries. Note that a lite binary can be subsequently "augmented"
+# to become a "big binary", which is what happens when we create new big binaries for deploy.
 # A progenitor is always big, but big is not always a progenitor.
-big_binary=[] 
+progenitor=[] 
 
 # Note this is orthogonal to the profiling _feature_, and is for including symbols in a release build so that an
 # external profiling tool can be used.

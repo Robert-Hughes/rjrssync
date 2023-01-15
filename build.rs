@@ -8,10 +8,14 @@ use std::{env, process::Command, path::{Path}, collections::HashMap};
 /// to build all of the "lite" binaries for each target platform we want to embed, and then 
 /// gets these lite binaries embedded into the final binary, so that we end up with a big binary.
 fn main() {
+    // Pass on the target triple env var so that we can access this when compiling the main program
+    // (this isn't available there otherwise)
+    println!("cargo:rustc-env=TARGET={}", std::env::var("TARGET").unwrap());
+
     // If this isn't a big binary build, then we have nothing to do.
     // We need this check otherwise we will recurse forever as we call into cargo to build the lite 
     // binaries, which will run this script.
-    if env::var("CARGO_FEATURE_big_binary") != Ok("1".to_string()) {
+    if env::var("CARGO_FEATURE_progenitor") != Ok("1".to_string()) {
         return;
     }
 
@@ -28,14 +32,14 @@ fn main() {
 
     let mut cargo_cmd = Command::new(cargo);
     cargo_cmd.arg("build").arg("--bin").arg("rjrssync")
-        // Disable the big_binary feature, so that this is a lite binary
+        // Disable the progenitor feature, so that this is a lite binary
         .arg("--no-default-features")
         // Build the lite binaries into a nested build folder
         .arg("--target-dir").arg(&lite_target_dir);
 
     // Prevent passing through environment variables that cargo has set for this build script.
     // This leads to problems because the build script that cargo will call would then see these env vars
-    // which were not meant for it. Particularly the CARGO_FEATURE_big_binary var should NOT be set 
+    // which were not meant for it. Particularly the CARGO_FEATURE_progenitor var should NOT be set 
     // for the child build script, but it IS set for us, and so it would be inherited and cause an infinitely
     // recursive build!
     // We do however want to pass through other environment variables, as the user may have other stuff set 

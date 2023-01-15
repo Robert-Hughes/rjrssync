@@ -1,8 +1,9 @@
-use exe::{VecPE, ResourceDirectoryMut, PE, ImageSectionHeader, Buffer, SectionCharacteristics};
+use exe::{VecPE, PE, ImageSectionHeader, Buffer, SectionCharacteristics};
 use log::{debug, error, info};
 use rust_embed::RustEmbed;
 use std::borrow::Cow;
 use std::ffi::OsStr;
+use std::path::{Path};
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
@@ -30,11 +31,16 @@ struct EmbeddedSrcFolder;
 
 const EMBEDDED_CARGO_TOML : &'static str = include_str!("../Cargo.toml");
 const EMBEDDED_CARGO_LOCK : &[u8] = include_bytes!("../Cargo.lock");
+//TODO: include build.rs, otherwise can't build remotely!
+
+#[derive(PartialEq, Eq)]
+enum DeployMethod {
+    Source,
+    Binary
+}
 
 /// Deploys the source code of rjrssync to the given remote computer and builds it, ready to be executed.
 pub fn deploy_to_remote(remote_hostname: &str, remote_user: &str, reason: &str, needs_deploy_behaviour: NeedsDeployBehaviour) -> Result<(), ()> {
-    binary_bweeh();
-    
     // We're about to show a bunch of output from scp/ssh, so this log message may as well be the same severity,
     // so the user knows what's happening.
     info!("Deploying onto '{}'", &remote_hostname); 
@@ -46,75 +52,13 @@ pub fn deploy_to_remote(remote_hostname: &str, remote_user: &str, reason: &str, 
         remote_user.to_string() + "@"
     };
 
-    // Copy our embedded source tree to the remote, so we can build it there.
-    // (we can't simply copy the binary as it might not be compatible with the remote platform)
-    // We use the user's existing ssh/scp tool so that their config/settings will be used for
-    // logging in to the remote system (as opposed to using an ssh library called from our code).
-
-    // Extract embedded source code to a temporary local folder
-    let local_temp_dir = match TempDir::new("rjrssync") {
-        Ok(x) => x,
-        Err(e) => {
-            error!("Error creating temp dir: {}", e);
-            return Err(());
-        }
-    };
-    debug!(
-        "Extracting embedded source to local temp dir: {}",
-        local_temp_dir.path().display()
-    );
-    // Add cargo.lock/toml to the list of files we're about to extract.
-    // These aren't included in the src/ folder (see EmbeddedSrcFolder comments for reason)
-    let mut all_files_iter : Vec<(Cow<'static, str>, Cow<[u8]>)> = EmbeddedSrcFolder::iter().map(
-        |p| (p.clone(), EmbeddedSrcFolder::get(&p).unwrap().data)
-    ).collect();
-    // Cargo.toml has some special processing to remove lines that aren't relevant for remotely deployed
-    // copies
-    let mut processed_cargo_toml: Vec<u8> = vec![];
-    let mut in_non_remote_block = false;
-    for line in EMBEDDED_CARGO_TOML.lines() {
-        match line {
-            "#if NonRemote" => in_non_remote_block = true,
-            "#end" => in_non_remote_block = false,
-            l => if !in_non_remote_block {
-                processed_cargo_toml.extend_from_slice(l.as_bytes());
-                processed_cargo_toml.push(b'\n');
-            }
-        }
-    }
-    all_files_iter.push((Cow::from("Cargo.toml"), Cow::from(processed_cargo_toml)));
-    all_files_iter.push((Cow::from("Cargo.lock"), Cow::from(EMBEDDED_CARGO_LOCK)));
-    for (path, contents) in all_files_iter {
-        // Add an extra "rjrssync" folder with a fixed name (as opposed to the temp dir, whose name varies), to work around SCP weirdness below.
-        let local_temp_path = local_temp_dir.path().join("rjrssync").join(&*path);
-
-        if let Err(e) = std::fs::create_dir_all(local_temp_path.parent().unwrap()) {
-            error!("Error creating folders for local temp file '{}': {}", local_temp_path.display(), e);
-            return Err(());
-        }
-
-        let mut f = match std::fs::File::create(&local_temp_path) {
-            Ok(x) => x,
-            Err(e) => {
-                error!(
-                    "Error creating local temp file {}: {}",
-                    local_temp_path.display(),
-                    e
-                );
-                return Err(());
-            }
-        };
-
-        if let Err(e) = f.write_all(&contents) {
-            error!("Error writing local temp file: {}", e);
-            return Err(());
-        }
-    }
-
     // Determine if the target system is Windows or Linux, so that we know where to copy our files to
     // We run a command that doesn't print out anything on both Windows and Linux, so we don't pollute the output
     // (we show all output from ssh, in case it contains prompts etc. that are useful/required for the user to see).
     // Note the \n to send a two-line command - it seems Windows ignores this, but Linux runs it.
+    //TODO: also detect architecture etc.
+    //TODO: This isn't very robust, ideally we could share the logic that rustup-init.sh uses, but
+    // that doesn't work on Windows anyway...
     let remote_command = format!("echo >/dev/null # >nul & echo This is a Windows system\necho This is a Linux system");
     debug!("Running remote command: {}", remote_command);
     let os_test_output = match run_process_with_live_output("ssh", &[user_prefix.clone() + remote_hostname, remote_command.to_string()]) {
@@ -133,12 +77,104 @@ pub fn deploy_to_remote(remote_hostname: &str, remote_user: &str, reason: &str, 
     // so we fall back to Linux as a default
     let is_windows = os_test_output.contains("Windows");
 
+    // Temp staging folder for upload
+    let staging_dir = match TempDir::new("rjrssync-deploy-staging") {
+        Ok(x) => x,
+        Err(e) => {
+            error!("Error creating temp dir: {}", e);
+            return Err(());
+        }
+    };
+    // Add an extra "rjrssync" folder with a fixed name (as opposed to the temp dir, whose name varies), to work around SCP weirdness below.
+    let staging_dir = staging_dir.path().join("rjrssync");
+
+    // Check if we can deploy a binary, as this will be a lot faster than deploying and building source
+    let target_triple = if is_windows { "x86_64-pc-windows-msvc" } else { "x86_64-unknown-linux-gnu" }; //TODO: too simple!
+    debug!("Target triple = {target_triple}");
+    // Put the binary in the same place it would be if we built from source, for consistency
+    let binary_folder = staging_dir.join("target").join("release");
+    if let Err(e) = std::fs::create_dir_all(&binary_folder) {
+        error!("Error creating temp dir {}: {}", binary_folder.display(), e);
+        return Err(());
+    }
+    let output_binary = binary_folder.join("rjrssync.exe");
+    let deploy_method = match create_binary_for_target(target_triple, &output_binary) {
+        Ok(()) => {
+            debug!("Deploying binary {}", output_binary.display());
+            DeployMethod::Binary
+        },
+        Err(e) => {
+            //TODO: for some errors, do we want to just stop rather than automatically falling back ("hiding" the error)?
+            debug!("Can't deploy binary because {}. Deploying source instead.", e);
+
+            // Copy our embedded source tree to the remote, so we can build it there.
+            // (we can't simply copy the binary as it might not be compatible with the remote platform)
+            // We use the user's existing ssh/scp tool so that their config/settings will be used for
+            // logging in to the remote system (as opposed to using an ssh library called from our code).
+
+            // Extract embedded source code to a temporary local folder
+            debug!(
+                "Extracting embedded source to local temp dir: {}",
+                staging_dir.display()
+            );
+            // Add cargo.lock/toml to the list of files we're about to extract.
+            // These aren't included in the src/ folder (see EmbeddedSrcFolder comments for reason)
+            let mut all_files_iter : Vec<(Cow<'static, str>, Cow<[u8]>)> = EmbeddedSrcFolder::iter().map(
+                |p| (p.clone(), EmbeddedSrcFolder::get(&p).unwrap().data)
+            ).collect();
+            // Cargo.toml has some special processing to remove lines that aren't relevant for remotely deployed
+            // copies
+            let mut processed_cargo_toml: Vec<u8> = vec![];
+            let mut in_non_remote_block = false;
+            for line in EMBEDDED_CARGO_TOML.lines() {
+                match line {
+                    "#if NonRemote" => in_non_remote_block = true,
+                    "#end" => in_non_remote_block = false,
+                    l => if !in_non_remote_block {
+                        processed_cargo_toml.extend_from_slice(l.as_bytes());
+                        processed_cargo_toml.push(b'\n');
+                    }
+                }
+            }
+            all_files_iter.push((Cow::from("Cargo.toml"), Cow::from(processed_cargo_toml)));
+            all_files_iter.push((Cow::from("Cargo.lock"), Cow::from(EMBEDDED_CARGO_LOCK)));
+            for (path, contents) in all_files_iter {
+                let local_temp_path = staging_dir.join(&*path);
+
+                if let Err(e) = std::fs::create_dir_all(local_temp_path.parent().unwrap()) {
+                    error!("Error creating folders for local temp file '{}': {}", local_temp_path.display(), e);
+                    return Err(());
+                }
+
+                let mut f = match std::fs::File::create(&local_temp_path) {
+                    Ok(x) => x,
+                    Err(e) => {
+                        error!(
+                            "Error creating local temp file {}: {}",
+                            local_temp_path.display(),
+                            e
+                        );
+                        return Err(());
+                    }
+                };
+
+                if let Err(e) = f.write_all(&contents) {
+                    error!("Error writing local temp file: {}", e);
+                    return Err(());
+                }
+            }
+
+            DeployMethod::Source
+        }
+    };
+    
     let (remote_temp, remote_rjrssync_folder) = if is_windows {
         (REMOTE_TEMP_WINDOWS, format!("{REMOTE_TEMP_WINDOWS}\\rjrssync"))
     } else {
         (REMOTE_TEMP_UNIX, format!("{REMOTE_TEMP_UNIX}/rjrssync"))
     };
 
+    //TODO: this message needs updating, if we are deploying a binary
     // Confirm that the user is happy for us to deploy and build the code on the target. This might take a while
     // and might download cargo packages, so the user should probably be aware.
     let msg = format!("rjrssync needs to be deployed onto remote target {remote_hostname} because {reason}. \
@@ -163,11 +199,12 @@ pub fn deploy_to_remote(remote_hostname: &str, remote_user: &str, reason: &str, 
         }
         NeedsDeployBehaviour::Deploy => (), // Continue with deployment
     };
+ 
 
     // Deploy to remote target using scp
     // Note we need to deal with the case where the the remote folder doesn't exist, and the case where it does, so
     // we copy into /tmp (which should always exist), rather than directly to /tmp/rjrssync which may or may not
-    let source_spec = local_temp_dir.path().join("rjrssync");
+    let source_spec = staging_dir;
     let remote_spec = format!("{user_prefix}{remote_hostname}:{remote_temp}");
     debug!("Copying {} to {}", source_spec.display(), remote_spec);
     match run_process_with_live_output("scp", &[OsStr::new("-r"), source_spec.as_os_str(), OsStr::new(&remote_spec)]) {
@@ -184,39 +221,41 @@ pub fn deploy_to_remote(remote_hostname: &str, remote_user: &str, reason: &str, 
         }
     };
 
-    // Build the program remotely (using the cargo on the remote system)
-    // Note that we could merge this ssh command with the one to run the program once it's built (in launch_doer_via_ssh),
-    // but this would make error reporting slightly more difficult as the command in launch_doer_via_ssh is more tricky as
-    // we are parsing the stdout, but for the command here we can wait for it to finish easily.
-    let cargo_command = format!("cargo build --release{}",
-        if cfg!(feature="profiling") {
-            " --features=profiling" // If this is a profiling build, then turn on profiling on the remote side too
+    if deploy_method == DeployMethod::Source {
+        // Build the program remotely (using the cargo on the remote system)
+        // Note that we could merge this ssh command with the one to run the program once it's built (in launch_doer_via_ssh),
+        // but this would make error reporting slightly more difficult as the command in launch_doer_via_ssh is more tricky as
+        // we are parsing the stdout, but for the command here we can wait for it to finish easily.
+        let cargo_command = format!("cargo build --release{}",
+            if cfg!(feature="profiling") {
+                " --features=profiling" // If this is a profiling build, then turn on profiling on the remote side too
+            } else {
+                ""
+            });
+        let remote_command = if is_windows {
+            format!("cd /d {remote_rjrssync_folder} && {cargo_command}")
         } else {
-            ""
-        });
-    let remote_command = if is_windows {
-        format!("cd /d {remote_rjrssync_folder} && {cargo_command}")
-    } else {
-        // Attempt to load .profile first, as cargo might not be on the PATH otherwise.
-        // Still continue even if this fails, as it might not be available on this system.
-        // Note that the previous attempt to do this (using $SHELL -lc '...') wasn't as good as it runs bashrc,
-        // which is only meant for interative shells, but .profile is meant for scripts too.
-        format!("source ~/.profile; cd {remote_rjrssync_folder} && {cargo_command}")
-    };
-    debug!("Running remote command: {}", remote_command);
-    match run_process_with_live_output("ssh", &[user_prefix + remote_hostname, remote_command]) {
-        Err(e) => {
-            error!("Error running ssh: {}", e);
-            return Err(());
-        }
-        Ok(s) if s.exit_status.success() => {
-            // Good!
-        }
-        Ok(s) => {
-            error!("Error building on remote. Exit status from ssh: {}", s.exit_status);
-            return Err(());
-        }
-    };
+            // Attempt to load .profile first, as cargo might not be on the PATH otherwise.
+            // Still continue even if this fails, as it might not be available on this system.
+            // Note that the previous attempt to do this (using $SHELL -lc '...') wasn't as good as it runs bashrc,
+            // which is only meant for interative shells, but .profile is meant for scripts too.
+            format!("source ~/.profile; cd {remote_rjrssync_folder} && {cargo_command}")
+        };
+        debug!("Running remote command: {}", remote_command);
+        match run_process_with_live_output("ssh", &[user_prefix + remote_hostname, remote_command]) {
+            Err(e) => {
+                error!("Error running ssh: {}", e);
+                return Err(());
+            }
+            Ok(s) if s.exit_status.success() => {
+                // Good!
+            }
+            Ok(s) => {
+                error!("Error building on remote. Exit status from ssh: {}", s.exit_status);
+                return Err(());
+            }
+        };
+    }
 
     Ok(())
 }
@@ -356,6 +395,8 @@ where S : std::io::Read {
     }
 }
 
+/// Attempts to create an rjrssync binary that can be deployed to a target platform.
+/// 
 /// Binary embedding for quick deployment to new remotes.
 /// This is quite confusing because of the recursive resource embedding.
 /// We need to 'break the chain' to avoid a binary that contains itself (and thus is impossible).
@@ -376,7 +417,22 @@ where S : std::io::Read {
 /// 
 /// If the target platform is the same as the current one though, we can skip most of this and simply
 /// copy ourselves directly - no need to recreate what we already have.
-fn binary_bweeh() {
+fn create_binary_for_target(target_triple: &str, output_binary: &Path) -> Result<(), String> {
+    let current_exe = match std::env::current_exe() {
+        Ok(e) => e,
+        Err(e) => return Err(format!("Unable to get path to current exe: {e}"))
+    };
+
+    // If the target is simply the same as what we are already running on, we can use our current
+    // binary - no need to recreate what we already have.
+    // Note that the env var TARGET is set (forwarded) by us in build.rs
+    if target_triple == env!("TARGET") {
+        if let Err(e) = std::fs::copy(&current_exe, output_binary) {
+            return Err(format!("Unable to copy current exe {} to {}: {e}", current_exe.display(), output_binary.display()))
+        }
+        return Ok(());
+    }
+
     //TODO: proper error handling - fallback to source deploy?
 
     // https://0xrick.github.io/win-internals/pe5/
@@ -386,7 +442,7 @@ fn binary_bweeh() {
     // println!("EMBEDDED_DATA_TEST = {:?}", EMBEDDED_DATA_TEST);
 
     // Find the embedded lite binary for the target platform
-    let current_image = VecPE::from_disk_file(std::env::current_exe().expect("Failed to get current exe")).expect("Failed to parse EXE");
+    let current_image = VecPE::from_disk_file(current_exe).expect("Failed to parse EXE");
     let embedded_binary_section = current_image.get_section_by_name(".rsrc1").expect("Missing section");
     let embedded_binary_data = embedded_binary_section.read(&current_image).expect("Failed to read data").clone();
  //  println!("Embedded binary data {} {} {} {}", embedded_binary_data[0], embedded_binary_data[1], embedded_binary_data[3], embedded_binary_data[4]);
@@ -432,20 +488,21 @@ fn binary_bweeh() {
     // Note that we do need to include the lite binary for the native build, as this will be needed if 
     // the big binary is used to produce a new big binary for a different platform - that new big binary will 
     // need to have the lite binary for the native platform.
-    // Technically we could get this by downgrading the big binary to a lite binary before embedding it, but this would 
-    // be more complicated.
+    // Technically we could get this by downgrading the big binary to a lite binary before embedding it
+    // (by deleting the appended section), but this would be more complicated.
 
+    Err("wssup".to_string())
 }
 
 // For creating the initial big binary from Cargo, which needs to include all the embedded lite 
 // binaries.
-#[cfg(feature="big_binary")]
+#[cfg(feature="progenitor")]
 include!(concat!(env!("OUT_DIR"), "/embedded_binaries.rs"));
 
 
 // // Put it in a section that won't be optimised out (special name for MSVC, for resources,
 // // even though we are not actually using resources!)
-// #[cfg(feature="big_binary")]
+// #[cfg(feature="progenitor")]
 // #[link_section = ".rsrc1"] 
 // // We don't actually use this symbol anywhere - it's only used to get the embedded data into
 // // the big binary during the cargo build. When we need this data, we read it directly from the 
@@ -456,3 +513,14 @@ include!(concat!(env!("OUT_DIR"), "/embedded_binaries.rs"));
 // static EMBEDDED_DATA_TEST: [u8; 9010688] = *include_bytes!(concat!(env!("OUT_DIR"), "/lite/debug/rjrssync.exe"));
 // //static EMBEDDED_DATA_TEST2: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/lite/debug/rjrssync.exe"));
 
+
+//TODO: tests for both source deployment and binary deployment
+//TODO: source deployment will now be even slower, as the remote will need to build all of the embedded
+// lite binaries for different targets!
+//TODO: deploying a big binary to "less powerful"/slower targets may be bad because it will take
+// ages to copy the big binary there, and the benefits of having a fully-functional rjrssync.exe on
+// there may be minimal. Perhaps we do want the option(?) of deploying only a lite binary?
+// That might make a lot of this work redundant, as we would no longer need to generate new big binaries
+// on-demand, so wouldn't need to do all this section stuff.
+// Perhaps instead we focus on making the binary smaller, which would be good anyway?
+// One option could be to compress the embedded lite binaries.
