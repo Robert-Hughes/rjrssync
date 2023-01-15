@@ -1,4 +1,4 @@
-use exe::{VecPE, ResourceDirectoryMut, PE};
+use exe::{VecPE, ResourceDirectoryMut, PE, ImageSectionHeader, Buffer, SectionCharacteristics};
 use log::{debug, error, info};
 use rust_embed::RustEmbed;
 use std::borrow::Cow;
@@ -373,20 +373,53 @@ where S : std::io::Read {
 /// inside the lite binary for the target platform.
 ///
 /// Big_p = Lite_p + Embed(Lite_0, Lite_1, ..., Lite_n)
+/// 
+/// If the target platform is the same as the current one though, we can skip most of this and simply
+/// copy ourselves directly - no need to recreate what we already have.
 fn binary_bweeh() {
+    //TODO: proper error handling - fallback to source deploy?
+
     // https://0xrick.github.io/win-internals/pe5/
     // https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#the-rsrc-section
     // https://docs.rs/exe/latest/exe/index.html
+
+    // println!("EMBEDDED_DATA_TEST = {:?}", EMBEDDED_DATA_TEST);
+
+    // Find the embedded lite binary for the target platform
+    let current_image = VecPE::from_disk_file(std::env::current_exe().expect("Failed to get current exe")).expect("Failed to parse EXE");
+    let embedded_binary_section = current_image.get_section_by_name(".rsrc1").expect("Missing section");
+    let embedded_binary_data = embedded_binary_section.read(&current_image).expect("Failed to read data").clone();
+ //  println!("Embedded binary data {} {} {} {}", embedded_binary_data[0], embedded_binary_data[1], embedded_binary_data[3], embedded_binary_data[4]);
+   
     
-    let src_exe = "D:\\Programming\\Utilities\\rjrssync\\target\\debug\\rjrssync.exe";
-    let mut image = VecPE::from_disk_file(src_exe).unwrap();
+    // Create a new PE image for it
+    let mut new_image = VecPE::from_disk_data(embedded_binary_data);
+
+    // Extend it with the embedded lite binaries for all platforms, to turn it into a big binary
+    let mut new_section = ImageSectionHeader::default();
+    new_section.set_name(Some(".rsrc1")); // The special section name we use - needs to match other places TODO: use constant!
+    let mut new_section = new_image.append_section(&new_section).expect("Failed to append section");
+    new_section.size_of_raw_data = embedded_binary_data.len() as u32;
+    new_section.characteristics = SectionCharacteristics::CNT_INITIALIZED_DATA;
+    new_section.virtual_size = 0x1000; //TODO: this is needed for it to work, but not sure what it should be set to!
+
+    new_image.append(embedded_binary_data);
+
+    new_image.pad_to_alignment().expect("Failed to pad");
+    new_image.fix_image_size().expect("Failed to fix_image_size");
+
+    new_image.save("T:\\Temp\\rjrssync-inception\\rjrssync.exe").expect("Failed to save!");
     
-    println!("Section table = {:?}", image.get_section_table());
-    println!("Has resources? = {}", image.has_data_directory(exe::ImageDirectoryEntry::Resource));
-    println!("Sectoin rsrc? = {:?}", image.get_section_by_name(".rsrc"));
-    println!("Sectoin text? = {:?}", image.get_section_by_name(".text"));
+  //  let src_exe = "D:\\Programming\\Utilities\\rjrssync\\target\\debug\\rjrssync.exe";
+  //  let mut image = VecPE::from_disk_file(src_exe).unwrap();
+    
+ //   println!("Section table = {:?}", image.get_section_table());
+  //  println!("Has resources? = {}", image.has_data_directory(exe::ImageDirectoryEntry::Resource));
+ //   println!("Sectoin rsrc? = {:?}", image.get_section_by_name(".rsrc"));
+ //   println!("Sectoin text? = {:?}", image.get_section_by_name(".text"));
+ //   println!("Sectoin example_section_rob? = {:?}", image.get_section_by_name(".rsrc1"));
     //image.add_section(section)
-    let resources = ResourceDirectoryMut::parse(&mut image).unwrap();
+ //   let resources = ResourceDirectoryMut::parse(&mut image).unwrap();
 
     // Looks like we need to add a new section called ".rsrc"
     // Maybe also need to fill in the data directory entry for Resource, to point to that section.
@@ -395,4 +428,31 @@ fn binary_bweeh() {
 
     //TODO: add test that remotely deployed binary can then itself also remotely deploy (all binaries
     // are equal, no lite binaries every actually exist on disk)
+
+    // Note that we do need to include the lite binary for the native build, as this will be needed if 
+    // the big binary is used to produce a new big binary for a different platform - that new big binary will 
+    // need to have the lite binary for the native platform.
+    // Technically we could get this by downgrading the big binary to a lite binary before embedding it, but this would 
+    // be more complicated.
+
 }
+
+// For creating the initial big binary from Cargo, which needs to include all the embedded lite 
+// binaries.
+#[cfg(feature="big_binary")]
+include!(concat!(env!("OUT_DIR"), "/embedded_binaries.rs"));
+
+
+// // Put it in a section that won't be optimised out (special name for MSVC, for resources,
+// // even though we are not actually using resources!)
+// #[cfg(feature="big_binary")]
+// #[link_section = ".rsrc1"] 
+// // We don't actually use this symbol anywhere - it's only used to get the embedded data into
+// // the big binary during the cargo build. When we need this data, we read it directly from the 
+// // exe, because this symbol won't be available in the lite binary build (for deploying from an already-deployed
+// // binary)
+// #[used]
+// //static EMBEDDED_DATA_TEST: [u8;16] = [ 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15];
+// static EMBEDDED_DATA_TEST: [u8; 9010688] = *include_bytes!(concat!(env!("OUT_DIR"), "/lite/debug/rjrssync.exe"));
+// //static EMBEDDED_DATA_TEST2: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/lite/debug/rjrssync.exe"));
+

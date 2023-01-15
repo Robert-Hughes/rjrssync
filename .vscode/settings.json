@@ -1,5 +1,7 @@
 {
-"rust-analyzer.cargo.features": [
-    "profiling"
-]
+    // Don't build big-binary as it will take ages
+    "rust-analyzer.cargo.noDefaultFeatures": true,
+    "rust-analyzer.cargo.features": [
+        "profiling",
+    ]
 }
