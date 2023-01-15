@@ -16,6 +16,7 @@ use std::{
 use tempdir::TempDir;
 
 use crate::*;
+use embedded_binaries::EmbeddedBinaries;
 
 // This embeds the source code of the program into the executable, so it can be deployed remotely and built on other platforms.
 // We only include the src/ folder using this crate, and the Cargo.toml/lock files are included separately.
@@ -427,6 +428,7 @@ fn create_binary_for_target(target_triple: &str, output_binary: &Path) -> Result
     // binary - no need to recreate what we already have.
     // Note that the env var TARGET is set (forwarded) by us in build.rs
     if target_triple == env!("TARGET") {
+        debug!("Target platform is same as native platform - copying current executable");
         if let Err(e) = std::fs::copy(&current_exe, output_binary) {
             return Err(format!("Unable to copy current exe {} to {}: {e}", current_exe.display(), output_binary.display()))
         }
@@ -434,72 +436,66 @@ fn create_binary_for_target(target_triple: &str, output_binary: &Path) -> Result
     }
 
     // Get the embedded binaries from the current executables
-    let embedded_binary_data = get_embedded_binaries(&current_exe)?;
+    let embedded_binaries_data = get_embedded_binaries_data(&current_exe)?;
 
-    // Extract the binary data for the target platform
-    let target_platform_binary = embedded_binary_data.clone();
-    
+    // Extract the binary data for the specific target platform
+    // This isn't very efficient - we're loading every single binary into memory, and then only using one of them.
+    // But the binaries should be quite small, so this should be fine.
+    let embedded_binaries : EmbeddedBinaries = bincode::deserialize(&embedded_binaries_data).map_err(|e| format!("Error deserializing embedded binaries: {e}"))?;
+    let target_platform_binary = match embedded_binaries.binaries.iter().find(|b| b.target_triple == target_triple) {
+        Some(b) => &b.data,
+        None => return Err(format!("No embedded binary for target triple {target_triple}")),
+    };
+   
     // Create new executable for the target platform
+    debug!("Found embedded binary, extracting and upgrading it to a big binary");
     if target_triple.contains("windows") {
         // Create a new PE image for it
         let mut new_image = VecPE::from_disk_data(&target_platform_binary);
 
         // Extend it with the embedded lite binaries for all platforms, to turn it into a big binary
+        // Note that we do need to include the lite binary for the native build, as this will be needed if 
+        // the big binary is used to produce a new big binary for a different platform - that new big binary will 
+        // need to have the lite binary for the native platform.
+        // Technically we could get this by downgrading the big binary to a lite binary before embedding it
+        // (by deleting the appended section), but this would be more complicated.
         let mut new_section = ImageSectionHeader::default();
         new_section.set_name(Some(".rsrc1")); // The special section name we use - needs to match other places TODO: use constant!
-        let mut new_section = new_image.append_section(&new_section).map_err(|e| e.to_string())?;
-        new_section.size_of_raw_data = embedded_binary_data.len() as u32;
+        let mut new_section = new_image.append_section(&new_section).map_err(|e| format!("Error appending section: {e}"))?;
+        new_section.size_of_raw_data = embedded_binaries_data.len() as u32;
         new_section.characteristics = SectionCharacteristics::CNT_INITIALIZED_DATA;
         new_section.virtual_size = 0x1000; //TODO: this is needed for it to work, but not sure what it should be set to!
 
-        new_image.append(embedded_binary_data);
+        new_image.append(embedded_binaries_data);
 
-        new_image.pad_to_alignment().map_err(|e| e.to_string())?;
-        new_image.fix_image_size().map_err(|e| e.to_string())?;
+        new_image.pad_to_alignment().map_err(|e| format!("Error in pad_to_alignment: {e}"))?;
+        new_image.fix_image_size().map_err(|e| format!("Error in fix_image_size: {e}"))?;
 
-        new_image.save(output_binary).map_err(|e| e.to_string())?;
-
-        Ok(())
+        new_image.save(output_binary).map_err(|e| format!("Error saving new exe: {e}"))?;
     } else {
-        Err("Unsupported target platform".to_string())
+        return Err("Unsupported target platform".to_string())
     }
-  //  let src_exe = "D:\\Programming\\Utilities\\rjrssync\\target\\debug\\rjrssync.exe";
-  //  let mut image = VecPE::from_disk_file(src_exe).unwrap();
-    
- //   println!("Section table = {:?}", image.get_section_table());
-  //  println!("Has resources? = {}", image.has_data_directory(exe::ImageDirectoryEntry::Resource));
- //   println!("Sectoin rsrc? = {:?}", image.get_section_by_name(".rsrc"));
- //   println!("Sectoin text? = {:?}", image.get_section_by_name(".text"));
- //   println!("Sectoin example_section_rob? = {:?}", image.get_section_by_name(".rsrc1"));
-    //image.add_section(section)
- //   let resources = ResourceDirectoryMut::parse(&mut image).unwrap();
-
-    // Looks like we need to add a new section called ".rsrc"
-    // Maybe also need to fill in the data directory entry for Resource, to point to that section.
-    // Not sure though, as it looks like this might be for things that need loading into memory, and resources
-    // probably shouldn't be always loaded into memory, so maybe we skip this?
-
-    //TODO: add test that remotely deployed binary can then itself also remotely deploy (all binaries
-    // are equal, no lite binaries every actually exist on disk)
-
-    // Note that we do need to include the lite binary for the native build, as this will be needed if 
-    // the big binary is used to produce a new big binary for a different platform - that new big binary will 
-    // need to have the lite binary for the native platform.
-    // Technically we could get this by downgrading the big binary to a lite binary before embedding it
-    // (by deleting the appended section), but this would be more complicated.
-
+    debug!("Created big binary at {}", output_binary.display());
+    Ok(())
 }
 
-#[cfg(windows)]
-fn get_embedded_binaries(exe_path: &Path) -> Result<Vec<u8>, String> {
-    // https://0xrick.github.io/win-internals/pe5/
-    // https://learn.microsoft.com/en-us/windows/win32/debug/pe-format
-    // https://docs.rs/exe/latest/exe/index.html
+// Parses the currently running executable file to get the section containing the embedded binaries table.
+fn get_embedded_binaries_data(exe_path: &Path) -> Result<Vec<u8>, String> {
+    #[cfg(windows)]
+    {
+        // https://0xrick.github.io/win-internals/pe5/
+        // https://learn.microsoft.com/en-us/windows/win32/debug/pe-format
+        // https://docs.rs/exe/latest/exe/index.html
 
-    // Find the embedded lite binary for the target platform
-    let current_image = VecPE::from_disk_file(exe_path).map_err(|e| e.to_string())?;
-    let embedded_binary_section = current_image.get_section_by_name(".rsrc1").map_err(|e| e.to_string())?;
-    Ok(embedded_binary_section.read(&current_image).map_err(|e| e.to_string())?.to_vec())
+        let current_image = VecPE::from_disk_file(exe_path).map_err(|e| format!("Error loading current exe: {e}"))?;
+        let embedded_binary_section = current_image.get_section_by_name(".rsrc1").map_err(|e| format!("Error getting section from current exe: {e}"))?;
+        let embedded_binaries_data = embedded_binary_section.read(&current_image).map_err(|e| format!("Error reading embedded binaries section: {e}"))?;
+        Ok(embedded_binaries_data.to_vec())
+    }
+    #[cfg(unix)]
+    {
+        Err("Not supported on Linux yet".to_string())
+    }
 }
 
 // For creating the initial big binary from Cargo, which needs to include all the embedded lite 
@@ -534,3 +530,7 @@ include!(concat!(env!("OUT_DIR"), "/embedded_binaries.rs"));
 // on-demand, so wouldn't need to do all this section stuff.
 // Perhaps instead we focus on making the binary smaller, which would be good anyway?
 // One option could be to compress the embedded lite binaries.
+
+    //TODO: add test that remotely deployed binary can then itself also remotely deploy (all binaries
+    // are equal, no lite binaries every actually exist on disk)
+

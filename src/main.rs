@@ -3,6 +3,7 @@ use std::process::ExitCode;
 mod boss_frontend;
 mod boss_launch;
 mod boss_deploy;
+mod embedded_binaries;
 mod boss_sync;
 mod entries_list;
 mod histogram;

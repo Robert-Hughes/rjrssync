@@ -28,6 +28,7 @@ Remote launching
 * Sometimes see "ssh stderr: mesg: ttyname failed: Inappropriate ioctl for device" when deploying to remote (I think on 'F**A' platforms). Can we hide this using "-T" for example?
 * Launching on a new system can take a while, even if cargo is already installed, and if cargo isn't installed, this is an extra step for the user. Pre-built binaries?
 * The prompt messages don't account for --dry-run, so it will look like things are actually going to be deleted, when they're not
+* Statically link against c runtime? For more portable binary?
 
 Syncing logic
 -------------

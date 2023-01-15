@@ -11,7 +11,10 @@ categories = [ "command-line-utilities", "development-tools", "filesystem" ]
 autotests = false # Otherwise our shared test utility code will be considered as test programs
 
 [build-dependencies]
-embed-resource = "1.6"
+json = "0.12.4"
+bincode = "1.3.3"
+serde = { version = "1.0.152", features = ["derive"] }
+serde_bytes = "0.11.8"
 
 [dependencies]
 clap = { version = "4.1.1", features = ["derive"] }
