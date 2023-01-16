@@ -51,13 +51,13 @@ fn main() {
     let cargo = env::var("CARGO").unwrap(); // Use this to make sure we use the same cargo binary as the one we were called from (in case it isn't the default one)
     // Build the lite binaries into a nested build folder. We can put all the different target
     // builds into this same target folder, because cargo automatically makes a subfolder for each target
+    //TODO: even though this works, cargo seems to be doing rebuilds when nothing has changed, so maybe 
+    // putting them in separate target folders would lead to better rebuild behaviour?
     let lite_target_dir = Path::new(&env::var("OUT_DIR").unwrap()).join("lite");
     let mut embedded_binaries = EmbeddedBinaries::default();
     for target_triple in EMBEDDED_BINARY_TARGET_TRIPLES {
-        // Build the lite binaries into a nested build folder
-   //     let lite_target_dir = Path::new(&env::var("OUT_DIR").unwrap()).join(format!("lite-{target}"));
-
-        //TODO: this should be a release build!
+        //TODO: this should be a release build? Or should it match the binary being built...?
+        // for remote source builds, we still always build release for the remote so not sure.
         let mut cargo_cmd = Command::new(&cargo);
         cargo_cmd.arg("build").arg("--bin").arg("rjrssync")
             // Disable the progenitor feature, so that this is a lite binary

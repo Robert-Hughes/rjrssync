@@ -437,6 +437,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "elf-utilities"
+version = "0.2.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "928c835c11b4212d3e3bbcb528612d182f1cad4582449ff4314ff2cb95fa14fe"
+dependencies = [
+ "bincode",
+ "serde",
+ "thiserror",
+]
+
+[[package]]
 name = "encode_unicode"
 version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1039,6 +1050,7 @@ dependencies = [
  "const_format",
  "crossbeam",
  "dialoguer",
+ "elf-utilities",
  "env_logger",
  "exe",
  "filetime",

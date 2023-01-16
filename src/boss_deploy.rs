@@ -1,3 +1,4 @@
+use elf_utilities::section::Shdr64;
 use exe::{VecPE, PE, ImageSectionHeader, Buffer, SectionCharacteristics};
 use log::{debug, error, info};
 use rust_embed::RustEmbed;
@@ -95,7 +96,7 @@ pub fn deploy_to_remote(remote_hostname: &str, remote_user: &str, reason: &str, 
     // will deploy a binary that won't work, and it will crash/explode when isntead we would want to fall
     // back to deploying from source, so we would make things worse than current main!
     //TODO: add detection of arm
-    let target_triple = if is_windows { "x86_64-pc-windows-msvc" } else { "x86_64-unknown-linux-gnu" }; 
+    let target_triple = if is_windows { "x86_64-pc-windows-msvc" } else { "x86_64-unknown-linux-musl" }; 
     debug!("Target triple = {target_triple}");
     // Put the binary in the same place it would be if we built from source, for consistency
     let binary_folder = staging_dir.join("target").join("release");
@@ -103,10 +104,13 @@ pub fn deploy_to_remote(remote_hostname: &str, remote_user: &str, reason: &str, 
         error!("Error creating temp dir {}: {}", binary_folder.display(), e);
         return Err(());
     }
-    let output_binary = binary_folder.join("rjrssync.exe");
-    let deploy_method = match create_binary_for_target(target_triple, &output_binary) {
+    let mut output_binary_filename = binary_folder.join("rjrssync");
+    if is_windows {
+        output_binary_filename.set_extension("exe");
+    }
+    let deploy_method = match create_binary_for_target(target_triple, &output_binary_filename) {
         Ok(()) => {
-            debug!("Deploying binary {}", output_binary.display());
+            debug!("Deploying binary {}", output_binary_filename.display());
             DeployMethod::Binary
         },
         Err(e) => {
@@ -180,12 +184,16 @@ pub fn deploy_to_remote(remote_hostname: &str, remote_user: &str, reason: &str, 
         (REMOTE_TEMP_UNIX, format!("{REMOTE_TEMP_UNIX}/rjrssync"))
     };
 
-    //TODO: this message needs updating, if we are deploying a binary
     // Confirm that the user is happy for us to deploy and build the code on the target. This might take a while
     // and might download cargo packages, so the user should probably be aware.
-    let msg = format!("rjrssync needs to be deployed onto remote target {remote_hostname} because {reason}. \
-        This will require downloading some cargo packages and building the program on the remote target. \
-        It will be deployed into the folder '{remote_rjrssync_folder}'");
+    let msg = match deploy_method {
+        DeployMethod::Source => format!("rjrssync needs to be deployed onto remote target {remote_hostname} because {reason}. \
+            This will require downloading some cargo packages and building the program on the remote target. \
+            It will be deployed into the folder '{remote_rjrssync_folder}'"),
+        DeployMethod::Binary => format!("rjrssync needs to be deployed onto remote target {remote_hostname} because {reason}. \
+            A pre-built binary will be copied onto the remote target. \
+            It will be deployed into the folder '{remote_rjrssync_folder}'"),
+    };
     let resolved_behaviour = match needs_deploy_behaviour {
         NeedsDeployBehaviour::Prompt => {
             let prompt_result = resolve_prompt(format!("{msg}. What do?"),
@@ -227,7 +235,26 @@ pub fn deploy_to_remote(remote_hostname: &str, remote_user: &str, reason: &str, 
         }
     };
 
-    if deploy_method == DeployMethod::Source {
+    if deploy_method == DeployMethod::Binary {
+        // Make sure the remote exe is executable (on Linux this is required)
+        if !is_windows {
+            let remote_command = format!("cd {remote_rjrssync_folder} && chmod +x target/release/rjrssync");
+            debug!("Running remote command: {}", remote_command);
+            match run_process_with_live_output("ssh", &[user_prefix + remote_hostname, remote_command]) {
+                Err(e) => {
+                    error!("Error running ssh: {}", e);
+                    return Err(());
+                }
+                Ok(s) if s.exit_status.success() => {
+                    // Good!
+                }
+                Ok(s) => {
+                    error!("Error setting executable bit. Exit status from ssh: {}", s.exit_status);
+                    return Err(());
+                }
+            };    
+        }
+    } else if deploy_method == DeployMethod::Source {
         // Build the program remotely (using the cargo on the remote system)
         // Note that we could merge this ssh command with the one to run the program once it's built (in launch_doer_via_ssh),
         // but this would make error reporting slightly more difficult as the command in launch_doer_via_ssh is more tricky as
@@ -423,7 +450,7 @@ where S : std::io::Read {
 /// 
 /// If the target platform is the same as the current one though, we can skip most of this and simply
 /// copy ourselves directly - no need to recreate what we already have.
-fn create_binary_for_target(target_triple: &str, output_binary: &Path) -> Result<(), String> {
+fn create_binary_for_target(target_triple: &str, output_binary_filename: &Path) -> Result<(), String> {
     let current_exe = match std::env::current_exe() {
         Ok(e) => e,
         Err(e) => return Err(format!("Unable to get path to current exe: {e}"))
@@ -434,8 +461,8 @@ fn create_binary_for_target(target_triple: &str, output_binary: &Path) -> Result
     // Note that the env var TARGET is set (forwarded) by us in build.rs
     if target_triple == env!("TARGET") {
         debug!("Target platform is same as native platform - copying current executable");
-        if let Err(e) = std::fs::copy(&current_exe, output_binary) {
-            return Err(format!("Unable to copy current exe {} to {}: {e}", current_exe.display(), output_binary.display()))
+        if let Err(e) = std::fs::copy(&current_exe, output_binary_filename) {
+            return Err(format!("Unable to copy current exe {} to {}: {e}", current_exe.display(), output_binary_filename.display()))
         }
         return Ok(());
     }
@@ -447,13 +474,40 @@ fn create_binary_for_target(target_triple: &str, output_binary: &Path) -> Result
     // This isn't very efficient - we're loading every single binary into memory, and then only using one of them.
     // But the binaries should be quite small, so this should be fine.
     let embedded_binaries : EmbeddedBinaries = bincode::deserialize(&embedded_binaries_data).map_err(|e| format!("Error deserializing embedded binaries: {e}"))?;
-    let target_platform_binary = match embedded_binaries.binaries.iter().find(|b| b.target_triple == target_triple) {
-        Some(b) => &b.data,
+    let target_platform_binary = match embedded_binaries.binaries.into_iter().find(|b| b.target_triple == target_triple) {
+        Some(b) => b.data,
         None => return Err(format!("No embedded binary for target triple {target_triple}")),
     };
    
     // Create new executable for the target platform
     debug!("Found embedded binary, extracting and upgrading it to a big binary");
+    create_big_binary(&output_binary_filename, target_triple, target_platform_binary, embedded_binaries_data)?;
+    debug!("Created big binary at {}", output_binary_filename.display());
+    Ok(())
+}
+
+// Parses the currently running executable file to get the section containing the embedded binaries table.
+fn get_embedded_binaries_data(exe_path: &Path) -> Result<Vec<u8>, String> {
+    #[cfg(windows)]
+    {
+        // https://0xrick.github.io/win-internals/pe5/
+        // https://learn.microsoft.com/en-us/windows/win32/debug/pe-format
+        // https://docs.rs/exe/latest/exe/index.html
+
+        let current_image = VecPE::from_disk_file(exe_path).map_err(|e| format!("Error loading current exe: {e}"))?;
+        //TODO: constant for section name
+        let embedded_binary_section = current_image.get_section_by_name(".rsrc1").map_err(|e| format!("Error getting section from current exe: {e}"))?;
+        let embedded_binaries_data = embedded_binary_section.read(&current_image).map_err(|e| format!("Error reading embedded binaries section: {e}"))?;
+        Ok(embedded_binaries_data.to_vec())
+    }
+    #[cfg(unix)]
+    {
+        Err("Not supported on Linux yet".to_string())
+    }
+}
+
+fn create_big_binary(output_binary_filename: &Path, target_triple: &str, target_platform_binary: Vec<u8>, embedded_binaries_data: Vec<u8>) ->
+    Result<(), String> {
     if target_triple.contains("windows") {
         // Create a new PE image for it
         let mut new_image = VecPE::from_disk_data(&target_platform_binary);
@@ -476,30 +530,26 @@ fn create_binary_for_target(target_triple: &str, output_binary: &Path) -> Result
         new_image.pad_to_alignment().map_err(|e| format!("Error in pad_to_alignment: {e}"))?;
         new_image.fix_image_size().map_err(|e| format!("Error in fix_image_size: {e}"))?;
 
-        new_image.save(output_binary).map_err(|e| format!("Error saving new exe: {e}"))?;
+        new_image.save(output_binary_filename).map_err(|e| format!("Error saving new exe: {e}"))?;
+
+        Ok(())
+    } else if target_triple.contains("linux") {
+        // Save the lite binary to a file, as the elf_utilities crate can't parse from memory
+        std::fs::write(output_binary_filename, target_platform_binary).map_err(|e| format!("Error saving elf: {e}"))?;
+
+        let mut elf = elf_utilities::parser::parse_elf64(&output_binary_filename.to_string_lossy()).map_err(|e| format!("Error parsing elf: {e}"))?;
+        elf.add_section(elf_utilities::section::Section64 { 
+            name: ".rsrc1".to_string(), 
+            header: Shdr64 { ..Default::default() }, 
+            contents: elf_utilities::section::Contents64::Raw(embedded_binaries_data), 
+        });
+        //TODO: the elf file created seems to be pretty messed up :O (readelf -e)
+        
+        std::fs::write(output_binary_filename, elf.to_le_bytes()).map_err(|e| format!("Error saving elf: {e}"))?;       
+
+        Ok(())
     } else {
-        return Err("Unsupported target platform".to_string())
-    }
-    debug!("Created big binary at {}", output_binary.display());
-    Ok(())
-}
-
-// Parses the currently running executable file to get the section containing the embedded binaries table.
-fn get_embedded_binaries_data(exe_path: &Path) -> Result<Vec<u8>, String> {
-    #[cfg(windows)]
-    {
-        // https://0xrick.github.io/win-internals/pe5/
-        // https://learn.microsoft.com/en-us/windows/win32/debug/pe-format
-        // https://docs.rs/exe/latest/exe/index.html
-
-        let current_image = VecPE::from_disk_file(exe_path).map_err(|e| format!("Error loading current exe: {e}"))?;
-        let embedded_binary_section = current_image.get_section_by_name(".rsrc1").map_err(|e| format!("Error getting section from current exe: {e}"))?;
-        let embedded_binaries_data = embedded_binary_section.read(&current_image).map_err(|e| format!("Error reading embedded binaries section: {e}"))?;
-        Ok(embedded_binaries_data.to_vec())
-    }
-    #[cfg(unix)]
-    {
-        Err("Not supported on Linux yet".to_string())
+        Err("No executable generating code for this platform".to_string())
     }
 }
 
@@ -507,21 +557,6 @@ fn get_embedded_binaries_data(exe_path: &Path) -> Result<Vec<u8>, String> {
 // binaries.
 #[cfg(feature="progenitor")]
 include!(concat!(env!("OUT_DIR"), "/embedded_binaries.rs"));
-
-
-// // Put it in a section that won't be optimised out (special name for MSVC, for resources,
-// // even though we are not actually using resources!)
-// #[cfg(feature="progenitor")]
-// #[link_section = ".rsrc1"] 
-// // We don't actually use this symbol anywhere - it's only used to get the embedded data into
-// // the big binary during the cargo build. When we need this data, we read it directly from the 
-// // exe, because this symbol won't be available in the lite binary build (for deploying from an already-deployed
-// // binary)
-// #[used]
-// //static EMBEDDED_DATA_TEST: [u8;16] = [ 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15];
-// static EMBEDDED_DATA_TEST: [u8; 9010688] = *include_bytes!(concat!(env!("OUT_DIR"), "/lite/debug/rjrssync.exe"));
-// //static EMBEDDED_DATA_TEST2: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/lite/debug/rjrssync.exe"));
-
 
 //TODO: tests for both source deployment and binary deployment
 //TODO: tests for different combinations of platforms, as there are different executable formats.
@@ -536,6 +571,6 @@ include!(concat!(env!("OUT_DIR"), "/embedded_binaries.rs"));
 // Perhaps instead we focus on making the binary smaller, which would be good anyway?
 // One option could be to compress the embedded lite binaries.
 
-    //TODO: add test that remotely deployed binary can then itself also remotely deploy (all binaries
-    // are equal, no lite binaries every actually exist on disk)
+//TODO: add test that remotely deployed binary can then itself also remotely deploy (all binaries
+// are equal, no lite binaries every actually exist on disk)
 
