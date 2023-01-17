@@ -1,4 +1,3 @@
-use elf_utilities::section::Shdr64;
 use exe::{VecPE, PE, ImageSectionHeader, Buffer, SectionCharacteristics};
 use log::{debug, error, info};
 use rust_embed::RustEmbed;
@@ -502,7 +501,9 @@ fn get_embedded_binaries_data(exe_path: &Path) -> Result<Vec<u8>, String> {
     }
     #[cfg(unix)]
     {
-        Err("Not supported on Linux yet".to_string())
+        let current_image = std::fs::read(exe_path).map_err(|e| format!("Error loading current exe: {e}"))?;
+        let embedded_binaries_data = exe_utils::extract_section_from_elf(current_image, ".rsrc1")?; //TODO: make constant
+        Ok(embedded_binaries_data)
     }
 }
 
@@ -541,34 +542,6 @@ fn create_big_binary(output_binary_filename: &Path, target_triple: &str, target_
         let new_elf = exe_utils::add_section_to_elf(target_platform_binary, ".rsrc1", embedded_binaries_data)?;
         std::fs::write(output_binary_filename, new_elf).map_err(|e| format!("Error saving elf: {e}"))?;       
    
- /*       // Save the lite binary to a file, as the elf_utilities crate can't parse from memory
-        std::fs::write(output_binary_filename, target_platform_binary).map_err(|e| format!("Error saving elf: {e}"))?;
-
-        let mut elf = elf_utilities::parser::parse_elf64(&output_binary_filename.to_string_lossy()).map_err(|e| format!("Error parsing elf: {e}"))?;
-        
-        // Pad the embedded data to a nice multiple, otherwise the elf_utilities library will produce
-        // an invalid ELF
-        let new_length = ((embedded_binaries_data.len() - 1) / 64 + 1) * 64;
-        embedded_binaries_data.resize(new_length, 0);
-        elf.add_section(elf_utilities::section::Section64 { 
-            name: ".rsrc1".to_string(), 
-            header: Shdr64 { 
-                sh_name: 0, // Filled in for us by add_section 
-                sh_type: elf_utilities::section::Type::Note.into(), 
-                sh_flags: 0,
-                sh_addr: 0, 
-                sh_offset: 0,  // Filled in for us by add_section
-                sh_size: 0,  // Filled in for us by add_section
-                sh_link: 0, 
-                sh_info: 0, 
-                sh_addralign: 0, 
-                sh_entsize: 0 }, 
-            contents: elf_utilities::section::Contents64::Raw(embedded_binaries_data), 
-        });
-        //TODO: the elf file created seems to be pretty messed up :O (readelf -e)
-        
-        std::fs::write(output_binary_filename, elf.to_le_bytes()).map_err(|e| format!("Error saving elf: {e}"))?;       
-*/
         Ok(())
     } else {
         Err("No executable generating code for this platform".to_string())
