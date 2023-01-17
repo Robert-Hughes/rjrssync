@@ -506,12 +506,13 @@ fn get_embedded_binaries_data(exe_path: &Path) -> Result<Vec<u8>, String> {
     }
 }
 
-fn create_big_binary(output_binary_filename: &Path, target_triple: &str, target_platform_binary: Vec<u8>, embedded_binaries_data: Vec<u8>) ->
+fn create_big_binary(output_binary_filename: &Path, target_triple: &str, target_platform_binary: Vec<u8>, mut embedded_binaries_data: Vec<u8>) ->
     Result<(), String> {
     if target_triple.contains("windows") {
         // Create a new PE image for it
         let mut new_image = VecPE::from_disk_data(&target_platform_binary);
 
+        //TODO: could we use the `object` crate for EXEs as well, so that we only need one dependency?
         // Extend it with the embedded lite binaries for all platforms, to turn it into a big binary
         // Note that we do need to include the lite binary for the native build, as this will be needed if 
         // the big binary is used to produce a new big binary for a different platform - that new big binary will 
@@ -534,19 +535,40 @@ fn create_big_binary(output_binary_filename: &Path, target_triple: &str, target_
 
         Ok(())
     } else if target_triple.contains("linux") {
-        // Save the lite binary to a file, as the elf_utilities crate can't parse from memory
+        //TODO: use the `object` crate? Might need to build a "new" elf file, but can do this by simply adding
+        // all sections with raw data, so should be quite simple?
+
+        let new_elf = exe_utils::add_section_to_elf(target_platform_binary, ".rsrc1", embedded_binaries_data)?;
+        std::fs::write(output_binary_filename, new_elf).map_err(|e| format!("Error saving elf: {e}"))?;       
+   
+ /*       // Save the lite binary to a file, as the elf_utilities crate can't parse from memory
         std::fs::write(output_binary_filename, target_platform_binary).map_err(|e| format!("Error saving elf: {e}"))?;
 
         let mut elf = elf_utilities::parser::parse_elf64(&output_binary_filename.to_string_lossy()).map_err(|e| format!("Error parsing elf: {e}"))?;
+        
+        // Pad the embedded data to a nice multiple, otherwise the elf_utilities library will produce
+        // an invalid ELF
+        let new_length = ((embedded_binaries_data.len() - 1) / 64 + 1) * 64;
+        embedded_binaries_data.resize(new_length, 0);
         elf.add_section(elf_utilities::section::Section64 { 
             name: ".rsrc1".to_string(), 
-            header: Shdr64 { ..Default::default() }, 
+            header: Shdr64 { 
+                sh_name: 0, // Filled in for us by add_section 
+                sh_type: elf_utilities::section::Type::Note.into(), 
+                sh_flags: 0,
+                sh_addr: 0, 
+                sh_offset: 0,  // Filled in for us by add_section
+                sh_size: 0,  // Filled in for us by add_section
+                sh_link: 0, 
+                sh_info: 0, 
+                sh_addralign: 0, 
+                sh_entsize: 0 }, 
             contents: elf_utilities::section::Contents64::Raw(embedded_binaries_data), 
         });
         //TODO: the elf file created seems to be pretty messed up :O (readelf -e)
         
         std::fs::write(output_binary_filename, elf.to_le_bytes()).map_err(|e| format!("Error saving elf: {e}"))?;       
-
+*/
         Ok(())
     } else {
         Err("No executable generating code for this platform".to_string())

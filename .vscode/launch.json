@@ -21,7 +21,7 @@
                     "kind": "bin"
                 }
             },
-            "args": [ "T:\\Source\\", "T:\\Dest\\" ],
+            "args": [ "T:\\Source\\", "rob@127.0.0.1:/home/rob/TempDest", "--force-redeploy", "-v" ],
             "cwd": "${workspaceFolder}"
         },
         {
