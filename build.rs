@@ -14,7 +14,9 @@ use embedded_binaries::EmbeddedBinary;
 const EMBEDDED_BINARY_TARGET_TRIPLES: &[&str] = &[
     "x86_64-pc-windows-msvc",
     "x86_64-unknown-linux-musl", // Use musl rather than gnu as it's statically linked, so makes the resulting binary more portable
-    //"aarch64-unknown-linux-musl" //TODO: add me!
+    "aarch64-unknown-linux-musl",
+    //TODO: building progenitor on Linux didn't work because needs MSVC linker, use mingw?
+    //TODO: building progenitor cross compiling on Windoiws for aarch64, worked but the big binary produced seemed to be missing the embedded binaries section. Maybe the linker is removing it?
 ];
 
 //TODO: how does this work when building on Linux - can we cross compile from Linux to Windows? :O
@@ -38,7 +40,7 @@ fn main() {
     // If this isn't a big binary build, then we have nothing to do.
     // We need this check otherwise we will recurse forever as we call into cargo to build the lite 
     // binaries, which will run this script.
-    if env::var("CARGO_FEATURE_progenitor") != Ok("1".to_string()) {
+    if env::var("CARGO_FEATURE_PROGENITOR") != Ok("1".to_string()) {
         return;
     }
 
@@ -59,7 +61,7 @@ fn main() {
         //TODO: this should be a release build? Or should it match the binary being built...?
         // for remote source builds, we still always build release for the remote so not sure.
         let mut cargo_cmd = Command::new(&cargo);
-        cargo_cmd.arg("build").arg("--bin").arg("rjrssync")
+        cargo_cmd.arg("build").arg("-r").arg("--bin").arg("rjrssync")
             // Disable the progenitor feature, so that this is a lite binary
             .arg("--no-default-features")
             .arg(format!("--target={target_triple}"))
@@ -145,7 +147,6 @@ fn main() {
         // exe, because this symbol won't be available in the lite binary build (for deploying from an already-deployed
         // binary)
         #[used]
-        //static EMBEDDED_DATA_TEST: [u8;16] = [ 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15];
         static _EMBEDDED_DATA_TEST: [u8;{}] = *include_bytes!(r"{}");
     "#, embedded_binaries_size, embedded_binaries_filename.display());
     //let rc_contents = format!("EMBEDDED_LITE_BINARY BINARY \"{}\"", r"D:\\Programming\\Utilities\\rjrssync\\.gitignore");
