@@ -558,6 +558,12 @@ include!(concat!(env!("OUT_DIR"), "/embedded_binaries.rs"));
 //TODO: also tests for deploying from an already-deployed (non-progenitor) binary, again, to all platforms? :O
 //TODO: source deployment will now be even slower, as the remote will need to build all of the embedded
 // lite binaries for different targets!
+// Do we want this? Maybe remote source builds should just build lite binaries, for speed?
+// But then it breaks the nice property that all binaries seen on disk are equal (big) - we don't
+// want some binaries to not support (binary) deployment as this will be confusing ("which binary do i have").
+// But it does mean that users would need to set up all the rustup cross-compilation targets on their remote 
+// platform.. Maybe would be simpler to get rid of source builds altogether?
+//TODO: copy some of these notes/findings/discussions into our notes.md, for future reference
 //TODO: deploying a big binary to "less powerful"/slower targets may be bad because it will take
 // ages to copy the big binary there, and the benefits of having a fully-functional rjrssync.exe on
 // there may be minimal. Perhaps we do want the option(?) of deploying only a lite binary?

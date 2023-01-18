@@ -17,6 +17,7 @@ Interface
 * Maybe could make "Connecting" spinner actually spin, until the first message from ssh?
 * Long prompt messages (multi-line) duplicate themselves once answered.
 * Could warn or similar when filters will lead to an error, like trying to delete a folder that isn't empty (because the filters hid the files inside)
+* --force-redeploy is a bit confusing, because it still prompts you to deploy, even though you "forced" it
 
 
 Remote launching

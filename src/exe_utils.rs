@@ -1,7 +1,16 @@
+// There doesn't seem to be a crate which allows easily adding a section to an existing ELF file.
+// They either only support reading (not editing/writing), or do support writing but you have
+// to declare your ELF file from scratch (no read/modify/write). The one crate that does do this
+// (elf_utilities) seems to have a bug and it produced corrupted ELFs :(.
+// So we do it ourselves in this code.
+
 pub fn add_section_to_elf(mut elf_bytes: Vec<u8>, new_section_name: &str, mut new_section_bytes: Vec<u8>) 
     -> Result<Vec<u8>, String> {
     let new_section_size = new_section_bytes.len();
     // https://en.wikipedia.org/wiki/Executable_and_Linkable_Format
+    // https://docs.oracle.com/cd/E23824_01/html/819-0690/chapter6-73709.html
+
+    //TODO: validate endian-ness field?
 
     // Offset within file to the start of the table of section headers
     let section_header_table_offset = read_field::<u64>(&elf_bytes, 0x28)?;
@@ -81,6 +90,11 @@ pub fn add_section_to_elf(mut elf_bytes: Vec<u8>, new_section_name: &str, mut ne
 }
 
 pub fn extract_section_from_elf(mut elf_bytes: Vec<u8>, section_name: &str) -> Result<Vec<u8>, String> {
+    // https://en.wikipedia.org/wiki/Executable_and_Linkable_Format
+    // https://docs.oracle.com/cd/E23824_01/html/819-0690/chapter6-73709.html
+
+    //TODO: validate endian-ness field?
+
     // Offset within file to the start of the table of section headers
     let section_header_table_offset = read_field::<u64>(&elf_bytes, 0x28)?;
     let num_sections = read_field::<u16>(&elf_bytes, 0x3C)?;
@@ -133,6 +147,8 @@ pub fn extract_section_from_elf(mut elf_bytes: Vec<u8>, section_name: &str) -> R
 
     Err(format!("Can't find the section"))
 }
+
+// Convenient functions to read/write fields from a byte array.
 
 trait Number {
     fn from_bytes(bytes: &[u8]) -> Self;

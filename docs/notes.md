@@ -336,3 +336,21 @@ Notes on filters
 ================
 
 Currently, the same filter is applied on both source and dest sides and there is no way to have a different filter on each side. This is simpler, but means that if you run a sync which copies some files you forgot to exclude, then add the exclude and re-run the sync, those files will still be present on the dest (but just hidden by the filter). So you would need to manually remove them which isn't great. If we allowed separate source/dest filters, then you could exclude the files just on the source and then they would be removed from the dest. However, having separate filters could lead to other potential issues - if you exclude some files on the dest only, and those files do exist on the source, then they will be copied every time regardless. Perhaps files should only be excludable on the source, or on both, but never just on the dest? Or perhaps a file should never be copied to the dest, if it would be excluded by the dest filter?
+
+Notes on remote deployment
+==========================
+
+There are several methods we (could) use to get rjrssync onto remote devices:
+ * Log on to the remote device and "install" it (apt, cargo install, cargo binstall etc., either as a binary download or build from source)
+ * Upload a pre-built binary
+ * Upload the source code and build it remotely
+
+Each of these has advantages/disadvantages. Some properties that would be nice are:
+
+Easy to develop - new versions need to be quick to deploy for iterative development.
+
+All binaries should be "equal" - if we have some binaries that can be used to deploy to remote platforms ("big") and others that can't ("lite"), then this is confusing and hard to keep track of.
+
+Quick and easy to deploy to a new platform. If it takes 10 mins to build from source then that is annoying, or if you need to set up a bunch of build environment first that is tricky.
+
+A build from source should be as simple as "cargo build" - ideally we don't have any post-build steps or custom wrapper scripts.

@@ -7,15 +7,19 @@ mod embedded_binaries;
 use embedded_binaries::EmbeddedBinaries;
 use embedded_binaries::EmbeddedBinary;
 
-//TODO: musl?
 /// The set of target triples that we build and embed binaries for.
 /// This means that we can deploy onto these platforms without needing
 /// to build from source.
+//TODO: should we always include the target that is currently being built for?
+// e.g. if the build is targeting x86_64-unknown-linux-gnu, should we include that as well or instead
+// of the -musl variant?
+// For windows, we can't target msvc when building on Linux, we have to use the -gnu one.
+// For consistency, should we target this when building on Windows as well?
 const EMBEDDED_BINARY_TARGET_TRIPLES: &[&str] = &[
     "x86_64-pc-windows-msvc",
     "x86_64-unknown-linux-musl", // Use musl rather than gnu as it's statically linked, so makes the resulting binary more portable
     "aarch64-unknown-linux-musl",
-    //TODO: building progenitor on Linux didn't work because needs MSVC linker, use mingw?
+    //TODO: building progenitor on Linux didn't work because needs MSVC linker, use mingw? (-gnu suffix?)
     //TODO: building progenitor cross compiling on Windoiws for aarch64, worked but the big binary produced seemed to be missing the embedded binaries section. Maybe the linker is removing it?
 ];
 
