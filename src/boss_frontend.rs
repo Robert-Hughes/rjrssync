@@ -89,6 +89,7 @@ pub struct BossCliArgs {
     #[arg(long)]
     pub dry_run: bool,
 
+    //TODO: update
     /// Specifies behaviour when rjrssync needs to be deployed to a remote target. 
     /// This might download some cargo packages and take a while to build, so we check with the user.
     /// The default is 'prompt'.

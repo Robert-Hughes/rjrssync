@@ -70,7 +70,7 @@ fn main() {
             .arg("--no-default-features")
             .arg(format!("--target={target_triple}"))
             .arg("--target-dir").arg(&lite_target_dir);
-        //TODO: pass through other arguments, like profile, features, etc.
+        //TODO: pass through other arguments, like profile (debug vs release), features (profiling), etc.
 
         // Prevent passing through environment variables that cargo has set for this build script.
         // This leads to problems because the build script that cargo will call would then see these env vars

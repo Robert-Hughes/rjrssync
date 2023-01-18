@@ -104,3 +104,4 @@ ERROR | rjrssync::boss_frontend: Sync error: Unexpected response from dest GetEn
 * In boss_sync.rs, src_entries and progres.inc_total_for_copy/delete() - these things need to be done together and kept in sync - can we enforce this (custom type?). Same for dest_entries.
 * Add to readme list of features to "advertise" the program 
 * Upload to cargo binstall (or similar) so that users don't need to build from source (especially if we're bundling embedded binaries, the initial build time will be looong!)
+* Look at cargo dependency graph, to see if we can remove some dependencies 
