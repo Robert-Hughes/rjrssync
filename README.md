@@ -19,7 +19,7 @@ A quick example:
 rjrssync local-folder/ user@hostname:/remote/folder
 ```
 
-TODO: update this for binary
+TODO: update this for binary, and information about cross compiling
 
 The first time that a remote host is used, rjrssync will deploy its source code to the remote host and use `cargo` to build it for that platform. Therefore `cargo` needs to be installed and available on the remote host. It will take some time for this initial build.
 

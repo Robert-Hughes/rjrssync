@@ -105,3 +105,8 @@ ERROR | rjrssync::boss_frontend: Sync error: Unexpected response from dest GetEn
 * Add to readme list of features to "advertise" the program 
 * Upload to cargo binstall (or similar) so that users don't need to build from source (especially if we're bundling embedded binaries, the initial build time will be looong!)
 * Look at cargo dependency graph, to see if we can remove some dependencies 
+* If copying is slow, it might be good to "look ahead" to see what else needs to be done, so that for example the progress bar will be more accurate. (Currently we will get blocked and not check what else needs copying/deleting). Seen when copying some tflite files to a board.
+Maybe if we decide what needs doing before starting to delete or copy, it would simplify a bunch of things (esp. progress bar updates)?
+Unless this takes a significant amount of time, in which case we might want to put it on another thread?
+In fact we could do it as we receive new entries from GetEntries, which is already in parallel, so should be even simpler!
+Can then simplify the progress bar stuff hopefully, and it will be more accurate as it will have the correct length right from the start

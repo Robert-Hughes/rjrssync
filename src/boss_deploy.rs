@@ -61,6 +61,7 @@ pub fn deploy_to_remote(remote_hostname: &str, remote_user: &str, reason: &str, 
     // will deploy a binary that won't work, and it will crash/explode when isntead we would want to fall
     // back to deploying from source, so we would make things worse than current main!
     //TODO: add detection of arm
+    //TODO: this isn't gonna work with msvc vs gnu differences, need something more flexible
     let target_triple = if is_windows { "x86_64-pc-windows-msvc" } else { "x86_64-unknown-linux-musl" }; 
     debug!("Target triple = {target_triple}");
 
@@ -329,16 +330,15 @@ where S : std::io::Read {
 /// If the target platform is the same as the current one though, we can skip most of this and simply
 /// copy ourselves directly - no need to recreate what we already have.
 fn create_binary_for_target(target_triple: &str, output_binary_filename: &Path) -> Result<u64, String> {
-    let current_exe = match std::env::current_exe() {
-        Ok(e) => e,
-        Err(e) => return Err(format!("Unable to get path to current exe: {e}"))
-    };
-
     // If the target is simply the same as what we are already running on, we can use our current
     // binary - no need to recreate what we already have.
     // Note that the env var TARGET is set (forwarded) by us in build.rs
     if target_triple == env!("TARGET") {
         debug!("Target platform is same as native platform - copying current executable");
+        let current_exe = match std::env::current_exe() {
+            Ok(e) => e,
+            Err(e) => return Err(format!("Unable to get path to current exe: {e}"))
+        }; 
         return match std::fs::copy(&current_exe, output_binary_filename) {
             Ok(s) => Ok(s),
             Err(e) => Err(format!("Unable to copy current exe {} to {}: {e}", current_exe.display(), output_binary_filename.display()))
@@ -346,12 +346,7 @@ fn create_binary_for_target(target_triple: &str, output_binary_filename: &Path) 
     }
 
     // Get the embedded binaries from the current executables
-    let embedded_binaries_data = get_embedded_binaries_data(&current_exe)?;
-
-    // Extract the binary data for the specific target platform
-    // This isn't very efficient - we're loading every single binary into memory, and then only using one of them.
-    // But the binaries should be quite small, so this should be fine.
-    let embedded_binaries : EmbeddedBinaries = bincode::deserialize(&embedded_binaries_data).map_err(|e| format!("Error deserializing embedded binaries: {e}"))?;
+    let (embedded_binaries, embedded_binaries_data) = get_embedded_binaries()?;
     let target_platform_binary = match embedded_binaries.binaries.into_iter().find(|b| b.target_triple == target_triple) {
         Some(b) => b.data,
         None => return Err(format!("No embedded binary for target triple {target_triple}")),
@@ -364,15 +359,29 @@ fn create_binary_for_target(target_triple: &str, output_binary_filename: &Path) 
     Ok(size)
 }
 
+pub fn get_embedded_binaries() -> Result<(EmbeddedBinaries, Vec<u8>), String> {
+    let embedded_binaries_data = get_embedded_binaries_data()?;
+
+    // This isn't very efficient - we're loading every single binary into memory, and then only using one of them.
+    // But the binaries should be quite small, so this should be fine.
+    let embedded_binaries : EmbeddedBinaries = bincode::deserialize(&embedded_binaries_data).map_err(|e| format!("Error deserializing embedded binaries: {e}"))?;
+    Ok((embedded_binaries, embedded_binaries_data))
+}
+
 // Parses the currently running executable file to get the section containing the embedded binaries table.
-fn get_embedded_binaries_data(exe_path: &Path) -> Result<Vec<u8>, String> {
+fn get_embedded_binaries_data() -> Result<Vec<u8>, String> {
+    let current_exe = match std::env::current_exe() {
+        Ok(e) => e,
+        Err(e) => return Err(format!("Unable to get path to current exe: {e}"))
+    };
+
     #[cfg(windows)]
     {
         // https://0xrick.github.io/win-internals/pe5/
         // https://learn.microsoft.com/en-us/windows/win32/debug/pe-format
         // https://docs.rs/exe/latest/exe/index.html
 
-        let current_image = VecPE::from_disk_file(exe_path).map_err(|e| format!("Error loading current exe: {e}"))?;
+        let current_image = VecPE::from_disk_file(current_exe).map_err(|e| format!("Error loading current exe: {e}"))?;
         //TODO: constant for section name
         let embedded_binary_section = current_image.get_section_by_name(".rsrc1").map_err(|e| format!("Error getting section from current exe: {e}"))?;
         let embedded_binaries_data = embedded_binary_section.read(&current_image).map_err(|e| format!("Error reading embedded binaries section: {e}"))?;
@@ -380,7 +389,7 @@ fn get_embedded_binaries_data(exe_path: &Path) -> Result<Vec<u8>, String> {
     }
     #[cfg(unix)]
     {
-        let current_image = std::fs::read(exe_path).map_err(|e| format!("Error loading current exe: {e}"))?;
+        let current_image = std::fs::read(current_exe).map_err(|e| format!("Error loading current exe: {e}"))?;
         let embedded_binaries_data = exe_utils::extract_section_from_elf(current_image, ".rsrc1")?; //TODO: make constant
         Ok(embedded_binaries_data)
     }
@@ -393,7 +402,6 @@ fn create_big_binary(output_binary_filename: &Path, target_triple: &str, target_
         // Create a new PE image for it
         let mut new_image = VecPE::from_disk_data(&target_platform_binary);
 
-        //TODO: could we use the `object` crate for EXEs as well, so that we only need one dependency?
         // Extend it with the embedded lite binaries for all platforms, to turn it into a big binary
         // Note that we do need to include the lite binary for the native build, as this will be needed if 
         // the big binary is used to produce a new big binary for a different platform - that new big binary will 

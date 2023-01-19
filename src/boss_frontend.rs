@@ -5,7 +5,7 @@ use std::sync::Mutex;
 
 use clap::{Parser, ValueEnum, CommandFactory};
 use env_logger::{Env, fmt::Color};
-use indicatif::ProgressBar;
+use indicatif::{ProgressBar, HumanBytes};
 use log::info;
 use log::{debug, error};
 use regex::Regex;
@@ -14,7 +14,7 @@ use lazy_static::{lazy_static};
 
 use crate::boss_progress::Progress;
 use crate::profiling::{dump_all_profiling, start_timer, stop_timer, self};
-use crate::{boss_launch::*, profile_this, function_name};
+use crate::{boss_launch::*, profile_this, function_name, boss_deploy};
 use crate::boss_sync::*;
 
 #[derive(clap::Parser)]
@@ -22,12 +22,12 @@ pub struct BossCliArgs {
     /// The source path, which will be synced to the destination path.
     /// Optionally contains a username and hostname for specifying remote paths.
     /// Format: [[username@]hostname:]path
-    #[arg(required_unless_present_any=["spec", "generate_auto_complete_script"], conflicts_with="spec")]
+    #[arg(required_unless_present_any=["spec", "generate_auto_complete_script", "list_embedded_binaries"], conflicts_with="spec")]
     pub src: Option<RemotePathDesc>,
     /// The destination path, which will be synced from the source path.
     /// Optionally contains a username and hostname for specifying remote paths.
     /// Format: [[username@]hostname:]path
-    #[arg(required_unless_present_any=["spec", "generate_auto_complete_script"], conflicts_with="spec")]
+    #[arg(required_unless_present_any=["spec", "generate_auto_complete_script", "list_embedded_binaries"], conflicts_with="spec")]
     pub dest: Option<RemotePathDesc>,
 
     /// Instead of specifying SRC and DEST, this can be used to perform a sync defined by a config file.
@@ -177,6 +177,11 @@ pub struct BossCliArgs {
     /// Shows additional output.
     #[arg(short, long, group="verbosity")]
     pub verbose: bool,
+
+    /// Lists the binaries embedded inside this program, ready for deployment to remote targets.
+    #[arg(long)]
+    list_embedded_binaries: bool,
+    //TODO: add tests for this
 
     /// If provided, outputs an auto-complete script for the provided shell.
     /// For example, to configure auto-complete for bash:
@@ -526,6 +531,22 @@ pub fn boss_main() -> ExitCode {
     }
 
     debug!("Running as boss");
+
+    if args.list_embedded_binaries {
+        let bs = match boss_deploy::get_embedded_binaries() {
+            Ok(b) => b.0,
+            Err(e) => {
+                error!("Error getting embedded binaries: {e}");
+                return ExitCode::from(19);
+            }
+        };
+
+        for b in bs.binaries {
+            println!("{} ({})", b.target_triple, HumanBytes(b.data.len() as u64));
+        }
+
+        return ExitCode::SUCCESS;        
+    }
 
     // Decide what to sync - defined either on the command line or in a spec file if provided
     let spec = match resolve_spec(&args) {

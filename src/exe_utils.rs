@@ -71,7 +71,7 @@ pub fn add_section_to_elf(mut elf_bytes: Vec<u8>, new_section_name: &str, mut ne
     // sh_name
     write_field::<u32>(&mut new_section_header, 0x0, section_names_table_old_size as u32)?;
     // sh_type
-    write_field::<u32>(&mut new_section_header, 0x04, 0x7)?;
+    write_field::<u32>(&mut new_section_header, 0x04, 0x80000000)?; // 0x80000000 (and above) is for custom sections
     // sh_offset
     write_field::<u64>(&mut new_section_header, 0x18, new_section_offset as u64)?;
     // sh_size
@@ -89,6 +89,7 @@ pub fn add_section_to_elf(mut elf_bytes: Vec<u8>, new_section_name: &str, mut ne
     Ok(elf_bytes)
 }
 
+#[cfg_attr(not(unix), allow(unused))]
 pub fn extract_section_from_elf(mut elf_bytes: Vec<u8>, section_name: &str) -> Result<Vec<u8>, String> {
     // https://en.wikipedia.org/wiki/Executable_and_Linkable_Format
     // https://docs.oracle.com/cd/E23824_01/html/819-0690/chapter6-73709.html
@@ -186,3 +187,4 @@ fn write_field<T: Number>(bytes: &mut [u8], offset: usize, val: T) -> Result<(),
     Ok(())
 }
 
+//TODO: tests for this file
