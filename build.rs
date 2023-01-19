@@ -34,9 +34,6 @@ fn get_embedded_binary_target_triples() -> Vec<&'static str> {
     result.push("aarch64-unknown-linux-musl");
 
     //TODO: add windows arm
-    //TODO: building progenitor on Linux didn't work because needs MSVC linker, use mingw? (-gnu suffix?)
-    //TODO: building progenitor cross compiling on Windoiws for aarch64, worked but the big binary produced seemed to be missing the embedded binaries section. Maybe the linker is removing it?
-    //TODO: building progenitor on Linux (native) is missing the embedded binaries section!
     result
 }
 

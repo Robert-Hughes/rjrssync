@@ -32,13 +32,10 @@ pub fn deploy_to_remote(remote_hostname: &str, remote_user: &str, reason: &str, 
 
     // Determine if the target system is Windows or Linux, so that we know where to copy our files to,
     // and which pre-built binary to deploy (we can't simply copy the current binary as it might not be compatible with the remote platform)
-    // We run a command that doesn't print out anything on both Windows and Linux, so we don't pollute the output
+    // We run a command that prints something reasonably friendly, so we don't pollute the output
     // (we show all output from ssh, in case it contains prompts etc. that are useful/required for the user to see).
     // Note the \n to send a two-line command - it seems Windows ignores this, but Linux runs it.
-    //TODO: also detect architecture etc.
-    //TODO: This isn't very robust, ideally we could share the logic that rustup-init.sh uses, but
-    // that doesn't work on Windows anyway...
-    let remote_command = format!("echo >/dev/null # >nul & echo This is a Windows system\necho This is a Linux system");
+    let remote_command = format!("echo >/dev/null # >nul & echo Remote system is Windows %PROCESSOR_ARCHITECTURE%\necho Remote system is `uname -a`");
     debug!("Running remote command: {}", remote_command);
     let os_test_output = match run_process_with_live_output("ssh", &[user_prefix.clone() + remote_hostname, remote_command.to_string()]) {
         Err(e) => {
@@ -55,17 +52,7 @@ pub fn deploy_to_remote(remote_hostname: &str, remote_user: &str, reason: &str, 
     // We could check for "linux" in the string, but there are other Unix systems we might want to supoprt e.g. Mac,
     // so we fall back to Linux as a default
     let is_windows = os_test_output.contains("Windows");
-
-    //TODO: too simple!
-    //TODO: we need to be "sure" that this is correct, otherwise if we mis-identify a target then we 
-    // will deploy a binary that won't work, and it will crash/explode when isntead we would want to fall
-    // back to deploying from source, so we would make things worse than current main!
-    //TODO: add detection of arm
-    //TODO: this isn't gonna work with msvc vs gnu differences, need something more flexible
-    let target_triple = if is_windows { "x86_64-pc-windows-msvc" } else { "x86_64-unknown-linux-musl" }; 
-    debug!("Target triple = {target_triple}");
-
-    let binary_extension = if is_windows { ".exe" } else { "" };
+    let binary_extension = if is_windows { "exe" } else { "" };
 
     // Temp staging folder for upload
     let staging_dir = match TempDir::new("rjrssync-deploy-staging") {
@@ -85,7 +72,7 @@ pub fn deploy_to_remote(remote_hostname: &str, remote_user: &str, reason: &str, 
 
     let binary_filename = staging_dir.join("rjrssync").with_extension(binary_extension);
 
-    let binary_size = match create_binary_for_target(target_triple, &binary_filename) {
+    let binary_size = match create_binary_for_target(&os_test_output, &binary_filename) {
         Ok(s) => s,
         Err(e) => {
             error!("Error generating binary to deploy: {}", e);
@@ -329,12 +316,24 @@ where S : std::io::Read {
 /// 
 /// If the target platform is the same as the current one though, we can skip most of this and simply
 /// copy ourselves directly - no need to recreate what we already have.
-fn create_binary_for_target(target_triple: &str, output_binary_filename: &Path) -> Result<u64, String> {
+fn create_binary_for_target(os_test_output: &str, output_binary_filename: &Path) -> Result<u64, String> {
+    // The embedded binaries can have different targets, e.g. -gnu vs -msvc suffixes, so we need to 
+    // be somewhat flexible.
+    let compatible_target_triples = if os_test_output.contains("Windows") && os_test_output.contains("AMD64") {
+        vec!["x86_64-pc-windows-msvc", "x86_64-pc-windows-gnu"]
+    } else if os_test_output.contains("Linux") && os_test_output.contains("x86_64") {
+        vec!["x86_64-unknown-linux-musl"]
+    } else if os_test_output.contains("Linux") && os_test_output.contains("aarch64") {
+        vec!["aarch64-unknown-linux-musl"]
+    } else {
+        return Err(format!("Unknown target platform: {os_test_output}"));
+    };
+
     // If the target is simply the same as what we are already running on, we can use our current
     // binary - no need to recreate what we already have.
     // Note that the env var TARGET is set (forwarded) by us in build.rs
-    if target_triple == env!("TARGET") {
-        debug!("Target platform is same as native platform - copying current executable");
+    if compatible_target_triples.contains(&env!("TARGET")) {
+        debug!("Target platform is compatible with native platform - copying current executable");
         let current_exe = match std::env::current_exe() {
             Ok(e) => e,
             Err(e) => return Err(format!("Unable to get path to current exe: {e}"))
@@ -347,14 +346,15 @@ fn create_binary_for_target(target_triple: &str, output_binary_filename: &Path) 
 
     // Get the embedded binaries from the current executables
     let (embedded_binaries, embedded_binaries_data) = get_embedded_binaries()?;
-    let target_platform_binary = match embedded_binaries.binaries.into_iter().find(|b| b.target_triple == target_triple) {
-        Some(b) => b.data,
-        None => return Err(format!("No embedded binary for target triple {target_triple}. Run --list-embedded-binaries to check what is available.")),
+    let target_platform_binary = match embedded_binaries.binaries.into_iter().find(|b| compatible_target_triples.contains(&b.target_triple.as_str())) {
+        Some(b) => b,
+        None => return Err(format!("No embedded binary for any compatible target triple ({:?}). Run --list-embedded-binaries to check what is available.",
+                                        compatible_target_triples)),
     };
    
     // Create new executable for the target platform
-    debug!("Found embedded binary, extracting and upgrading it to a big binary");
-    let size = create_big_binary(&output_binary_filename, target_triple, target_platform_binary, embedded_binaries_data)?;
+    debug!("Found embedded binary ({}), extracting and upgrading it to a big binary", target_platform_binary.target_triple);
+    let size = create_big_binary(&output_binary_filename, &target_platform_binary.target_triple, target_platform_binary.data, embedded_binaries_data)?;
     debug!("Created big binary at {} ({})", output_binary_filename.display(), HumanBytes(size));
     Ok(size)
 }
@@ -468,3 +468,8 @@ include!(concat!(env!("OUT_DIR"), "/embedded_binaries.rs"));
 //TODO: add test that remotely deployed binary can then itself also remotely deploy (all binaries
 // are equal, no lite binaries every actually exist on disk)
 
+//TODO: Deploying binary onto Windows results in it not being allowed to listen on the network, probably
+// because it counts as a download file? Firewall rules? Also it seems that even when you close the boss,
+// the doer is left behind and doesn't close, possibly because it's just sat waiting for network connection
+// that never comes (cos of firewall). Maybe we should have a timeout on the doer, if the boss doesn't connect
+// within some short time, it should exit?
