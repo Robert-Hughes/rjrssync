@@ -406,6 +406,7 @@ fn create_big_binary(output_binary_filename: &Path, target_triple: &str, target_
     Result<u64, String> 
 {
     if target_triple.contains("windows") {
+        //TODO: Build on linux, deploy to windows. THen on windows run --list-embedded-binaries and it has error :(
         // Create a new PE image for it
         let mut new_image = VecPE::from_disk_data(&target_platform_binary);
 
@@ -446,6 +447,7 @@ fn create_big_binary(output_binary_filename: &Path, target_triple: &str, target_
 #[cfg(feature="progenitor")]
 include!(concat!(env!("OUT_DIR"), "/embedded_binaries.rs"));
 
+//TODO: some of the below stuff should maybe be added to the notes.md?
 //TODO: tests for both source deployment and binary deployment
 //TODO: tests for different combinations of platforms, as there are different executable formats.
 //TODO: also tests for deploying from an already-deployed (non-progenitor) binary, again, to all platforms? :O
@@ -468,8 +470,3 @@ include!(concat!(env!("OUT_DIR"), "/embedded_binaries.rs"));
 //TODO: add test that remotely deployed binary can then itself also remotely deploy (all binaries
 // are equal, no lite binaries every actually exist on disk)
 
-//TODO: Deploying binary onto Windows results in it not being allowed to listen on the network, probably
-// because it counts as a download file? Firewall rules? Also it seems that even when you close the boss,
-// the doer is left behind and doesn't close, possibly because it's just sat waiting for network connection
-// that never comes (cos of firewall). Maybe we should have a timeout on the doer, if the boss doesn't connect
-// within some short time, it should exit?

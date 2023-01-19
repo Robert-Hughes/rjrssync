@@ -213,6 +213,10 @@ pub fn doer_main() -> ExitCode {
     let addr = ("0.0.0.0", args.port.unwrap_or(0));
     let listener = match TcpListener::bind(addr) {
         Ok(l) => {
+            //TODO: if the boss never connects (e.g. due to firewall) it seems that even when you close the boss,
+            // the doer is left behind and doesn't close, possibly because it's just sat waiting for network connection
+            // that never comes (cos of firewall). Maybe we should have a timeout on the doer, if the boss doesn't connect
+            // within some short time, it should exit? Or if the stdin drops (i.e. ssh disappears)?
             debug!("Listening on {:?}", l.local_addr()); // This will include the actual port chosen, if we bound to 0
             l
         }
