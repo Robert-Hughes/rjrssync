@@ -101,25 +101,19 @@ pub fn extract_section_from_elf(mut elf_bytes: Vec<u8>, section_name: &str) -> R
     let num_sections = read_field::<u16>(&elf_bytes, 0x3C)?;
     // Size of each section header
     let section_header_size = read_field::<u16>(&elf_bytes, 0x3A)?;
-    dbg!(&section_header_table_offset);
-    dbg!(&num_sections);
 
     // Find the string table that contains section names
     let section_names_section_idx = read_field::<u16>(&elf_bytes, 0x3E)?;
     let section_names_table_offset = read_field::<u64>(&elf_bytes, 
         section_header_table_offset as usize + section_names_section_idx as usize * section_header_size as usize + 0x18)?;
 
-    dbg!(&section_names_section_idx);
-    dbg!(&section_names_table_offset);
 
     // Find the right section
     for section_idx in 0..num_sections {
         // Read the section name and check it
         let name_offset_within_string_table = read_field::<u32>(&elf_bytes, 
             section_header_table_offset as usize + section_idx as usize * section_header_size as usize + 0x0)?;
-        dbg!(&name_offset_within_string_table);
         let mut char_idx = section_names_table_offset as usize + name_offset_within_string_table as usize;
-        dbg!(&char_idx);
         let mut name_str = String::new();
         loop {
             let c = elf_bytes[char_idx];
@@ -128,20 +122,15 @@ pub fn extract_section_from_elf(mut elf_bytes: Vec<u8>, section_name: &str) -> R
                 break;
             }
             name_str.push(c as char);
-            dbg!(&name_str);
         }
-        dbg!(&name_str);
         if name_str == section_name {
             // This is the right section - return the contents
             let section_data_offset = read_field::<u64>(&elf_bytes, 
                 section_header_table_offset as usize + section_idx as usize * section_header_size as usize + 0x18)?;
             let section_data_size = read_field::<u64>(&elf_bytes, 
                 section_header_table_offset as usize + section_idx as usize * section_header_size as usize + 0x20)?;
-            dbg!(section_data_offset);
-            dbg!(section_data_size);
             let mut x = elf_bytes.split_off(section_data_offset as usize);
             x.truncate(section_data_size as usize);
-            dbg!(x.len());
             return Ok(x);
         }       
     }
