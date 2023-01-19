@@ -1,5 +1,9 @@
 use serde::{Deserialize, Serialize};
 
+/// The name of the section we add to big binaries which contains the embedded binary data.
+/// Must be <= 8 chars as this is truncated on Windows exes.
+pub const SECTION_NAME: &'static str = ".rjembed";
+
 /// Definition of embedded binaries table, in a separate file for sharing
 /// between build.rs and boss_deploy.rs.
 #[derive(Serialize, Deserialize, Debug, Default)]

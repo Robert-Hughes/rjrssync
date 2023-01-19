@@ -156,19 +156,14 @@ fn main() {
 
     // Generate an .rs file that includes the contents of this file into the final binary, in a 
     // specially named section of the executable. This is included from boss_deploy.rs.
+    // We also need to have a proper reference to the data, otherwise the compiler/linker will optimise it out.
+    let section_name = embedded_binaries::SECTION_NAME;
     let generated_rs_contents = format!(
     r#"
-        // Put it in a section that won't be optimised out (special name for MSVC, for resources,
-        // even though we are not actually using resources!)
-        #[link_section = ".rsrc1"] 
-        // We don't actually use this symbol anywhere - it's only used to get the embedded data into
-        // the big binary during the cargo build. When we need this data, we read it directly from the 
-        // exe, because this symbol won't be available in the lite binary build (for deploying from an already-deployed
-        // binary)
-        #[used]
-        static _EMBEDDED_DATA_TEST: [u8;{}] = *include_bytes!(r"{}");
+        // Put it in a special section name
+        #[link_section = "{section_name}"] 
+        static EMBEDDED_BINARIES_DATA: [u8;{}] = *include_bytes!(r"{}");
     "#, embedded_binaries_size, embedded_binaries_filename.display());
-    //let rc_contents = format!("EMBEDDED_LITE_BINARY BINARY \"{}\"", r"D:\\Programming\\Utilities\\rjrssync\\.gitignore");
     let generated_rs_file = Path::new(&env::var("OUT_DIR").unwrap()).join("embedded_binaries.rs");
     std::fs::write(&generated_rs_file, generated_rs_contents).expect("Failed to write generated rs file");
 }

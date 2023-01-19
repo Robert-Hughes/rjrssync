@@ -349,7 +349,7 @@ fn create_binary_for_target(target_triple: &str, output_binary_filename: &Path) 
     let (embedded_binaries, embedded_binaries_data) = get_embedded_binaries()?;
     let target_platform_binary = match embedded_binaries.binaries.into_iter().find(|b| b.target_triple == target_triple) {
         Some(b) => b.data,
-        None => return Err(format!("No embedded binary for target triple {target_triple}")),
+        None => return Err(format!("No embedded binary for target triple {target_triple}. Run --list-embedded-binaries to check what is available.")),
     };
    
     // Create new executable for the target platform
@@ -370,6 +370,13 @@ pub fn get_embedded_binaries() -> Result<(EmbeddedBinaries, Vec<u8>), String> {
 
 // Parses the currently running executable file to get the section containing the embedded binaries table.
 fn get_embedded_binaries_data() -> Result<Vec<u8>, String> {
+    // To make sure that progenitor builds actually include the embedded binaries data and it isn't optimised
+    // out, make a proper reference to the data.
+    // I managed to work around this on MSVC by putting it in a section called ".rsrc1", but couldn't figure 
+    // anything similar out for Linux. The reference we add hopefully shouldn't cause any performance issues.
+    #[cfg(feature="progenitor")]
+    unsafe { std::ptr::read_volatile(&EMBEDDED_BINARIES_DATA[0]); } //TODO: check if this works for a release build
+
     let current_exe = match std::env::current_exe() {
         Ok(e) => e,
         Err(e) => return Err(format!("Unable to get path to current exe: {e}"))
@@ -383,14 +390,14 @@ fn get_embedded_binaries_data() -> Result<Vec<u8>, String> {
 
         let current_image = VecPE::from_disk_file(current_exe).map_err(|e| format!("Error loading current exe: {e}"))?;
         //TODO: constant for section name
-        let embedded_binary_section = current_image.get_section_by_name(".rsrc1").map_err(|e| format!("Error getting section from current exe: {e}"))?;
+        let embedded_binary_section = current_image.get_section_by_name(embedded_binaries::SECTION_NAME).map_err(|e| format!("Error getting section from current exe: {e}"))?;
         let embedded_binaries_data = embedded_binary_section.read(&current_image).map_err(|e| format!("Error reading embedded binaries section: {e}"))?;
         Ok(embedded_binaries_data.to_vec())
     }
     #[cfg(unix)]
     {
         let current_image = std::fs::read(current_exe).map_err(|e| format!("Error loading current exe: {e}"))?;
-        let embedded_binaries_data = exe_utils::extract_section_from_elf(current_image, ".rsrc1")?; //TODO: make constant
+        let embedded_binaries_data = exe_utils::extract_section_from_elf(current_image, embedded_binaries::SECTION_NAME)?;
         Ok(embedded_binaries_data)
     }
 }
@@ -409,7 +416,7 @@ fn create_big_binary(output_binary_filename: &Path, target_triple: &str, target_
         // Technically we could get this by downgrading the big binary to a lite binary before embedding it
         // (by deleting the appended section), but this would be more complicated.
         let mut new_section = ImageSectionHeader::default();
-        new_section.set_name(Some(".rsrc1")); // The special section name we use - needs to match other places TODO: use constant!
+        new_section.set_name(Some(embedded_binaries::SECTION_NAME)); // The special section name we use - needs to match other places
         let mut new_section = new_image.append_section(&new_section).map_err(|e| format!("Error appending section: {e}"))?;
         new_section.size_of_raw_data = embedded_binaries_data.len() as u32;
         new_section.characteristics = SectionCharacteristics::CNT_INITIALIZED_DATA;
@@ -424,7 +431,7 @@ fn create_big_binary(output_binary_filename: &Path, target_triple: &str, target_
 
         Ok(new_image.len() as u64)
     } else if target_triple.contains("linux") {
-        let new_elf = exe_utils::add_section_to_elf(target_platform_binary, ".rsrc1", embedded_binaries_data)?;
+        let new_elf = exe_utils::add_section_to_elf(target_platform_binary, embedded_binaries::SECTION_NAME, embedded_binaries_data)?;
         let size = new_elf.len() as u64;
         std::fs::write(output_binary_filename, new_elf).map_err(|e| format!("Error saving elf: {e}"))?;       
    
