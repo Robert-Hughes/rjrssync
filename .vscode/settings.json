@@ -1,6 +1,7 @@
 {
-    // Don't build big-binary as it will take ages
+    // Don't build big-binary as it will take ages and isn't useful for IDE analysis
     "rust-analyzer.cargo.noDefaultFeatures": true,
+    // Enable profiling so that we get autocomplete etc. for this code
     "rust-analyzer.cargo.features": [
         "profiling",
     ]

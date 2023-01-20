@@ -1,14 +1,13 @@
-# Statically link against MSVC runtime for Windows, for more portability.
+# Statically link against C runtime, for more portability.
 # See https://github.com/KodrAus/rust-cross-compile/blob/main/README.md.
-[target.x86_64-pc-windows-msvc]
 rustflags = ["-C", "target-feature=+crt-static"]
 
-# Override default linker for Linunx to the one available with rust, so that we don't 
+# Override default linker for Linux to the one available with rust, so that we don't 
 # need to install another one when cross-compiling from Windows -> Linux
 # See https://github.com/KodrAus/rust-cross-compile/blob/main/README.md.
 [target.x86_64-unknown-linux-musl]
 linker = "rust-lld"
 
-# This seems to work for aarch64 as well.
+# Same for aarch64 Linux
 [target.aarch64-unknown-linux-musl]
 linker = "rust-lld"

@@ -8,9 +8,10 @@ use crate::filesystem_node::*;
 
 /// Tests that rjrssync can be launched on a remote platform, and communication is estabilished.
 /// There is no proper sync performed (just syncing an empty folder), but this checks that
-/// the ssh/scp/cargo commands and TCP connection works.
+/// the binary building, ssh/scp commands, TCP connection etc. works.
 fn test_remote_launch_impl(remote_platform_temp_variable: &str) {
-    // First run with --force-redeploy, to check that the remote deploying and building works,
+    let deploy_msg = "Deploying onto";
+    // First run with --force-redeploy, to check that the remote deploying works,
     // even when the remote already has rjrssync set up.
     run(TestDesc {
         setup_filesystem_nodes: vec![
@@ -25,7 +26,7 @@ fn test_remote_launch_impl(remote_platform_temp_variable: &str) {
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
-            (1, Regex::new(&regex::escape("Finished release [optimized] target")).unwrap()),
+            (1, Regex::new(&regex::escape(deploy_msg)).unwrap()),
         ],
         ..Default::default()
     });
@@ -41,7 +42,7 @@ fn test_remote_launch_impl(remote_platform_temp_variable: &str) {
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
-            (0, Regex::new(&regex::escape("Finished release [optimized] target")).unwrap()),
+            (0, Regex::new(&regex::escape(deploy_msg)).unwrap()),
         ],
         ..Default::default()
     });
@@ -179,7 +180,7 @@ fn needs_deploy_prompt_deploy() {
         expected_exit_code: 0,
         expected_output_messages: [&[
             (1, Regex::new("rjrssync needs to be deployed").unwrap()),
-            (1, Regex::new(&regex::escape("Finished release [optimized] target")).unwrap()), // Deploy and build happens
+            (1, Regex::new(&regex::escape("Deploying onto")).unwrap()), // Deploy and build happens
         ], &<NumActions as Into<Vec<(usize, Regex)>>>::into(copied_files(1))[..]].concat(),
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&src)), // Unchanged
@@ -235,7 +236,7 @@ fn needs_deploy_deploy() {
         ],
         expected_exit_code: 0,
         expected_output_messages: [&[
-            (1, Regex::new(&regex::escape("Finished release [optimized] target")).unwrap()), // Deploy and build happens
+            (1, Regex::new(&regex::escape("Deploying onto")).unwrap()), // Deploy and build happens
         ], &<NumActions as Into<Vec<(usize, Regex)>>>::into(copied_files(1))[..]].concat(),
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&src)), // Unchanged
