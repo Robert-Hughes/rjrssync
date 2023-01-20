@@ -1,4 +1,3 @@
-use exe::{VecPE, PE, ImageSectionHeader, Buffer, SectionCharacteristics};
 use indicatif::HumanBytes;
 use log::{debug, error, info};
 use std::ffi::OsStr;
@@ -332,17 +331,18 @@ fn create_binary_for_target(os_test_output: &str, output_binary_filename: &Path)
     // If the target is simply the same as what we are already running on, we can use our current
     // binary - no need to recreate what we already have.
     // Note that the env var TARGET is set (forwarded) by us in build.rs
-    if compatible_target_triples.contains(&env!("TARGET")) {
-        debug!("Target platform is compatible with native platform - copying current executable");
-        let current_exe = match std::env::current_exe() {
-            Ok(e) => e,
-            Err(e) => return Err(format!("Unable to get path to current exe: {e}"))
-        }; 
-        return match std::fs::copy(&current_exe, output_binary_filename) {
-            Ok(s) => Ok(s),
-            Err(e) => Err(format!("Unable to copy current exe {} to {}: {e}", current_exe.display(), output_binary_filename.display()))
-        };
-    }
+    //TODO: re-enable this
+    // if compatible_target_triples.contains(&env!("TARGET")) {
+    //     debug!("Target platform is compatible with native platform - copying current executable");
+    //     let current_exe = match std::env::current_exe() {
+    //         Ok(e) => e,
+    //         Err(e) => return Err(format!("Unable to get path to current exe: {e}"))
+    //     }; 
+    //     return match std::fs::copy(&current_exe, output_binary_filename) {
+    //         Ok(s) => Ok(s),
+    //         Err(e) => Err(format!("Unable to copy current exe {} to {}: {e}", current_exe.display(), output_binary_filename.display()))
+    //     };
+    // }
 
     // Get the embedded binaries from the current executables
     let (embedded_binaries, embedded_binaries_data) = get_embedded_binaries()?;
@@ -382,21 +382,14 @@ fn get_embedded_binaries_data() -> Result<Vec<u8>, String> {
         Err(e) => return Err(format!("Unable to get path to current exe: {e}"))
     };
 
+    let current_image = std::fs::read(current_exe).map_err(|e| format!("Error loading current exe: {e}"))?;
     #[cfg(windows)]
     {
-        // https://0xrick.github.io/win-internals/pe5/
-        // https://learn.microsoft.com/en-us/windows/win32/debug/pe-format
-        // https://docs.rs/exe/latest/exe/index.html
-
-        let current_image = VecPE::from_disk_file(current_exe).map_err(|e| format!("Error loading current exe: {e}"))?;
-        //TODO: constant for section name
-        let embedded_binary_section = current_image.get_section_by_name(embedded_binaries::SECTION_NAME).map_err(|e| format!("Error getting section from current exe: {e}"))?;
-        let embedded_binaries_data = embedded_binary_section.read(&current_image).map_err(|e| format!("Error reading embedded binaries section: {e}"))?;
-        Ok(embedded_binaries_data.to_vec())
+        let embedded_binaries_data = exe_utils::extract_section_from_pe(current_image, embedded_binaries::SECTION_NAME)?;
+        Ok(embedded_binaries_data)
     }
     #[cfg(unix)]
     {
-        let current_image = std::fs::read(current_exe).map_err(|e| format!("Error loading current exe: {e}"))?;
         let embedded_binaries_data = exe_utils::extract_section_from_elf(current_image, embedded_binaries::SECTION_NAME)?;
         Ok(embedded_binaries_data)
     }
@@ -405,41 +398,24 @@ fn get_embedded_binaries_data() -> Result<Vec<u8>, String> {
 fn create_big_binary(output_binary_filename: &Path, target_triple: &str, target_platform_binary: Vec<u8>, embedded_binaries_data: Vec<u8>) ->
     Result<u64, String> 
 {
-    if target_triple.contains("windows") {
-        //TODO: Build on linux, deploy to windows. THen on windows run --list-embedded-binaries and it has error :(
-        // Create a new PE image for it
-        let mut new_image = VecPE::from_disk_data(&target_platform_binary);
+    // Extend it with the embedded lite binaries for all platforms, to turn it into a big binary
+    // Note that we do need to include the lite binary for the native build, as this will be needed if 
+    // the big binary is used to produce a new big binary for a different platform - that new big binary will 
+    // need to have the lite binary for the native platform.
+    // Technically we could get this by downgrading the big binary to a lite binary before embedding it
+    // (by deleting the appended section), but this would be more complicated.
 
-        // Extend it with the embedded lite binaries for all platforms, to turn it into a big binary
-        // Note that we do need to include the lite binary for the native build, as this will be needed if 
-        // the big binary is used to produce a new big binary for a different platform - that new big binary will 
-        // need to have the lite binary for the native platform.
-        // Technically we could get this by downgrading the big binary to a lite binary before embedding it
-        // (by deleting the appended section), but this would be more complicated.
-        let mut new_section = ImageSectionHeader::default();
-        new_section.set_name(Some(embedded_binaries::SECTION_NAME)); // The special section name we use - needs to match other places
-        let mut new_section = new_image.append_section(&new_section).map_err(|e| format!("Error appending section: {e}"))?;
-        new_section.size_of_raw_data = embedded_binaries_data.len() as u32;
-        new_section.characteristics = SectionCharacteristics::CNT_INITIALIZED_DATA;
-        new_section.virtual_size = 0x1000; //TODO: this is needed for it to work, but not sure what it should be set to!
+    //TODO: Build on linux, deploy to windows. THen on windows run --list-embedded-binaries and it has error :(
+    // looks like the produced .exe is corrupted!
+    let new_binary = match target_triple {
+        x if x.contains("windows") => exe_utils::add_section_to_pe(target_platform_binary, embedded_binaries::SECTION_NAME, embedded_binaries_data)?,
+        x if x.contains("linux") => exe_utils::add_section_to_elf(target_platform_binary, embedded_binaries::SECTION_NAME, embedded_binaries_data)?,
+        _ => return Err("No executable generating code for this platform".to_string()),
+    };
 
-        new_image.append(embedded_binaries_data);
-
-        new_image.pad_to_alignment().map_err(|e| format!("Error in pad_to_alignment: {e}"))?;
-        new_image.fix_image_size().map_err(|e| format!("Error in fix_image_size: {e}"))?;
-
-        new_image.save(output_binary_filename).map_err(|e| format!("Error saving new exe: {e}"))?;
-
-        Ok(new_image.len() as u64)
-    } else if target_triple.contains("linux") {
-        let new_elf = exe_utils::add_section_to_elf(target_platform_binary, embedded_binaries::SECTION_NAME, embedded_binaries_data)?;
-        let size = new_elf.len() as u64;
-        std::fs::write(output_binary_filename, new_elf).map_err(|e| format!("Error saving elf: {e}"))?;       
-   
-        Ok(size)
-    } else {
-        Err("No executable generating code for this platform".to_string())
-    }
+    let size = new_binary.len() as u64;
+    std::fs::write(output_binary_filename, new_binary).map_err(|e| format!("Error saving big binary: {e}"))?;
+    Ok(size)
 }
 
 // For creating the initial big binary from Cargo, which needs to include all the embedded lite 

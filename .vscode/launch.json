@@ -13,6 +13,7 @@
                     "build",
                   //  "-r",
                   //  "--features=profiling",
+                    "--no-default-features",
                     "--bin=rjrssync",
                     "--package=rjrssync"
                 ],
@@ -21,7 +22,8 @@
                     "kind": "bin"
                 }
             },
-            "args": [ "T:\\Source\\", "rob@127.0.0.1:/home/rob/TempDest", "--force-redeploy", "-v" ],
+          //  "args": [ "T:\\Source\\", "rob@127.0.0.1:/home/rob/TempDest", "--force-redeploy", "-v" ],
+            "args": [ "--list-embedded-binaries" ],
             "cwd": "${workspaceFolder}"
         },
         {

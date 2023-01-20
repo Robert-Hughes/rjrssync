@@ -26,12 +26,13 @@ fn get_embedded_binary_target_triples() -> Vec<&'static str> {
         result.push("x86_64-pc-windows-gnu"); //TODO: is this gonna be statically linked? Does it rely on some kind of mingw dynamic libraries?
     }
 
+    //TODO: re-enable
     // x64 Linux
     // Use musl rather than gnu as it's statically linked, so makes the resulting binary more portable
-    result.push("x86_64-unknown-linux-musl");
+ //   result.push("x86_64-unknown-linux-musl");
 
     // aarch64 Linux
-    result.push("aarch64-unknown-linux-musl");
+//    result.push("aarch64-unknown-linux-musl");
 
     //TODO: add windows arm
     result
