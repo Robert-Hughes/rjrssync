@@ -275,6 +275,7 @@ jobs:
       # The logic in remote_tests.rs should automatically detect the WSL instance and connect to that
       # These tests can be resource-intensive (building rjrssync on remote hosts), so run one at a time,
       # and print the test output as they run so can see the progress
+      #TODO: not building any more! (above comment)
       run: cargo test --verbose -- "remote" --test-threads 1 --nocapture
 
     - name: Run remote tests on WSL
@@ -282,6 +283,7 @@ jobs:
       # The logic in remote_tests.rs should automatically detect the Windows host and connect to that (for the most part)
       # These tests can be resource-intensive (building rjrssync on remote hosts), so run one at a time,
       # and print the test output as they run so can see the progress.
+      #TODO: not building any more! (above comment)
       # Note we use the copy of the source code on the native Linux filesystem, not the one in the Github actions workspace
       # via /mnt/... (so that it's faster and more faithful to a 'proper' linux setup)
       shell: wsl-bash {0}

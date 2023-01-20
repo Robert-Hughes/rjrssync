@@ -30,6 +30,10 @@ Remote launching
 * Launching on a new system can take a while, even if cargo is already installed, and if cargo isn't installed, this is an extra step for the user. Pre-built binaries?
 * The prompt messages don't account for --dry-run, so it will look like things are actually going to be deleted, when they're not
 * Statically link against c runtime? For more portable binary?
+* Embed aarch64-pc-windows-msvc binary, and detect it when checking a remote OS
+* Decide if embedded binaries should be always built in release, or the same as the main build?
+* Embedded binaries pass through other arguments, like profiling
+* When building embedded binaries, if the target platform cross-compiler isn't installed, then the build will produce a LOT of errors which is very noisy and slow. Maybe instead we should do our own quick check up front?
 
 Syncing logic
 -------------
@@ -100,7 +104,7 @@ Misc
 `cargo run D:\TempSource\ robhug01@localhost:/home/robhug01/TempDest -v`
 ERROR | rjrssync::boss_frontend: Sync error: Unexpected response from dest GetEntries: Ok(Error("normalize_path failed: Illegal characters in path"))
 * Would be nice to automatically detect cases where the version number hasn't been updated, e.g. if we could see that the Command/Response struct layout has changed.
-* Document that ssh is used for connecting and launching, and that the sync is performed over a different network port, and that it is encrypted. Some of this added to readme already, but needs more. This should possibly be moved/copied to the --help so is available there too?
+* Document that ssh is used for connecting and launching, and that the sync is performed over a different network port, and that it is encrypted. Some of this added to readme already, but needs more. This should possibly be moved/copied to the --help so is available there too? Mention firewall issues?
 * In boss_sync.rs, src_entries and progres.inc_total_for_copy/delete() - these things need to be done together and kept in sync - can we enforce this (custom type?). Same for dest_entries.
 * Add to readme list of features to "advertise" the program 
 * Upload to cargo binstall (or similar) so that users don't need to build from source (especially if we're bundling embedded binaries, the initial build time will be looong!)

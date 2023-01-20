@@ -363,3 +363,19 @@ This means we can't use -msvc for the windows target for example. Even though th
 Maybe if we have a "rjrssync-lite" name for lite binaries, this will be enough to distinguish them. This might lift some of the restrictions? Getting the environment set up to build all of the embedded binaries on all platforms is difficult, e.g. mingw doesn't support Windows on Arm, so I'm not sure if there is a way to build for Windows on Arm from Linux. Getting mingw to work for a cross-build seems to require downloading mingw binaries separately (e.g. apt install mingw-w64 on Linux), which is a pain.
 
 Unfortuntately this means that it's infeasible to require the same set of embedded binaries in every build as it would be too restrictive for how the software can be built. Ultimately the software is deployed via source code, so people can choose to modify it in any way they want (including changing the embedded binaries), so trying to enforce these restrictions isn't really possible. If we were making a binary distribution, we could make sure that contained a certain set of embedded binaries, but we're not (yet). We don't want to force people to have to set up a build environment to cross compile to a bunch of targets that they don't care about, so we allow this to be customised by the person building the software. We can have a --list-embedded-binaries option to make it easier to see what remote targets a particular binary supports.
+
+Note that we do need to include the lite binary for the native build, as this will be needed if 
+the big binary is used to produce a new big binary for a different platform - that new big binary will 
+need to have the lite binary for the native platform.
+Technically we could get this by downgrading the big binary to a lite binary before embedding it, but this would 
+be more complicated.
+
+Decided to remove the source deploy because it would be more to maintain alongside the binary deploy, and the use cases for it for quite minimal now that the binary deploy is working.
+
+On Windows, we could embed the lite binaries as proper resources (Windows binaries have this concept),
+but this isn't a thing on Linux, so we choose to use the same approach for both and so don't use this Windows feature.
+Instead we append the embedded binaries as sections in the final binary (.exe/.elf) (both platforms
+have the concept of sections in their executable formats). Because we'll need to manipulate the binaries
+anyway at runtime when building a new big binary, we're gonna need to mess around with the sections anyway,
+and making them work as resources is more work.
+
