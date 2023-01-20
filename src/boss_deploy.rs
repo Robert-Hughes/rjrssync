@@ -331,18 +331,17 @@ fn create_binary_for_target(os_test_output: &str, output_binary_filename: &Path)
     // If the target is simply the same as what we are already running on, we can use our current
     // binary - no need to recreate what we already have.
     // Note that the env var TARGET is set (forwarded) by us in build.rs
-    //TODO: re-enable this
-    // if compatible_target_triples.contains(&env!("TARGET")) {
-    //     debug!("Target platform is compatible with native platform - copying current executable");
-    //     let current_exe = match std::env::current_exe() {
-    //         Ok(e) => e,
-    //         Err(e) => return Err(format!("Unable to get path to current exe: {e}"))
-    //     }; 
-    //     return match std::fs::copy(&current_exe, output_binary_filename) {
-    //         Ok(s) => Ok(s),
-    //         Err(e) => Err(format!("Unable to copy current exe {} to {}: {e}", current_exe.display(), output_binary_filename.display()))
-    //     };
-    // }
+    if compatible_target_triples.contains(&env!("TARGET")) {
+        debug!("Target platform is compatible with native platform - copying current executable");
+        let current_exe = match std::env::current_exe() {
+            Ok(e) => e,
+            Err(e) => return Err(format!("Unable to get path to current exe: {e}"))
+        }; 
+        return match std::fs::copy(&current_exe, output_binary_filename) {
+            Ok(s) => Ok(s),
+            Err(e) => Err(format!("Unable to copy current exe {} to {}: {e}", current_exe.display(), output_binary_filename.display()))
+        };
+    }
 
     // Get the embedded binaries from the current executables
     let (embedded_binaries, embedded_binaries_data) = get_embedded_binaries()?;
