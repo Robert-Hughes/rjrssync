@@ -644,7 +644,7 @@ fn execute_spec(spec: Spec, args: &BossCliArgs) -> ExitCode {
     //           in which case we couldn't share a copy. Also might need to make it multithreaded on the other end to handle
     //           doing one command at the same time for each Source and Dest, which might be more complicated.)
 
-    let progress = ProgressBar::new_spinner().with_message("Connecting...");
+    let progress = ProgressBar::new_spinner().with_message("Connecting..."); //TODO: this gets "lost" if we are deploying. it would be good to re-show this after deploy when we are trying to connect again (after Deploy successful!, there is a delay when nothing seems to be happening!)
     // Unfortunately we can't use enable_steady_tick to get a nice animation as we connect, because
     // this will clash with potential ssh output/prompts and potential output from the remote build 
     progress.tick(); 

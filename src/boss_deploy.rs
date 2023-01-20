@@ -12,16 +12,16 @@ use std::{
     sync::mpsc::{RecvError, SendError},
 };
 use tempdir::TempDir;
-
 use crate::*;
 use embedded_binaries::EmbeddedBinaries;
 
 /// Deploys a pre-built binary of rjrssync to the given remote computer, ready to be executed.
 pub fn deploy_to_remote(remote_hostname: &str, remote_user: &str, reason: &str, needs_deploy_behaviour: NeedsDeployBehaviour) -> Result<(), ()> {
-    // We're about to (potentially) show a bunch of output from scp/ssh, so this log message may as well be the same severity,
-    // so the user knows what's happening.
-    info!("Deploying onto '{}'", &remote_hostname); 
     profile_this!();
+
+    // We're about to (potentially) some output from scp/ssh, so this log message may as well be the same severity,
+    // so the user knows what's happening. Same goes for the few other info! logs in this function.
+    info!("Deploying onto '{}'", &remote_hostname); 
 
     let user_prefix = if remote_user.is_empty() {
         "".to_string()
@@ -34,6 +34,8 @@ pub fn deploy_to_remote(remote_hostname: &str, remote_user: &str, reason: &str, 
     // We run a command that prints something reasonably friendly, so we don't pollute the output
     // (we show all output from ssh, in case it contains prompts etc. that are useful/required for the user to see).
     // Note the \n to send a two-line command - it seems Windows ignores this, but Linux runs it.
+    // We use the user's existing ssh/scp tool so that their config/settings will be used for
+    // logging in to the remote system (as opposed to using an ssh library called from our code).
     let remote_command = format!("echo >/dev/null # >nul & echo Remote system is Windows %PROCESSOR_ARCHITECTURE%\necho Remote system is `uname -a`");
     debug!("Running remote command: {}", remote_command);
     let os_test_output = match run_process_with_live_output("ssh", &[user_prefix.clone() + remote_hostname, remote_command.to_string()]) {
@@ -48,12 +50,12 @@ pub fn deploy_to_remote(remote_hostname: &str, remote_user: &str, reason: &str, 
         }
     };
 
-    // We could check for "linux" in the string, but there are other Unix systems we might want to supoprt e.g. Mac,
+    // We could check for "linux" in the string, but there are other Unix systems we might want to support too e.g. Mac,
     // so we fall back to Linux as a default
     let is_windows = os_test_output.contains("Windows");
     let binary_extension = if is_windows { "exe" } else { "" };
 
-    // Temp staging folder for upload
+    // Create temporary staging folder for upload
     let staging_dir = match TempDir::new("rjrssync-deploy-staging") {
         Ok(x) => x,
         Err(e) => {
@@ -71,6 +73,7 @@ pub fn deploy_to_remote(remote_hostname: &str, remote_user: &str, reason: &str, 
 
     let binary_filename = staging_dir.join("rjrssync").with_extension(binary_extension);
 
+    // Generate a big binary for this platform into the staging folder, if we can.
     let binary_size = match create_binary_for_target(&os_test_output, &binary_filename) {
         Ok(s) => s,
         Err(e) => {
@@ -89,7 +92,7 @@ pub fn deploy_to_remote(remote_hostname: &str, remote_user: &str, reason: &str, 
     // (we're copying something onto the device that wasn't explicitly requested, 
     // so the user should probably be aware).
     let msg = format!("rjrssync needs to be deployed onto remote target {remote_hostname} because {reason}. \
-        A pre-built {} binary will be copied onto the remote target into the folder '{remote_rjrssync_folder}'",
+        A pre-built {} binary will be uploaded into the folder '{remote_rjrssync_folder}'",
         HumanBytes(binary_size));
     let resolved_behaviour = match needs_deploy_behaviour {
         NeedsDeployBehaviour::Prompt => {
@@ -112,12 +115,11 @@ pub fn deploy_to_remote(remote_hostname: &str, remote_user: &str, reason: &str, 
     };
  
     // Deploy to remote target using scp
-    // We use the user's existing ssh/scp tool so that their config/settings will be used for
-    // logging in to the remote system (as opposed to using an ssh library called from our code).
     // Note we need to deal with the case where the the remote folder doesn't exist, and the case where it does, so
     // we copy into /tmp (which should always exist), rather than directly to /tmp/rjrssync which may or may not
     let source_spec = staging_dir;
     let remote_spec = format!("{user_prefix}{remote_hostname}:{remote_temp}");
+    info!("Uploading...");
     debug!("Copying {} to {}", source_spec.display(), remote_spec);
     match run_process_with_live_output("scp", &[OsStr::new("-r"), source_spec.as_os_str(), OsStr::new(&remote_spec)]) {
         Err(e) => {
@@ -154,6 +156,8 @@ pub fn deploy_to_remote(remote_hostname: &str, remote_user: &str, reason: &str, 
             }
         };    
     }
+
+    info!("Deploy successful!");
 
     Ok(())
 }
@@ -295,11 +299,10 @@ where S : std::io::Read {
 
 /// Attempts to create an rjrssync binary that can be deployed to a target platform.
 /// 
-/// Binary embedding for quick deployment to new remotes.
 /// This is quite confusing because of the recursive resource embedding.
 /// We need to 'break the chain' to avoid a binary that contains itself (and thus is impossible).
 ///
-/// Within our embedded resources, we have a set of binaries for each supported
+/// Within the running executable, we embed a set of binaries for each supported
 /// target platform (e.g. Windows x86 and Linux x86). These binaries are "lite" binaries as 
 /// they do not have any embedded binaries themselves - just the rjrssync code. This is as opposed
 /// to our currently executing binary, which is a "big" binary as it contains embedded binaries
@@ -311,13 +314,14 @@ where S : std::io::Read {
 /// are big. Instead, we create a new big binary for the target platform, by embedding all the lite binaries
 /// inside the lite binary for the target platform.
 ///
-/// Big_p = Lite_p + Embed(Lite_0, Lite_1, ..., Lite_n)
+/// For any platform p, Big_p = Lite_p + Embed(Lite_0, Lite_1, ..., Lite_n)
 /// 
 /// If the target platform is the same as the current one though, we can skip most of this and simply
-/// copy ourselves directly - no need to recreate what we already have.
+/// copy ourselves directly - no need to recreate what we already have. This means that even
+/// a lite binary can be deployed to remote targets as long as they are the same platform.
 fn create_binary_for_target(os_test_output: &str, output_binary_filename: &Path) -> Result<u64, String> {
-    // The embedded binaries can have different targets, e.g. -gnu vs -msvc suffixes, so we need to 
-    // be somewhat flexible.
+    // The embedded binaries might have different target triples depending on how it was build, 
+    // e.g. -gnu vs -msvc suffixes, so we need to be somewhat flexible here.
     let compatible_target_triples = if os_test_output.contains("Windows") && os_test_output.contains("AMD64") {
         vec!["x86_64-pc-windows-msvc", "x86_64-pc-windows-gnu"]
     } else if os_test_output.contains("Linux") && os_test_output.contains("x86_64") {
@@ -333,25 +337,26 @@ fn create_binary_for_target(os_test_output: &str, output_binary_filename: &Path)
     // Note that the env var TARGET is set (forwarded) by us in build.rs
     if compatible_target_triples.contains(&env!("TARGET")) {
         debug!("Target platform is compatible with native platform - copying current executable");
-        let current_exe = match std::env::current_exe() {
-            Ok(e) => e,
-            Err(e) => return Err(format!("Unable to get path to current exe: {e}"))
-        }; 
-        return match std::fs::copy(&current_exe, output_binary_filename) {
-            Ok(s) => Ok(s),
-            Err(e) => Err(format!("Unable to copy current exe {} to {}: {e}", current_exe.display(), output_binary_filename.display()))
-        };
+        let current_exe = std::env::current_exe().map_err(|e| format!("Unable to get path to current exe: {e}"))?;
+        let size = std::fs::copy(&current_exe, output_binary_filename).map_err(|e| 
+            format!("Unable to copy current exe {} to {}: {e}", current_exe.display(), output_binary_filename.display()))?;
+        return Ok(size)
     }
 
-    // Get the embedded binaries from the current executables
+    // Get the embedded binaries from the current executable, and find one which is compatible
+    // with the target platform.
     let (embedded_binaries, embedded_binaries_data) = get_embedded_binaries()?;
-    let target_platform_binary = match embedded_binaries.binaries.into_iter().find(|b| compatible_target_triples.contains(&b.target_triple.as_str())) {
+    let target_platform_binary = match embedded_binaries.binaries.into_iter().find(
+        |b| compatible_target_triples.contains(&b.target_triple.as_str())) 
+    {
         Some(b) => b,
-        None => return Err(format!("No embedded binary for any compatible target triple ({:?}). Run --list-embedded-binaries to check what is available.",
-                                        compatible_target_triples)),
+        None => return Err(format!(
+            "No embedded binary for any compatible target triple ({:?}). Run --list-embedded-binaries to check what is available.",
+            compatible_target_triples)),
     };
    
-    // Create new executable for the target platform
+    // Create new executable for the target platform, by upgrading the chosen lite binary
+    // to a big binary.
     debug!("Found embedded binary ({}), extracting and upgrading it to a big binary", target_platform_binary.target_triple);
     let size = create_big_binary(&output_binary_filename, &target_platform_binary.target_triple, target_platform_binary.data, embedded_binaries_data)?;
     debug!("Created big binary at {} ({})", output_binary_filename.display(), HumanBytes(size));
@@ -359,53 +364,47 @@ fn create_binary_for_target(os_test_output: &str, output_binary_filename: &Path)
 }
 
 pub fn get_embedded_binaries() -> Result<(EmbeddedBinaries, Vec<u8>), String> {
+    // Raw data
     let embedded_binaries_data = get_embedded_binaries_data()?;
 
-    // This isn't very efficient - we're loading every single binary into memory, and then only using one of them.
-    // But the binaries should be quite small, so this should be fine.
-    let embedded_binaries : EmbeddedBinaries = bincode::deserialize(&embedded_binaries_data).map_err(|e| format!("Error deserializing embedded binaries: {e}"))?;
+    // Deserialize into structured data (array of binaries for different targets)
+    // This isn't very efficient - we're loading every single binary into memory,
+    // and then only using one of them. But the binaries should be quite small, so this should be fine.
+    let embedded_binaries : EmbeddedBinaries = bincode::deserialize(&embedded_binaries_data).
+        map_err(|e| format!("Error deserializing embedded binaries: {e}"))?;
     Ok((embedded_binaries, embedded_binaries_data))
 }
 
-// Parses the currently running executable file to get the section containing the embedded binaries table.
+// For creating the initial big binary from Cargo, which needs to include all the embedded lite 
+// binaries.
+#[cfg(feature="progenitor")]
+include!(concat!(env!("OUT_DIR"), "/embedded_binaries.rs"));
+
+/// Parses the currently running executable file to get the section containing the embedded binaries table.
 fn get_embedded_binaries_data() -> Result<Vec<u8>, String> {
     // To make sure that progenitor builds actually include the embedded binaries data and it isn't optimised
     // out, make a proper reference to the data.
-    // I managed to work around this on MSVC by putting it in a section called ".rsrc1", but couldn't figure 
-    // anything similar out for Linux. The reference we add hopefully shouldn't cause any performance issues.
+    // The reference we add here hopefully shouldn't cause any performance issues.
+    // As an alternative, I managed to work around this on MSVC by putting it in a section called ".rsrc1", 
+    // but couldn't figure anything similar out for Linux. 
     #[cfg(feature="progenitor")]
-    unsafe { std::ptr::read_volatile(&EMBEDDED_BINARIES_DATA[0]); } //TODO: check if this works for a release build
+    unsafe { std::ptr::read_volatile(&EMBEDDED_BINARIES_DATA[0]); }
 
-    let current_exe = match std::env::current_exe() {
-        Ok(e) => e,
-        Err(e) => return Err(format!("Unable to get path to current exe: {e}"))
-    };
-
-    let current_image = std::fs::read(current_exe).map_err(|e| format!("Error loading current exe: {e}"))?;
+    let current_exe = std::env::current_exe().map_err(|e| format!("Unable to get path to current exe: {e}"))?;
+    let exe_data = std::fs::read(current_exe).map_err(|e| format!("Error loading current exe: {e}"))?;
     #[cfg(windows)]
-    {
-        let embedded_binaries_data = exe_utils::extract_section_from_pe(current_image, embedded_binaries::SECTION_NAME)?;
-        Ok(embedded_binaries_data)
-    }
+    let embedded_binaries_data = exe_utils::extract_section_from_pe(exe_data, embedded_binaries::SECTION_NAME)?;
     #[cfg(unix)]
-    {
-        let embedded_binaries_data = exe_utils::extract_section_from_elf(current_image, embedded_binaries::SECTION_NAME)?;
-        Ok(embedded_binaries_data)
-    }
+    let embedded_binaries_data = exe_utils::extract_section_from_elf(exe_data, embedded_binaries::SECTION_NAME)?;
+    
+    Ok(embedded_binaries_data)
 }
 
-fn create_big_binary(output_binary_filename: &Path, target_triple: &str, target_platform_binary: Vec<u8>, embedded_binaries_data: Vec<u8>) ->
-    Result<u64, String> 
+/// Takes a lite binary for a target, and augments it with the given embedded_binaries_data, turning
+/// it into a big binary.
+fn create_big_binary(output_binary_filename: &Path, target_triple: &str, 
+    target_platform_binary: Vec<u8>, embedded_binaries_data: Vec<u8>) -> Result<u64, String> 
 {
-    // Extend it with the embedded lite binaries for all platforms, to turn it into a big binary
-    // Note that we do need to include the lite binary for the native build, as this will be needed if 
-    // the big binary is used to produce a new big binary for a different platform - that new big binary will 
-    // need to have the lite binary for the native platform.
-    // Technically we could get this by downgrading the big binary to a lite binary before embedding it
-    // (by deleting the appended section), but this would be more complicated.
-
-    //TODO: Build on linux, deploy to windows. THen on windows run --list-embedded-binaries and it has error :(
-    // looks like the produced .exe is corrupted!
     let new_binary = match target_triple {
         x if x.contains("windows") => exe_utils::add_section_to_pe(target_platform_binary, embedded_binaries::SECTION_NAME, embedded_binaries_data)?,
         x if x.contains("linux") => exe_utils::add_section_to_elf(target_platform_binary, embedded_binaries::SECTION_NAME, embedded_binaries_data)?,
@@ -416,32 +415,4 @@ fn create_big_binary(output_binary_filename: &Path, target_triple: &str, target_
     std::fs::write(output_binary_filename, new_binary).map_err(|e| format!("Error saving big binary: {e}"))?;
     Ok(size)
 }
-
-// For creating the initial big binary from Cargo, which needs to include all the embedded lite 
-// binaries.
-#[cfg(feature="progenitor")]
-include!(concat!(env!("OUT_DIR"), "/embedded_binaries.rs"));
-
-//TODO: some of the below stuff should maybe be added to the notes.md?
-//TODO: tests for both source deployment and binary deployment
-//TODO: tests for different combinations of platforms, as there are different executable formats.
-//TODO: also tests for deploying from an already-deployed (non-progenitor) binary, again, to all platforms? :O
-//TODO: source deployment will now be even slower, as the remote will need to build all of the embedded
-// lite binaries for different targets!
-// Do we want this? Maybe remote source builds should just build lite binaries, for speed?
-// But then it breaks the nice property that all binaries seen on disk are equal (big) - we don't
-// want some binaries to not support (binary) deployment as this will be confusing ("which binary do i have").
-// But it does mean that users would need to set up all the rustup cross-compilation targets on their remote 
-// platform.. Maybe would be simpler to get rid of source builds altogether?
-//TODO: copy some of these notes/findings/discussions into our notes.md, for future reference
-//TODO: deploying a big binary to "less powerful"/slower targets may be bad because it will take
-// ages to copy the big binary there, and the benefits of having a fully-functional rjrssync.exe on
-// there may be minimal. Perhaps we do want the option(?) of deploying only a lite binary?
-// That might make a lot of this work redundant, as we would no longer need to generate new big binaries
-// on-demand, so wouldn't need to do all this section stuff.
-// Perhaps instead we focus on making the binary smaller, which would be good anyway?
-// One option could be to compress the embedded lite binaries.
-
-//TODO: add test that remotely deployed binary can then itself also remotely deploy (all binaries
-// are equal, no lite binaries every actually exist on disk)
 

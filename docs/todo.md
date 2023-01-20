@@ -34,6 +34,13 @@ Remote launching
 * Decide if embedded binaries should be always built in release, or the same as the main build?
 * Embedded binaries pass through other arguments, like profiling
 * When building embedded binaries, if the target platform cross-compiler isn't installed, then the build will produce a LOT of errors which is very noisy and slow. Maybe instead we should do our own quick check up front?
+* deploying a big binary to "less powerful"/slower targets may be bad because it will take
+ages to copy the big binary there, and the benefits of having a fully-functional rjrssync.exe on
+there may be minimal. Perhaps we do want the option(?) of deploying only a lite binary?
+That might make a lot of this work redundant, as we would no longer need to generate new big binaries
+on-demand, so wouldn't need to do all this section stuff.
+Perhaps instead we focus on making the binary smaller, which would be good anyway?
+One option could be to compress the embedded lite binaries.
 
 Syncing logic
 -------------
@@ -95,7 +102,8 @@ Testing
 * Using tar for remote filesytem nodes messes about with symlinks when extracting on a different platform (Windows vs Linux)
 * Add test for multiple syncs with remote doer (to make sure it stays alive and can be used for multiple syncs) spec file
 * Tests for progress bar (large files, small files, deleting and copying files). Could unit test some of the stuff, especially boss_progress.rs
-
+* Tests for different combinations of platforms for binary deployment - the different executable formats have different code paths that all need testing.
+* Tests for deploying from an already-deployed (non-progenitor) binary, again, to all platforms? (all binaries are equal, no lite binaries every actually exist on disk)
 
 Misc
 -----

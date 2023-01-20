@@ -343,7 +343,7 @@ Notes on remote deployment
 There are several methods we (could) use to get rjrssync onto remote devices:
  * Log on to the remote device and "install" it (apt, cargo install, cargo binstall etc., either as a binary download or build from source)
  * Upload a pre-built binary
- * Upload the source code and build it remotely
+ * Upload the source code and build it using cargo on the remote device
 
 Each of these has advantages/disadvantages. Some properties that would be nice are:
 
@@ -358,24 +358,17 @@ A build from source should be as simple as "cargo build" - ideally we don't have
 For the targets that we include as embedded binaries:
 
 We prefer to always have the exact same set, no matter the platform that we are building on. 
-This means we can't use -msvc for the windows target for example. Even though the "outer binary" (the code that actually runs) will be built with MSVC when building on Windows, the embedded binaries payload will still be -gnu. We could choose to additionally/instead always include the platform that we are currently targeting, but this would lead to differences in the embedded binaries which could be confusing. Of course somebody can get the source code and build rjrssync for any target they want and run it there, but it will only ever be deployable onto targets that are in the predefined list, so we want this to always be consistent. If somebody wants to deploy onto another platform, they'd have to add it to the list and rebuild, or manually "install" rjrssync on that target, doing a build from source.
+This means we can't use -msvc for the windows target for example, as this isn't available when building from Linux. Even though the "outer binary" (the code that actually runs) will be built with MSVC when building on Windows, the embedded binaries payload will still be -gnu. We could choose to additionally/instead always include the platform that we are currently targeting, but this would lead to differences in the embedded binaries which could be confusing. Of course somebody can get the source code and build rjrssync for any target they want and run it there, but it will only ever be deployable onto targets that are in the predefined list, so we want this to always be consistent. If somebody wants to deploy onto another platform, they'd have to add it to the list and rebuild, or manually "install" rjrssync on that target, doing a build from source.
 
 Maybe if we have a "rjrssync-lite" name for lite binaries, this will be enough to distinguish them. This might lift some of the restrictions? Getting the environment set up to build all of the embedded binaries on all platforms is difficult, e.g. mingw doesn't support Windows on Arm, so I'm not sure if there is a way to build for Windows on Arm from Linux. Getting mingw to work for a cross-build seems to require downloading mingw binaries separately (e.g. apt install mingw-w64 on Linux), which is a pain.
 
-Unfortuntately this means that it's infeasible to require the same set of embedded binaries in every build as it would be too restrictive for how the software can be built. Ultimately the software is deployed via source code, so people can choose to modify it in any way they want (including changing the embedded binaries), so trying to enforce these restrictions isn't really possible. If we were making a binary distribution, we could make sure that contained a certain set of embedded binaries, but we're not (yet). We don't want to force people to have to set up a build environment to cross compile to a bunch of targets that they don't care about, so we allow this to be customised by the person building the software. We can have a --list-embedded-binaries option to make it easier to see what remote targets a particular binary supports.
+Unfortuntately this means that it's infeasible to require the same set of embedded binaries in every build as it would be too restrictive for how the software can be built. Ultimately the software is deployed via source code, so people can choose to modify it in any way they want (including changing the embedded binaries), so trying to enforce these restrictions isn't really possible. If we were making a binary distribution, we could make sure that contained a certain set of embedded binaries, but we're not (yet). We don't want to force people to have to set up a build environment to cross compile to a bunch of targets that they don't care about, so we allow this to be customised by the person building the software. We have a --list-embedded-binaries option to make it easier to see what remote targets a particular binary supports.
 
-Note that we do need to include the lite binary for the native build, as this will be needed if 
-the big binary is used to produce a new big binary for a different platform - that new big binary will 
-need to have the lite binary for the native platform.
-Technically we could get this by downgrading the big binary to a lite binary before embedding it, but this would 
-be more complicated.
+Note that we do need to include the lite binary for the native build, as this will be needed if the big binary is used to produce a new big binary for a different platform - that new big binary will need to have the lite binary for the native platform. Technically we could get this by downgrading the big binary to a lite binary before embedding it, but this would be more complicated.
 
-Decided to remove the source deploy because it would be more to maintain alongside the binary deploy, and the use cases for it for quite minimal now that the binary deploy is working.
+Decided to remove the source deploy option because it would be more to maintain alongside the binary deploy, and the use cases for it for quite minimal now that the binary deploy is working. The main use case is for running on a platform that we don't have a pre-built binary for, which should be quite rare and there are other options - add an embedded binary for that platform, or do a special lite binary build just for that platform and copy it into the expected location. Also the source build will be even slower if it includes building embedded binaries, and harder to set up because you need a more complex build environment.
 
-On Windows, we could embed the lite binaries as proper resources (Windows binaries have this concept),
-but this isn't a thing on Linux, so we choose to use the same approach for both and so don't use this Windows feature.
-Instead we append the embedded binaries as sections in the final binary (.exe/.elf) (both platforms
-have the concept of sections in their executable formats). Because we'll need to manipulate the binaries
-anyway at runtime when building a new big binary, we're gonna need to mess around with the sections anyway,
-and making them work as resources is more work.
+One option is that remote source builds should just build lite binaries, for speed, but then it breaks the nice property that all binaries seen on disk are equal (big) - we don't want some binaries to not support (binary) deployment as this will be confusing ("which binary do i have").
+But it does mean that users would need to set up all the rustup cross-compilation targets on their remote platform.
 
+On Windows, we could embed the lite binaries as proper "resources" (using .rc file etc.), but this isn't a thing on Linux, so we choose to use the same approach for both and so don't use this Windows feature. Instead we append the embedded binaries as sections in the final binary (.exe/.elf) (both platforms have the concept of sections in their executable formats). Because we'll need to manipulate the binaries anyway at runtime when building a new big binary, we're gonna need to mess around with the sections anyway, and making them work as resources is more work.

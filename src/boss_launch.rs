@@ -22,8 +22,8 @@ use crate::boss_deploy::deploy_to_remote;
 use crate::boss_doer_interface::{Response, Command, HANDSHAKE_STARTED_MSG, HANDSHAKE_COMPLETED_MSG, VERSION};
 use crate::encrypted_comms::AsyncEncryptedComms;
 
-pub const REMOTE_TEMP_UNIX: &str = "/var/tmp/"; // Use /var/tmp rather than /tmp so it doesn't get wiped on reboot (and thus requiring a re-deploy)
-pub const REMOTE_TEMP_WINDOWS: &str = r"%TEMP%\";
+pub const REMOTE_TEMP_UNIX: &str = "/var/tmp"; // Use /var/tmp rather than /tmp so it doesn't get wiped on reboot (and thus requiring a re-deploy)
+pub const REMOTE_TEMP_WINDOWS: &str = r"%TEMP%";
 
 /// Rough maximum amount of memory we allow to be buffered in our cross-thread communication channels
 /// between boss and doer. If this is set too high (or we didn't set a limit at all), then we would
@@ -493,8 +493,8 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str, remote_port_for
     // We run a command that doesn't print out anything on both Windows and Linux, so we don't pollute the output
     // (we show all output from ssh, in case it contains prompts etc. that are useful/required for the user to see).
     // Note the \n to send a two-line command - it seems Windows ignores this, but Linux runs it.
-    let windows_command = format!("{}rjrssync\\rjrssync.exe {}", REMOTE_TEMP_WINDOWS, doer_args);
-    let unix_command = format!("{}rjrssync/rjrssync {}", REMOTE_TEMP_UNIX, doer_args);
+    let windows_command = format!("{}\\rjrssync\\rjrssync.exe {}", REMOTE_TEMP_WINDOWS, doer_args);
+    let unix_command = format!("{}/rjrssync/rjrssync {}", REMOTE_TEMP_UNIX, doer_args);
     let remote_command = format!("echo >/dev/null # >nul & {windows_command}\n{unix_command}");
     debug!("Running remote command: {}", remote_command);
     // Note we use the user's existing ssh tool so that their config/settings will be used for
