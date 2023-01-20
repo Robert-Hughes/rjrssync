@@ -216,7 +216,7 @@ pub fn setup_comms(
     // If it exists and is a compatible version, we can use that. Otherwise we deploy a new version
     // and try again
     let mut deploy_reason = match force_redeploy {
-        true => Some("--force-redeploy was set"), //TODO: if this is set, we shouldn't do two attempts?
+        true => Some("--force-redeploy was set"),
         false => None
     };
     for attempt in 0..2 {

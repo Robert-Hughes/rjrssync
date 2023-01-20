@@ -1,21 +1,42 @@
-// The only crate I could find that allows read/modify/write of an exe (PE) file, seemed to produce
+// Functions for extracting and modifying sections in executable file formats.
+
+// For Windows, the only crate I could find that allows read/modify/write of an exe (PE) file, seemed to produce
 // corrupt results when running on Linux (maybe I just wasn't using it properly), so we've got our own code here as it's
 // not too complicated.
 
+// There doesn't seem to be a crate which allows easily adding a section to an existing ELF file.
+// They either only support reading (not editing/writing), or do support writing but you have
+// to declare your ELF file from scratch (no read/modify/write). The one crate that does do this
+// (elf_utilities) seems to have a bug and it produced corrupted ELFs :(.
+// So we do it ourselves in this code.
+
 use std::ops::{Sub, Div, Add, Mul};
+
+// Validates the magic signature and returns the offset of the start of the COFF file header.
+fn validate_pe_signature(pe_bytes: &[u8]) -> Result<usize, String> {
+    // PE files are always little-endian: https://reverseengineering.stackexchange.com/questions/17922/determining-endianness-of-pe-files-windows-on-arm
+    // The code written here assumes that we are running on a little-endian system too, so confirm this.
+    if 0x12345678_u32.to_le_bytes() != 0x12345678_u32.to_ne_bytes() {
+        return Err(format!("This code can only run on a little-endian system"));
+    }
+    
+    let signature_offset = read_field::<u32>(&pe_bytes, 0x3c)? as usize;
+    let signature = read_field::<u32>(&pe_bytes, signature_offset)?;
+    if signature.to_le_bytes() != *b"PE\0\0" {
+        return Err(format!("Invalid PE signature"));
+    }
+
+    // COFF file header comes immediately after the signature
+    Ok(signature_offset + 4)
+}
 
 pub fn extract_section_from_pe(mut pe_bytes: Vec<u8>, section_name: &str) -> Result<Vec<u8>, String> {
     // https://0xrick.github.io/win-internals/pe5/
     // https://learn.microsoft.com/en-us/windows/win32/debug/pe-format
 
     // Skip past the DOS header to the PE signature/magic
-    //TODO: share common code with the add_section function?
-    let signature_offset = read_field::<u32>(&pe_bytes, 0x3c)? as usize;
-    let signature = read_field::<u32>(&pe_bytes, signature_offset)?;
-    if signature.to_le_bytes() != *b"PE\0\0" {
-        return Err(format!("Invalid PE signature"));
-    }
-    let file_header_offset = signature_offset + 4;
+    let file_header_offset = validate_pe_signature(&pe_bytes)?;
+
     let num_sections = read_field::<u16>(&pe_bytes, file_header_offset + 2)?;
     let size_of_optional_header = read_field::<u16>(&pe_bytes, file_header_offset + 16)?;
 
@@ -45,12 +66,7 @@ pub fn add_section_to_pe(mut pe_bytes: Vec<u8>, new_section_name: &str, mut new_
     -> Result<Vec<u8>, String> {
     let new_section_size = new_section_bytes.len();
 
-    let signature_offset = read_field::<u32>(&pe_bytes, 0x3c)? as usize;
-    let signature = read_field::<u32>(&pe_bytes, signature_offset)?;
-    if signature.to_le_bytes() != *b"PE\0\0" {
-        return Err(format!("Invalid PE signature"));
-    }
-    let file_header_offset = signature_offset + 4;
+    let file_header_offset = validate_pe_signature(&pe_bytes)?;
     
     // Increment number of sections
     let num_sections_offset = file_header_offset + 2;
@@ -137,19 +153,43 @@ pub fn add_section_to_pe(mut pe_bytes: Vec<u8>, new_section_name: &str, mut new_
     Ok(pe_bytes)
 }
 
-// There doesn't seem to be a crate which allows easily adding a section to an existing ELF file.
-// They either only support reading (not editing/writing), or do support writing but you have
-// to declare your ELF file from scratch (no read/modify/write). The one crate that does do this
-// (elf_utilities) seems to have a bug and it produced corrupted ELFs :(.
-// So we do it ourselves in this code.
+fn validate_elf_header(elf_bytes: &[u8]) -> Result<(), String> {
+    // ELF files can be big or little endian.
+    // The code written here assumes that it is little-endian and that we are running on a little-endian system too, 
+    // so confirm this.
+    if 0x12345678_u32.to_le_bytes() != 0x12345678_u32.to_ne_bytes() {
+        return Err(format!("This code can only run on a little-endian system"));
+    }
+
+    let magic = read_field::<u32>(&elf_bytes, 0)?;
+    if magic.to_le_bytes() != *b"\x7FELF" {
+        return Err(format!("Invalid ELF magic"));
+    }
+
+    let bitness = read_field::<u8>(&elf_bytes, 0x4)?;
+    if bitness != 2 {
+        return Err(format!("Only 64-bit ELF files are supported"));
+    }
+
+    let endianness = read_field::<u8>(&elf_bytes, 0x5)?;
+    if endianness != 1 {
+        return Err(format!("Only little-endian ELF files are supported"));
+    }
+
+    let version = read_field::<u8>(&elf_bytes, 0x6)?;
+    if version != 1 {
+        return Err(format!("Only 64-bit ELF files are supported"));
+    }
+
+    Ok(())
+}
 
 #[cfg_attr(not(unix), allow(unused))]
 pub fn extract_section_from_elf(mut elf_bytes: Vec<u8>, section_name: &str) -> Result<Vec<u8>, String> {
     // https://en.wikipedia.org/wiki/Executable_and_Linkable_Format
     // https://docs.oracle.com/cd/E23824_01/html/819-0690/chapter6-73709.html
 
-    //TODO: validate endian-ness field?
-    //TODO: validate bitness (64 vs 32), and ELF magic number?
+    validate_elf_header(&elf_bytes)?;
 
     // Offset within file to the start of the table of section headers
     let section_header_table_offset = read_field::<u64>(&elf_bytes, 0x28)?;
@@ -201,9 +241,7 @@ pub fn add_section_to_elf(mut elf_bytes: Vec<u8>, new_section_name: &str, mut ne
     // https://en.wikipedia.org/wiki/Executable_and_Linkable_Format
     // https://docs.oracle.com/cd/E23824_01/html/819-0690/chapter6-73709.html
 
-    //TODO: validate endian-ness field?
-    //TODO: validate bitness (64 vs 32), and ELF magic number?
-    //TODO: common ELF code to do this, as well as the common parsing code?
+    validate_elf_header(&elf_bytes)?;
 
     // Offset within file to the start of the table of section headers
     let section_header_table_offset = read_field::<u64>(&elf_bytes, 0x28)?;
@@ -305,6 +343,7 @@ macro_rules! impl_number_trait {
 impl_number_trait!(u64);
 impl_number_trait!(u32);
 impl_number_trait!(u16);
+impl_number_trait!(u8);
 
 fn read_field<T: Number>(bytes: &[u8], offset: usize) -> Result<T, String> {
     let size = std::mem::size_of::<T>();
@@ -337,4 +376,4 @@ fn align<T: Copy + Sub<Output = T> + Div<Output = T> + Add<Output=T> + Mul<Outpu
     ((x - 1.into()) / multiple + 1.into()) * multiple
 }
 
-//TODO: tests for this file
+//TODO: tests for this file?

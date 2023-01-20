@@ -231,8 +231,6 @@ pub struct RemotePlatform {
     pub is_windows: bool,
 }
 
-//TODO: tests running in parallel can conflict if they both use the remote platform - could we lock/mutex them?
-// need to be careful not to deadlock! (one test locks Windows then Linux, the other Linux then Windows!)
 impl RemotePlatform {
     pub fn get_windows() -> &'static RemotePlatform {
         &REMOTE_WINDOWS_PLATFORM

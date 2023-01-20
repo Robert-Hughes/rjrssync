@@ -89,9 +89,8 @@ pub struct BossCliArgs {
     #[arg(long)]
     pub dry_run: bool,
 
-    //TODO: update
     /// Specifies behaviour when rjrssync needs to be deployed to a remote target. 
-    /// This might download some cargo packages and take a while to build, so we check with the user.
+    /// This uploads a binary to a folder on the remote target, so we check with the user first.
     /// The default is 'prompt'.
     // (the default isn't defined here, because it's defined in SyncSpec::default() and if we duplicate it
     //  here then we'll have no way of knowing if the user provided it on the cmd prompt as an override or not)
@@ -181,7 +180,6 @@ pub struct BossCliArgs {
     /// Lists the binaries embedded inside this program, ready for deployment to remote targets.
     #[arg(long)]
     list_embedded_binaries: bool,
-    //TODO: add tests for this
 
     /// If provided, outputs an auto-complete script for the provided shell.
     /// For example, to configure auto-complete for bash:
@@ -533,19 +531,18 @@ pub fn boss_main() -> ExitCode {
     debug!("Running as boss");
 
     if args.list_embedded_binaries {
-        let bs = match boss_deploy::get_embedded_binaries() {
-            Ok(b) => b.0,
+        match boss_deploy::get_embedded_binaries() {
+            Ok(eb) => {
+                for b in eb.0.binaries {
+                    println!("{} ({})", b.target_triple, HumanBytes(b.data.len() as u64));
+                }        
+                return ExitCode::SUCCESS;
+            }
             Err(e) => {
                 error!("Error getting embedded binaries: {e}");
                 return ExitCode::from(19);
             }
-        };
-
-        for b in bs.binaries {
-            println!("{} ({})", b.target_triple, HumanBytes(b.data.len() as u64));
-        }
-
-        return ExitCode::SUCCESS;        
+        }        
     }
 
     // Decide what to sync - defined either on the command line or in a spec file if provided
@@ -644,7 +641,7 @@ fn execute_spec(spec: Spec, args: &BossCliArgs) -> ExitCode {
     //           in which case we couldn't share a copy. Also might need to make it multithreaded on the other end to handle
     //           doing one command at the same time for each Source and Dest, which might be more complicated.)
 
-    let progress = ProgressBar::new_spinner().with_message("Connecting..."); //TODO: this gets "lost" if we are deploying. it would be good to re-show this after deploy when we are trying to connect again (after Deploy successful!, there is a delay when nothing seems to be happening!)
+    let progress = ProgressBar::new_spinner().with_message("Connecting...");
     // Unfortunately we can't use enable_steady_tick to get a nice animation as we connect, because
     // this will clash with potential ssh output/prompts and potential output from the remote build 
     progress.tick(); 
