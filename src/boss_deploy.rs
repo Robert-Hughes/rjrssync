@@ -21,6 +21,8 @@ pub fn deploy_to_remote(remote_hostname: &str, remote_user: &str, reason: &str, 
 
     // We're about to (potentially) some output from scp/ssh, so this log message may as well be the same severity,
     // so the user knows what's happening. Same goes for the few other info! logs in this function.
+    // It would be nice to have a progress bar/spinner here, but that might cause problems
+    // with potential ssh output/prompts.
     info!("Deploying onto '{}'", &remote_hostname); 
 
     let user_prefix = if remote_user.is_empty() {

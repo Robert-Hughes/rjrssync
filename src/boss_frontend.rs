@@ -643,7 +643,7 @@ fn execute_spec(spec: Spec, args: &BossCliArgs) -> ExitCode {
 
     let progress = ProgressBar::new_spinner().with_message("Connecting...");
     // Unfortunately we can't use enable_steady_tick to get a nice animation as we connect, because
-    // this will clash with potential ssh output/prompts and potential output from the remote build 
+    // this will clash with potential ssh output/prompts
     progress.tick(); 
     
     // Launch doers on remote hosts or threads on local targets and estabilish communication (check version etc.)

@@ -34,7 +34,7 @@ pub fn extract_section_from_pe(mut pe_bytes: Vec<u8>, section_name: &str) -> Res
     // https://0xrick.github.io/win-internals/pe5/
     // https://learn.microsoft.com/en-us/windows/win32/debug/pe-format
 
-    // Skip past the DOS header to the PE signature/magic
+    // Skip past the DOS header to the COFF header
     let file_header_offset = validate_pe_signature(&pe_bytes)?;
 
     let num_sections = read_field::<u16>(&pe_bytes, file_header_offset + 2)?;
@@ -49,7 +49,7 @@ pub fn extract_section_from_pe(mut pe_bytes: Vec<u8>, section_name: &str) -> Res
         let name_offset = section_header_offset + 0; // Name is the first field
         let name = read_string(&pe_bytes, name_offset, 8)?;
 
-        if name == section_name {
+        if name == section_name.as_bytes() {
             // This is the right section - return the contents
             let size_of_raw_data = read_field::<u32>(&pe_bytes, section_header_offset + 16)?;
             let pointer_to_raw_data = read_field::<u32>(&pe_bytes, section_header_offset + 20)?;
@@ -63,9 +63,9 @@ pub fn extract_section_from_pe(mut pe_bytes: Vec<u8>, section_name: &str) -> Res
 }
 
 pub fn add_section_to_pe(mut pe_bytes: Vec<u8>, new_section_name: &str, mut new_section_bytes: Vec<u8>) 
-    -> Result<Vec<u8>, String> {
-    let new_section_size = new_section_bytes.len();
-
+    -> Result<Vec<u8>, String> 
+{
+    // Skip past the DOS header to the COFF header
     let file_header_offset = validate_pe_signature(&pe_bytes)?;
     
     // Increment number of sections
@@ -77,17 +77,18 @@ pub fn add_section_to_pe(mut pe_bytes: Vec<u8>, new_section_name: &str, mut new_
     let size_of_optional_header = read_field::<u16>(&pe_bytes, file_header_offset + 16)?;
 
     let optional_header_offset = file_header_offset + 20;
+
     let section_alignment = read_field::<u32>(&pe_bytes, optional_header_offset + 32)?;
     let file_alignment = read_field::<u32>(&pe_bytes, optional_header_offset + 36)?;
 
     let section_headers_offset = optional_header_offset + size_of_optional_header as usize;
 
     // Because the section data is aligned to FileAlignment, there is (probably) a gap of padding after
-    // the end of the section headers and before the data. There we can put our new section header in there
-    // without having to shuffle everything else up, if there is such a gap. If not, we will have to shuffle everything
-    // up by one FileAlignment.
+    // the end of the section headers and before the data. We can put our new section header in there
+    // without having to shuffle everything else up, if there is such a gap. If not, we will have to 
+    // shuffle everything up by one FileAlignment, to create space for our new section header.
     let orig_end_of_section_headers = section_headers_offset + orig_num_sections as usize * 40;
-    if align(orig_end_of_section_headers as u32, file_alignment) - (orig_end_of_section_headers as u32) < 40 {
+    if align(orig_end_of_section_headers, file_alignment as usize) - orig_end_of_section_headers < 40 {
         // No space, we'll need to bump everything up
         let padding = vec![0 as u8; file_alignment as usize];
         pe_bytes.splice(orig_end_of_section_headers..orig_end_of_section_headers, padding).for_each(drop);
@@ -107,21 +108,22 @@ pub fn add_section_to_pe(mut pe_bytes: Vec<u8>, new_section_name: &str, mut new_
     assert!(new_section_name.len() <= 8);
     let mut new_section_header = [0 as u8; 40];
     // Name
-    new_section_header[0..8].copy_from_slice(new_section_name.as_bytes());
+    new_section_header[0..new_section_name.len()].copy_from_slice(new_section_name.as_bytes());
     // VirtualSize - this has to be set to non-zero otherwise the exe is not valid. We don't actually want this data
-    // loaded into memory though, so we set this as small as possible (not sure if this actually achieves anything or not though)
-    let new_section_virtual_size = 0x1000;
+    // loaded into memory though, so we set this as small as possible (not sure if this actually achieves anything or not though).
+    // Note that this doesn't need to be aligned.
+    let new_section_virtual_size = 0x1;
     write_field(&mut new_section_header, 8, new_section_virtual_size as u32)?;
-    // VirtualAddress - we don't really want our data loaded into memory, but this is required, and it seems it 
-    // must come contigusouly after the VAs for every preceding section, aligned to SectionAlignment
+    // VirtualAddress - we don't really want our data loaded into memory, but this is required, and it must
+    // be contigus after the VAs for every preceding section, aligned to SectionAlignment
     let prev_section_virtual_address_offset = section_headers_offset as usize + (orig_num_sections as usize - 1) * 40 + 12;
     let prev_section_virtual_address = read_field::<u32>(&pe_bytes, prev_section_virtual_address_offset)?;
     let prev_section_virtual_size_offset = section_headers_offset as usize + (orig_num_sections as usize - 1) * 40 + 8;
     let prev_section_virtual_size = read_field::<u32>(&pe_bytes, prev_section_virtual_size_offset)?;
     let new_section_virtual_address = align(prev_section_virtual_address + prev_section_virtual_size, section_alignment);
     write_field(&mut new_section_header, 12, new_section_virtual_address as u32)?;
-    // SizeOfRawData
-    write_field(&mut new_section_header, 16, new_section_size as u32)?;
+    // SizeOfRawData 
+    write_field(&mut new_section_header, 16, new_section_bytes.len() as u32)?; //TODO: this needs to be aligned!
     // Characteristics
     write_field(&mut new_section_header, 36, 0x00000040u32)?; // IMAGE_SCN_CNT_INITIALIZED_DATA
 
@@ -130,13 +132,13 @@ pub fn add_section_to_pe(mut pe_bytes: Vec<u8>, new_section_name: &str, mut new_
     pe_bytes[new_section_header_offset..new_section_header_offset+40].copy_from_slice(&new_section_header);
     
     // Append the new data, adding padding to align it if necessary
-    let new_section_offset = align(pe_bytes.len() as u32, file_alignment as u32);
+    let new_section_offset = align(pe_bytes.len(), file_alignment as usize);
     pe_bytes.resize(new_section_offset as usize, 0);
     pe_bytes.append(&mut new_section_bytes);
     drop(new_section_bytes); // It's just been emptied, so prevent further use
 
     // Set the new section's PointerToRawData
-    write_field(&mut pe_bytes, new_section_header_offset + 20, new_section_offset)?; 
+    write_field(&mut pe_bytes, new_section_header_offset + 20, new_section_offset as u32)?; 
     
     // Update SizeOfImage in the optional header
     let size_of_image_offset = optional_header_offset + 56;
@@ -147,7 +149,7 @@ pub fn add_section_to_pe(mut pe_bytes: Vec<u8>, new_section_name: &str, mut new_
     // Recalculate SizeOfHeaders in the optional header
     let size_of_headers_offset = optional_header_offset + 60;
     let new_size_of_headers = orig_end_of_section_headers + 40;
-    let new_size_of_headers = align(new_size_of_headers as u32, file_alignment);
+    let new_size_of_headers = align(new_size_of_headers, file_alignment as usize);
     write_field(&mut pe_bytes, size_of_headers_offset, new_size_of_headers as u32)?;    
     
     Ok(pe_bytes)
@@ -320,7 +322,45 @@ pub fn add_section_to_elf(mut elf_bytes: Vec<u8>, new_section_name: &str, mut ne
     Ok(elf_bytes)
 }
 
-// Convenient functions to read/write fields from a byte array.
+/// Reads a fixed-size field (u32, u64, etc.) from a byte array.
+fn read_field<T: Number>(bytes: &[u8], offset: usize) -> Result<T, String> {
+    let size = std::mem::size_of::<T>();
+    let b = bytes.get(offset..offset + size).ok_or(format!("Failed to read {size} bytes at {offset}"))?;
+    let x = T::from_bytes(b);
+    Ok(x)
+}
+
+/// Writes a fixed-size field (u32, u64, etc.) into a byte array.
+fn write_field<T: Number>(bytes: &mut [u8], offset: usize, val: T) -> Result<(), String> {
+    let size = std::mem::size_of::<T>();
+    let b = bytes.get_mut(offset..offset + size).ok_or(format!("Failed to write {size} bytes at {offset}"))?;
+    b.copy_from_slice(&val.to_bytes());
+    Ok(())
+}
+
+/// Reads a null-terminated string from a byte array, starting at the given offset.
+/// Stops after reading `max_size` bytes, if this comes before finding the null terminator.
+fn read_string(bytes: &[u8], offset: usize, max_size: usize) -> Result<&[u8], String> {
+    let mut size = 0;
+    loop {
+        let c = *bytes.get(offset).ok_or(format!("Failed to read string at offset {offset}"))?;
+        if c == 0 {
+            break;
+        }
+        size += 1;
+        if size >= max_size {
+            break;
+        }
+    }
+    Ok(&bytes[offset..offset+size])
+}
+
+/// Rounds up `x` to a multiple of `multiple`
+fn align<T>(x: T, multiple: T) -> T
+    where T : Copy + Sub<Output = T> + Div<Output = T> + Add<Output=T> + Mul<Output = T> + From<u8> 
+{
+    ((x - 1.into()) / multiple + 1.into()) * multiple
+}
 
 trait Number {
     fn from_bytes(bytes: &[u8]) -> Self;
@@ -344,36 +384,5 @@ impl_number_trait!(u64);
 impl_number_trait!(u32);
 impl_number_trait!(u16);
 impl_number_trait!(u8);
-
-fn read_field<T: Number>(bytes: &[u8], offset: usize) -> Result<T, String> {
-    let size = std::mem::size_of::<T>();
-    let b = bytes.get(offset..offset + size).ok_or(format!("Failed to read {size} bytes at {offset}"))?;
-    let x = T::from_bytes(b);
-    Ok(x)
-}
-
-fn write_field<T: Number>(bytes: &mut [u8], offset: usize, val: T) -> Result<(), String> {
-    let size = std::mem::size_of::<T>();
-    let b = bytes.get_mut(offset..offset + size).ok_or(format!("Failed to read {size} bytes at {offset}"))?;
-    b.copy_from_slice(&val.to_bytes());
-    Ok(())
-}
-
-fn read_string(bytes: &[u8], mut offset: usize, max_size: usize) -> Result<String, String> {
-    let mut result = String::new();
-    loop {
-        let c = *bytes.get(offset).ok_or(format!("Failed to read string at offset {offset}"))?;
-        offset += 1;
-        if c == b'\0' || result.len() >= max_size {
-            break;
-        }
-        result.push(c as char);
-    }
-    Ok(result)
-}
-
-fn align<T: Copy + Sub<Output = T> + Div<Output = T> + Add<Output=T> + Mul<Output = T> + From<u32>>(x: T, multiple: T) -> T{
-    ((x - 1.into()) / multiple + 1.into()) * multiple
-}
 
 //TODO: tests for this file?
