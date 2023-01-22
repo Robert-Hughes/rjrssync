@@ -13,6 +13,7 @@
 use std::ops::{Sub, Div, Add, Mul};
 
 // Validates the magic signature and returns the offset of the start of the COFF file header.
+#[cfg_attr(not(windows), allow(unused))]
 fn validate_pe_signature(pe_bytes: &[u8]) -> Result<usize, String> {
     // PE files are always little-endian: https://reverseengineering.stackexchange.com/questions/17922/determining-endianness-of-pe-files-windows-on-arm
     // The code written here assumes that we are running on a little-endian system too, so confirm this.
@@ -30,6 +31,7 @@ fn validate_pe_signature(pe_bytes: &[u8]) -> Result<usize, String> {
     Ok(signature_offset + 4)
 }
 
+#[cfg_attr(not(windows), allow(unused))]
 pub fn extract_section_from_pe(mut pe_bytes: Vec<u8>, section_name: &str) -> Result<Vec<u8>, String> {
     // https://0xrick.github.io/win-internals/pe5/
     // https://learn.microsoft.com/en-us/windows/win32/debug/pe-format
@@ -44,6 +46,7 @@ pub fn extract_section_from_pe(mut pe_bytes: Vec<u8>, section_name: &str) -> Res
 
     let section_headers_offset = optional_header_offset + size_of_optional_header as usize;
 
+    // Search through the section table for the one with the right name
     for section_idx in 0..num_sections {
         let section_header_offset = section_headers_offset + section_idx as usize * 40;
         let name_offset = section_header_offset + 0; // Name is the first field
@@ -62,6 +65,7 @@ pub fn extract_section_from_pe(mut pe_bytes: Vec<u8>, section_name: &str) -> Res
     Err(format!("Can't find section with name '{section_name}'"))
 }
 
+#[cfg_attr(not(windows), allow(unused))]
 pub fn add_section_to_pe(mut pe_bytes: Vec<u8>, new_section_name: &str, mut new_section_bytes: Vec<u8>) 
     -> Result<Vec<u8>, String> 
 {
@@ -72,7 +76,7 @@ pub fn add_section_to_pe(mut pe_bytes: Vec<u8>, new_section_name: &str, mut new_
     let num_sections_offset = file_header_offset + 2;
     let orig_num_sections = read_field::<u16>(&pe_bytes, num_sections_offset)?;
     let new_num_sections = orig_num_sections + 1;
-    write_field(&mut pe_bytes, num_sections_offset, new_num_sections)?;
+    write_field::<u16>(&mut pe_bytes, num_sections_offset, new_num_sections)?;
 
     let size_of_optional_header = read_field::<u16>(&pe_bytes, file_header_offset + 16)?;
 
@@ -100,7 +104,7 @@ pub fn add_section_to_pe(mut pe_bytes: Vec<u8>, new_section_name: &str, mut new_
             let pointer_to_raw_data_offset = section_header_offset + 20;
             let orig_pointer_to_raw_data = read_field::<u32>(&pe_bytes, pointer_to_raw_data_offset)?;
             let new_pointer_to_raw_data = orig_pointer_to_raw_data + file_alignment;
-            write_field(&mut pe_bytes, pointer_to_raw_data_offset, new_pointer_to_raw_data as u32)?;
+            write_field::<u32>(&mut pe_bytes, pointer_to_raw_data_offset, new_pointer_to_raw_data as u32)?;
         }
     }
 
@@ -113,7 +117,7 @@ pub fn add_section_to_pe(mut pe_bytes: Vec<u8>, new_section_name: &str, mut new_
     // loaded into memory though, so we set this as small as possible (not sure if this actually achieves anything or not though).
     // Note that this doesn't need to be aligned.
     let new_section_virtual_size = 0x1;
-    write_field(&mut new_section_header, 8, new_section_virtual_size as u32)?;
+    write_field::<u32>(&mut new_section_header, 8, new_section_virtual_size as u32)?;
     // VirtualAddress - we don't really want our data loaded into memory, but this is required, and it must
     // be contigus after the VAs for every preceding section, aligned to SectionAlignment
     let prev_section_virtual_address_offset = section_headers_offset as usize + (orig_num_sections as usize - 1) * 40 + 12;
@@ -121,44 +125,48 @@ pub fn add_section_to_pe(mut pe_bytes: Vec<u8>, new_section_name: &str, mut new_
     let prev_section_virtual_size_offset = section_headers_offset as usize + (orig_num_sections as usize - 1) * 40 + 8;
     let prev_section_virtual_size = read_field::<u32>(&pe_bytes, prev_section_virtual_size_offset)?;
     let new_section_virtual_address = align(prev_section_virtual_address + prev_section_virtual_size, section_alignment);
-    write_field(&mut new_section_header, 12, new_section_virtual_address as u32)?;
+    write_field::<u32>(&mut new_section_header, 12, new_section_virtual_address as u32)?;
     // SizeOfRawData 
-    write_field(&mut new_section_header, 16, new_section_bytes.len() as u32)?; //TODO: this needs to be aligned!
+    let new_section_size_of_raw_data = align(new_section_bytes.len() as u32, file_alignment);
+    write_field::<u32>(&mut new_section_header, 16, new_section_size_of_raw_data)?;
     // Characteristics
-    write_field(&mut new_section_header, 36, 0x00000040u32)?; // IMAGE_SCN_CNT_INITIALIZED_DATA
+    write_field::<u32>(&mut new_section_header, 36, 0x00000040)?; // IMAGE_SCN_CNT_INITIALIZED_DATA
 
     // Add the new section header, overwriting the padding/zeroes that we've ensured is there
     let new_section_header_offset = section_headers_offset + orig_num_sections as usize * 40;
     pe_bytes[new_section_header_offset..new_section_header_offset+40].copy_from_slice(&new_section_header);
     
-    // Append the new data, adding padding to align it if necessary
+    // Append the new section data, adding padding before to align it if necessary,
+    // and padding after to make it match SizeOfRawData
     let new_section_offset = align(pe_bytes.len(), file_alignment as usize);
     pe_bytes.resize(new_section_offset as usize, 0);
+    new_section_bytes.resize(new_section_size_of_raw_data as usize, 0);
     pe_bytes.append(&mut new_section_bytes);
     drop(new_section_bytes); // It's just been emptied, so prevent further use
 
     // Set the new section's PointerToRawData
-    write_field(&mut pe_bytes, new_section_header_offset + 20, new_section_offset as u32)?; 
+    write_field::<u32>(&mut pe_bytes, new_section_header_offset + 20, new_section_offset as u32)?; 
     
     // Update SizeOfImage in the optional header
     let size_of_image_offset = optional_header_offset + 56;
     let new_size_of_image = new_section_virtual_address + new_section_virtual_size as u32;
     let new_size_of_image = align(new_size_of_image, section_alignment);
-    write_field(&mut pe_bytes, size_of_image_offset, new_size_of_image as u32)?;    
+    write_field::<u32>(&mut pe_bytes, size_of_image_offset, new_size_of_image as u32)?;    
 
     // Recalculate SizeOfHeaders in the optional header
     let size_of_headers_offset = optional_header_offset + 60;
     let new_size_of_headers = orig_end_of_section_headers + 40;
     let new_size_of_headers = align(new_size_of_headers, file_alignment as usize);
-    write_field(&mut pe_bytes, size_of_headers_offset, new_size_of_headers as u32)?;    
+    write_field::<u32>(&mut pe_bytes, size_of_headers_offset, new_size_of_headers as u32)?;    
     
     Ok(pe_bytes)
 }
 
+#[cfg_attr(not(unix), allow(unused))]
 fn validate_elf_header(elf_bytes: &[u8]) -> Result<(), String> {
     // ELF files can be big or little endian.
-    // The code written here assumes that it is little-endian and that we are running on a little-endian system too, 
-    // so confirm this.
+    // The code written here assumes that it is little-endian and that we are 
+    // running on a little-endian system too, so confirm this.
     if 0x12345678_u32.to_le_bytes() != 0x12345678_u32.to_ne_bytes() {
         return Err(format!("This code can only run on a little-endian system"));
     }
@@ -170,6 +178,7 @@ fn validate_elf_header(elf_bytes: &[u8]) -> Result<(), String> {
 
     let bitness = read_field::<u8>(&elf_bytes, 0x4)?;
     if bitness != 2 {
+        // There's some minor differences, so we could support 32-bit, but no need at the moment.
         return Err(format!("Only 64-bit ELF files are supported"));
     }
 
@@ -180,7 +189,7 @@ fn validate_elf_header(elf_bytes: &[u8]) -> Result<(), String> {
 
     let version = read_field::<u8>(&elf_bytes, 0x6)?;
     if version != 1 {
-        return Err(format!("Only 64-bit ELF files are supported"));
+        return Err(format!("Only V1 ELF files are supported"));
     }
 
     Ok(())
@@ -194,51 +203,42 @@ pub fn extract_section_from_elf(mut elf_bytes: Vec<u8>, section_name: &str) -> R
     validate_elf_header(&elf_bytes)?;
 
     // Offset within file to the start of the table of section headers
-    let section_header_table_offset = read_field::<u64>(&elf_bytes, 0x28)?;
-    let num_sections = read_field::<u16>(&elf_bytes, 0x3C)?;
+    let section_header_table_offset = read_field::<u64>(&elf_bytes, 0x28)? as usize;
     // Size of each section header
-    let section_header_size = read_field::<u16>(&elf_bytes, 0x3A)?;
+    let section_header_size = read_field::<u16>(&elf_bytes, 0x3A)? as usize;
+    let num_sections = read_field::<u16>(&elf_bytes, 0x3C)? as usize;
 
-    // Find the string table that contains section names
-    let section_names_section_idx = read_field::<u16>(&elf_bytes, 0x3E)?;
+    // Find the string table that contains section names (which is itself a section)
+    let section_names_section_idx = read_field::<u16>(&elf_bytes, 0x3E)? as usize;
     let section_names_table_offset = read_field::<u64>(&elf_bytes, 
-        section_header_table_offset as usize + section_names_section_idx as usize * section_header_size as usize + 0x18)?;
+        section_header_table_offset + section_names_section_idx * section_header_size + 0x18)? as usize;
 
-
-    // Find the right section
+    // Search through the section table for the one with the right name
     for section_idx in 0..num_sections {
-        // Read the section name and check it
-        let name_offset_within_string_table = read_field::<u32>(&elf_bytes, 
-            section_header_table_offset as usize + section_idx as usize * section_header_size as usize + 0x0)?;
-        let mut char_idx = section_names_table_offset as usize + name_offset_within_string_table as usize;
-        //TODO: must be something better
-        // use our read_string
-        let mut name_str = String::new();
-        loop {
-            let c = elf_bytes[char_idx];
-            char_idx += 1;
-            if c == b'\0' {
-                break;
-            }
-            name_str.push(c as char);
-        }
-        if name_str == section_name {
+        let section_header_offset = section_header_table_offset + section_idx * section_header_size;
+        // Read the section name and check it. Name is the first field (offset 0x0)
+        let name_offset_within_string_table = 
+            read_field::<u32>(&elf_bytes, section_header_offset + 0x0)? as usize;
+        // Practical max length of 32, just to prevent us reading too much garbage if something goes wrong
+        let name = read_string(&elf_bytes, section_names_table_offset + name_offset_within_string_table, 32)?;
+        if name == section_name.as_bytes() {
             // This is the right section - return the contents
-            let section_data_offset = read_field::<u64>(&elf_bytes, 
-                section_header_table_offset as usize + section_idx as usize * section_header_size as usize + 0x18)?;
-            let section_data_size = read_field::<u64>(&elf_bytes, 
-                section_header_table_offset as usize + section_idx as usize * section_header_size as usize + 0x20)?;
+            let section_data_offset = read_field::<u64>(&elf_bytes, section_header_offset + 0x18)?;
+            let section_data_size = read_field::<u64>(&elf_bytes, section_header_offset + 0x20)?;
+            
             let mut x = elf_bytes.split_off(section_data_offset as usize);
             x.truncate(section_data_size as usize);
             return Ok(x);
-        }       
+        }
     }
 
     Err(format!("Can't find section with name '{section_name}'"))
 }
 
+#[cfg_attr(not(unix), allow(unused))]
 pub fn add_section_to_elf(mut elf_bytes: Vec<u8>, new_section_name: &str, mut new_section_bytes: Vec<u8>) 
-    -> Result<Vec<u8>, String> {
+    -> Result<Vec<u8>, String> 
+{
     let new_section_size = new_section_bytes.len();
     // https://en.wikipedia.org/wiki/Executable_and_Linkable_Format
     // https://docs.oracle.com/cd/E23824_01/html/819-0690/chapter6-73709.html
@@ -246,52 +246,51 @@ pub fn add_section_to_elf(mut elf_bytes: Vec<u8>, new_section_name: &str, mut ne
     validate_elf_header(&elf_bytes)?;
 
     // Offset within file to the start of the table of section headers
-    let section_header_table_offset = read_field::<u64>(&elf_bytes, 0x28)?;
+    let section_header_table_offset = read_field::<u64>(&elf_bytes, 0x28)? as usize;
     // Size of each section header
-    let section_header_size = read_field::<u16>(&elf_bytes, 0x3A)?;
+    let section_header_size = read_field::<u16>(&elf_bytes, 0x3A)? as usize;
     
-    // Number of sections - we'll need to increment this, but we'll save the value later
-    let orig_num_sections = read_field::<u16>(&elf_bytes, 0x3C)?;
+    // Number of sections - we'll need to increment this, but we'll save the new value later
+    let orig_num_sections = read_field::<u16>(&elf_bytes, 0x3C)? as usize;
     let new_num_sections = orig_num_sections + 1;
 
-    // Index of the section which contains sections names. We'll need to update this section
-    // to include the name of our new section.
-    let section_names_section_idx = read_field::<u16>(&elf_bytes, 0x3E)?;
+    // Index of the section which contains sections names. 
+    // We'll need to update the contents this section to include the name of our new section.
+    let section_names_section_idx = read_field::<u16>(&elf_bytes, 0x3E)? as usize;
 
-    // Remove the section header table and keep it separate, as once we start modifying the file we'll overwrite this.
-    // We'll add the table back at the end
-    if elf_bytes.len() != section_header_table_offset as usize + orig_num_sections as usize * section_header_size as usize {
-        return Err(format!("Elf file wrong size"));
+    // Remove the section header table and keep it separate, otherwise once we start
+    // modifying the file we would overwrite this. We'll add the table back once we're done.
+    if elf_bytes.len() != section_header_table_offset + orig_num_sections * section_header_size {
+        return Err(format!("ELF file wrong size or layout"));
     }
-    let mut section_header_table = elf_bytes.split_off(section_header_table_offset as usize);
+    let mut section_header_table = elf_bytes.split_off(section_header_table_offset);
         
-    // Update the section which contains section header names, adding our new section name
+    // Update the section which contains section header names, appending our new section name
     let section_names_table_offset = read_field::<u64>(&section_header_table, 
-        section_names_section_idx as usize * section_header_size as usize + 0x18)?;
+        section_names_section_idx * section_header_size + 0x18)? as usize;
     let section_names_table_old_size = read_field::<u64>(&section_header_table, 
-        section_names_section_idx as usize * section_header_size as usize + 0x20)?;
+        section_names_section_idx * section_header_size + 0x20)? as usize;
     // Add new bytes to the end
     let mut new_bytes = new_section_name.as_bytes().to_vec();
     new_bytes.push(b'\0');
     let inserted_name_num_bytes = new_bytes.len();
     elf_bytes.splice(
-        section_names_table_offset as usize + section_names_table_old_size as usize..
-        section_names_table_offset as usize + section_names_table_old_size as usize,
+        section_names_table_offset + section_names_table_old_size..
+        section_names_table_offset + section_names_table_old_size,
         new_bytes).for_each(drop);
 
-    // Update names section size
-    let section_names_table_new_size = section_names_table_old_size + inserted_name_num_bytes as u64;
+    // Update names section size in its section header
+    let section_names_table_new_size = section_names_table_old_size + inserted_name_num_bytes;
     write_field::<u64>(&mut section_header_table,
-        section_names_section_idx as usize * section_header_size as usize + 0x20, section_names_table_new_size)?;
+        section_names_section_idx * section_header_size + 0x20, section_names_table_new_size as u64)?;
 
-    // Update any of the sections following the section header names section, as their offsets
-    // will have changed now that we inserted data
+    // Update the section headers for any sections following the names section, 
+    // as their offsets will have been bumped up now that we inserted data
     for section_idx in section_names_section_idx + 1..orig_num_sections {
-        let offset = read_field::<u64>(&section_header_table, 
-            section_idx as usize * section_header_size as usize + 0x18)?;
-        let new_offset = offset + inserted_name_num_bytes as u64;
-        write_field::<u64>(&mut section_header_table,
-            section_idx as usize * section_header_size as usize + 0x18, new_offset)?;
+        let section_offset_offset = section_idx * section_header_size + 0x18;
+        let orig_offset = read_field::<u64>(&section_header_table, section_offset_offset)?;
+        let new_offset = orig_offset + inserted_name_num_bytes as u64;
+        write_field::<u64>(&mut section_header_table, section_offset_offset, new_offset)?;
     }
 
     // Add our new section data!
@@ -299,9 +298,9 @@ pub fn add_section_to_elf(mut elf_bytes: Vec<u8>, new_section_name: &str, mut ne
     elf_bytes.append(&mut new_section_bytes);
     drop(new_section_bytes); // It's just been emptied, so prevent further use
 
-    // Add entry to the section header table for our new section
-    let mut new_section_header = vec![0 as u8; section_header_size as usize];
-    // sh_name
+    // Add header for our new section to the section header table
+    let mut new_section_header = vec![0 as u8; section_header_size];
+    // sh_name - the offset into the names section for our new name
     write_field::<u32>(&mut new_section_header, 0x0, section_names_table_old_size as u32)?;
     // sh_type
     write_field::<u32>(&mut new_section_header, 0x04, 0x80000000)?; // 0x80000000 (and above) is for custom sections
@@ -314,10 +313,11 @@ pub fn add_section_to_elf(mut elf_bytes: Vec<u8>, new_section_name: &str, mut ne
     // Append updated section table
     let new_section_header_table_offset = elf_bytes.len() as u64;
     elf_bytes.append(&mut section_header_table);
+    drop(section_header_table); // It's just been emptied, so prevent further use
 
     // Update the main header with the new offset of the section table and the new number of sections
     write_field::<u64>(&mut elf_bytes, 0x28, new_section_header_table_offset)?;
-    write_field::<u16>(&mut elf_bytes, 0x3C, new_num_sections)?;
+    write_field::<u16>(&mut elf_bytes, 0x3C, new_num_sections as u16)?;
 
     Ok(elf_bytes)
 }
@@ -343,7 +343,7 @@ fn write_field<T: Number>(bytes: &mut [u8], offset: usize, val: T) -> Result<(),
 fn read_string(bytes: &[u8], offset: usize, max_size: usize) -> Result<&[u8], String> {
     let mut size = 0;
     loop {
-        let c = *bytes.get(offset).ok_or(format!("Failed to read string at offset {offset}"))?;
+        let c = *bytes.get(offset + size).ok_or(format!("Failed to read string at offset {offset}"))?;
         if c == 0 {
             break;
         }
@@ -384,5 +384,3 @@ impl_number_trait!(u64);
 impl_number_trait!(u32);
 impl_number_trait!(u16);
 impl_number_trait!(u8);
-
-//TODO: tests for this file?
