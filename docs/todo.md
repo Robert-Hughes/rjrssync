@@ -109,6 +109,7 @@ Testing
 * Tests for deploying from an already-deployed (non-progenitor) binary, again, to all platforms? (all binaries are equal, no lite binaries every actually exist on disk)
 * Tests for --list-embedded-binaries
 *  Remote tests running in parallel can conflict if they both use the same remote platform - could we lock/mutex them? Need to be careful not to deadlock! (one test locks Windows then Linux, the other Linux then Windows!)
+* When installing rust on the GitHub job, could use the "minimal" profile to avoid downloading things like clippy, rust-docs etc. which we don't need
 
 
 Misc
@@ -127,4 +128,4 @@ ERROR | rjrssync::boss_frontend: Sync error: Unexpected response from dest GetEn
 Maybe if we decide what needs doing before starting to delete or copy, it would simplify a bunch of things (esp. progress bar updates)?
 Unless this takes a significant amount of time, in which case we might want to put it on another thread?
 In fact we could do it as we receive new entries from GetEntries, which is already in parallel, so should be even simpler!
-Can then simplify the progress bar stuff hopefully, and it will be more accurate as it will have the correct length right from the start
+Can then simplify the progress bar stuff hopefully, and it will be more accurate as it will have the correct length right from the start (need to update the boss_progress file docs that explain the various stages of the progress bar)

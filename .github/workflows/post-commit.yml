@@ -92,12 +92,14 @@ jobs:
         # build-essential: so that a linker is available when running rustc
         # ssh for both client and server, needed for test environment
         # git and rsync for benchmarks
+        # mingw-w64 for cross-building WSL -> Windows
         additional-packages:
           curl ca-certificates
           build-essential
           ssh
           git
           rsync
+          mingw-w64
 
     - name: Copy source code to WSL
       # By copying the source code into the native WSL filesystem this is more "faithful" to a proper linux setup, 
@@ -288,7 +290,9 @@ jobs:
       # The logic in remote_tests.rs should automatically detect the WSL instance and connect to that
       # These tests can conflict with each other if two tests use the same remote platform at the same time,
       # so run one at a time.
-      run: cargo test --verbose -- "remote" --test-threads 1
+      # Specify double-verbose to get output of the build.rs (building embedded binaries), 
+      # as this takes a while and otherwise it appears the build has hung.
+      run: cargo test -vv -- "remote" --test-threads 1
 
     - name: Run remote tests on WSL
       # Only run tests that require a remote, as the other tests are covered by the "native" jobs above.
@@ -297,8 +301,10 @@ jobs:
       # so run one at a time.
       # Note we use the copy of the source code on the native Linux filesystem, not the one in the Github actions workspace
       # via /mnt/... (so that it's faster and more faithful to a 'proper' linux setup)
+      # Specify double-verbose to get output of the build.rs (building embedded binaries), 
+      # as this takes a while and otherwise it appears the build has hung.
       shell: wsl-bash {0}
-      run: cd ~/rjrssync && cargo test --verbose -- "remote" --test-threads 1
+      run: cd ~/rjrssync && cargo test -vv -- "remote" --test-threads 1
 
     - name: Run benchmarks on Windows
       shell: pwsh
