@@ -142,9 +142,19 @@ jobs:
       shell: wsl-bash {0}
       run: chmod -R 777 ~/rjrssync/target
 
+    - name: Set up cross build (Windows)
+      shell: pwsh
+      run: |
+        rustup target add x86_64-unknown-linux-musl
+        rustup target add aarch64-unknown-linux-musl
+     
     - name: Set up cargo on WSL
       shell: wsl-bash {0}
-      run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+      run: |
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+        source "$HOME/.cargo/env"
+        rustup target add x86_64-pc-windows-gnu
+        rustup target add aarch64-unknown-linux-musl
 
     # Beware that the tmate session runs inside cygwin, so some behaviour doesn't match native windows
     # Note that if this step happens before the "choco install", then we can't manually run choco inside tmate
