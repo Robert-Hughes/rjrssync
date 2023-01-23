@@ -1,5 +1,5 @@
 use std::{
-    cmp::Ordering, time::{Instant, SystemTime},
+    cmp::Ordering, time::{Instant, SystemTime, Duration},
 };
 
 use indicatif::{HumanCount, HumanBytes, ProgressBar};
@@ -239,7 +239,9 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), String> {
     let sync_start = Instant::now();
 
     let progress_bar = ProgressBar::new_spinner().with_message("Querying...");
-    //TODO: remove the one from boss_progress?
+    progress_bar.enable_steady_tick(Duration::from_millis(100));
+    //TODO: remove the one from boss_progress - don't create the Progress object til later, 
+    // and it no longer needs to be aware of the querying phase!
 
     // First get details of the root file/folder etc. of each side, as this might affect the sync
     // before we start it (e.g. errors, or changing the dest root)
@@ -276,6 +278,7 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), String> {
     // are entries with the same name but incompatible (e.g. files vs folders).
 
     // Update progress to start the deleting phase
+    progress_bar.finish_and_clear();
    // ctx.progress.set_entries(src_entries.iter().map(|e| e.0.clone()).collect(), dest_entries.iter().map(|e| e.0.clone()).collect()); //TODO: ideally we don't have to copy all these
     ctx.progress.update_completed(&ProgressMarker { completed_work: 0, phase: ProgressPhase::Deleting { num_entries_deleted: 0 }});
 
@@ -487,6 +490,7 @@ fn query_entries(ctx: &mut SyncContext, src_root_details: EntryDetails, dest_roo
                                     to_copy.add(p.clone(), (src_entry.clone(), r));
                                 }
                             } else {
+                                //TODO: even though the entry is already in to_delete, the *reason* will need updating
                                 // Dest is going to be deleted, so we will definitely be copying the source
                                 to_copy.add(p.clone(), (src_entry.clone(), CopyReason::NotOnDest));
                             }
@@ -520,6 +524,7 @@ fn query_entries(ctx: &mut SyncContext, src_root_details: EntryDetails, dest_roo
                                 // This entry will already be in to_copy, but we might need to remove it now
                                 to_copy.remove(&p);
                             }
+                            //TODO: even though the entry is already in to_copy, the *reason* will need updating
                         }
                     }
                 }
@@ -757,76 +762,43 @@ fn show_post_query_stats(ctx: &SyncContext, query_elapsed_secs: f32) {
 }
 
 fn delete_dest_entry(ctx: &mut SyncContext, dest_details: &EntryDetails,
-    dest_path: &RootRelativePath) -> Result<(), String> {
-    let msg = format!(
-        "{} needs deleting as it doesn't exist on the src (or is incompatible)",
-        ctx.pretty_dest(dest_path, dest_details));
-
-    // Resolve any behaviour resulting from a prompt first
-    let resolved_behaviour = match ctx.dest_entry_needs_deleting_behaviour {
-        DestEntryNeedsDeletingBehaviour::Prompt => {
-            let prompt_result = resolve_prompt(format!("{msg}. What do?"),
-                Some(&ctx.progress), 
-                &[
-                    ("Skip", DestEntryNeedsDeletingBehaviour::Skip),
-                    ("Delete", DestEntryNeedsDeletingBehaviour::Delete),
-                ], true, DestEntryNeedsDeletingBehaviour::Error);
-            if let Some(b) = prompt_result.remembered_behaviour {
-                ctx.dest_entry_needs_deleting_behaviour = b;
+    dest_path: &RootRelativePath) -> Result<(), String> 
+{
+    trace!("{dest_path}. Deleting.");
+    let c = match dest_details {
+        EntryDetails::File { size, .. } => {
+            ctx.stats.num_files_deleted += 1;
+            ctx.stats.num_bytes_deleted += size;
+            Command::DeleteFile {
+                path: dest_path.clone(),
             }
-            prompt_result.immediate_behaviour
-        },
-        x => x,
+        }
+        EntryDetails::Folder => {
+            ctx.stats.num_folders_deleted += 1;
+            Command::DeleteFolder {
+                path: dest_path.clone(),
+            }
+        }
+        EntryDetails::Symlink { kind, .. } => {
+            ctx.stats.num_symlinks_deleted += 1;
+            Command::DeleteSymlink {
+                path: dest_path.clone(),
+                kind: *kind,
+            }
+        }
     };
-    match resolved_behaviour {
-        DestEntryNeedsDeletingBehaviour::Prompt => panic!("Should have already been resolved!"),
-        DestEntryNeedsDeletingBehaviour::Error => return Err(format!(
-            "{msg}. Will not delete. See --dest-entry-needs-deleting.",
-        )),
-        DestEntryNeedsDeletingBehaviour::Skip => {
-            trace!("{msg}. Skipping.");
-            // No need to delete this entry, so we can reduce the total progress
-            ctx.progress.dec_total_for_delete(&dest_details); 
-            Ok(())
-        }
-        DestEntryNeedsDeletingBehaviour::Delete => {
-            trace!("{msg}. Deleting.");
-            let c = match dest_details {
-                EntryDetails::File { size, .. } => {
-                    ctx.stats.num_files_deleted += 1;
-                    ctx.stats.num_bytes_deleted += size;
-                    Command::DeleteFile {
-                        path: dest_path.clone(),
-                    }
-                }
-                EntryDetails::Folder => {
-                    ctx.stats.num_folders_deleted += 1;
-                    Command::DeleteFolder {
-                        path: dest_path.clone(),
-                    }
-                }
-                EntryDetails::Symlink { kind, .. } => {
-                    ctx.stats.num_symlinks_deleted += 1;
-                    Command::DeleteSymlink {
-                        path: dest_path.clone(),
-                        kind: *kind,
-                    }
-                }
-            };
-            ctx.send_progress_marker_limited()?;
+    ctx.send_progress_marker_limited()?;
 
-            let result = Ok(if !ctx.dry_run {
-                ctx.dest_comms.send_command(c)?;
-            } else {
-                // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be deleted
-                info!("Would delete {}", ctx.pretty_dest(dest_path, dest_details));
-            });
-            
-            ctx.progress.delete_sent(&dest_details);
+    let result = Ok(if !ctx.dry_run {
+        ctx.dest_comms.send_command(c)?;
+    } else {
+        // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be deleted
+        info!("Would delete {}", ctx.pretty_dest(dest_path, dest_details));
+    });
+    
+    ctx.progress.delete_sent(&dest_details);
 
-            result
-        }
-    }
+    result
 }
 
 fn copy_entry(ctx: &mut SyncContext, path: &RootRelativePath, src_details: &EntryDetails) -> Result<(), String> { 
