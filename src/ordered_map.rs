@@ -3,8 +3,9 @@ use std::{collections::HashMap, hash::Hash};
 /// A list of K and V which is ordered and has fast lookup from 
 /// K -> V.
 /// Implemented simply as storing both a Vec and HashMap, and keeping these in sync.
+#[derive(Debug, Clone)]
 pub struct OrderedMap<K, V> {
-    vec: Vec<(K, V)>,
+    vec: Vec<K>,
     map: HashMap<K, V>
 }
 impl<K: Clone+ Eq + Hash, V: Clone> OrderedMap<K, V> {
@@ -12,9 +13,9 @@ impl<K: Clone+ Eq + Hash, V: Clone> OrderedMap<K, V> {
         OrderedMap { vec: vec![], map: HashMap::new() }
     }
 
-    pub fn add(&mut self, path: K, entry: V) {
-        self.vec.push((path.clone(), entry.clone()));
-        self.map.insert(path, entry);
+    pub fn add(&mut self, k: K, v: V) {
+        self.vec.push(k.clone());
+        self.map.insert(k, v);
     }
 
     pub fn len(&self) -> usize {
@@ -22,23 +23,27 @@ impl<K: Clone+ Eq + Hash, V: Clone> OrderedMap<K, V> {
         self.map.len() 
     }
 
-    pub fn iter(&self) -> Box<dyn Iterator<Item = &(K, V)> + '_> {
+    pub fn iter(&self) -> Box<dyn Iterator<Item = (&K, &V)> + '_> {
         // Some entries may have been removed, so filter these out on the fly
-        let iter = self.vec.iter().filter(|(p, e)| self.map.contains_key(p));
+        let iter = self.vec.iter().filter_map(|k| self.map.get(k).and_then(|v| Some((k, v))));
         Box::new(iter)
     }
 
-    pub fn lookup(&self, p: &K) -> Option<&V> {
-        self.map.get(p)
+    pub fn lookup(&self, k: &K) -> Option<&V> {
+        self.map.get(k)
     }
 
-    pub fn remove(&mut self, p: &K) {
-        self.map.remove(p);
+    pub fn remove(&mut self, k: &K) {
+        self.map.remove(k);
         // We don't remove from the vec, as that could be slow (shuffling data around).
         // Instead we make sure to check when iterating that the entry hasn't been removed
     }
 
     pub fn reverse_order(&mut self) {
         self.vec.reverse();
+    }
+
+    pub fn update(&mut self, k: &K, new_value: V) {
+        *self.map.get_mut(k).unwrap() = new_value;
     }
 }

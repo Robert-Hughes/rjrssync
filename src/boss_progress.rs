@@ -3,7 +3,7 @@ use std::{ops::{AddAssign, SubAssign}, time::{Instant, Duration}, thread, sync::
 use crossbeam::atomic::AtomicCell;
 use indicatif::{ProgressBar, HumanCount, HumanBytes, ProgressStyle, WeakProgressBar, ProgressDrawTarget};
 
-use crate::{boss_doer_interface::{EntryDetails, ProgressPhase, ProgressMarker}, root_relative_path::RootRelativePath};
+use crate::{boss_doer_interface::{EntryDetails, ProgressPhase, ProgressMarker}, root_relative_path::RootRelativePath, boss_sync::Actions};
 
 /// FPS of progress bar update.
 const BAR_UPDATE_RATE : f32 = 20.0;
@@ -115,7 +115,7 @@ struct BarState {
 }
 
 /// Wrapper around progress-bar related logic.
-/// 
+/// TODO: update this!
 /// Progress is a bit tricky because we initially don't know how much stuff needs deleting/copying,
 /// and we only figure this out as the sync progresses. Because the destination doer is asynchronous,
 /// just because the boss has sent a command to (e.g.) write a file, that command won't be completed
@@ -165,14 +165,34 @@ pub struct Progress {
     /// the deletes and had moved on to the copies.
     first_copy_time: Option<Instant>,
 
-    /// Lists of source and dest entries, so that we can match up entry IDs
-    /// from progress markers to filenames to display on the progress bar.
-    src_entries: Vec<RootRelativePath>,
-    dest_entries: Vec<RootRelativePath>,
+    /// Lists of source and dest paths, so that we can match up progress markers
+    /// to filenames to display on the progress bar.
+    to_copy_paths: Vec<RootRelativePath>,
+    to_delete_paths: Vec<RootRelativePath>,
 }
 impl Progress {
-    pub fn new() -> Self {
-        let bar = ProgressBar::new_spinner().with_message("Querying...");
+    pub fn new(actions: &Actions) -> Self {
+        // Sum up the total amount of work that needs doing
+        let mut to_delete_paths = vec![];
+        let mut total = ProgressValues::default();
+        for (p, (d, _)) in actions.to_delete.iter() {
+            total += ProgressValues::for_delete(d);
+            to_delete_paths.push(p.clone());
+        }
+        let mut to_copy_paths = vec![];
+        for (p, (c, _)) in actions.to_copy.iter() {
+            total += ProgressValues::for_copy(c);
+            to_copy_paths.push(p.clone());
+        }
+
+
+        // Note the use of "wide_msg" vs "msg", which prevents the message from wrapping to the next line
+        // which causes problems.
+        // Note that we don't render the pos or length in the template, as the 'work' values are pretty meaningless
+        // for the user. Instead we show the percentage, and include a custom message where we print more details
+        let bar = ProgressBar::new(total.work).with_style(
+            ProgressStyle::with_template("{percent}% {bar:40.green/black} {wide_msg}").unwrap());
+
          // We control the update rate ourselves with our background thread, so disable(reduce) the built-in limiting
         bar.set_draw_target(ProgressDrawTarget::stderr_with_hz(60));
         let new_bar_state = Arc::new(AtomicCell::new(None));
@@ -184,20 +204,15 @@ impl Progress {
 
         Progress {
             bar,
-            total: ProgressValues::default(),
+            total,
             sent: ProgressValues::default(),
             completed: ProgressValues::default(),
             new_bar_state,
             last_progress_marker: 0,
             first_copy_time: None,
-            src_entries: vec![],
-            dest_entries: vec![],
+            to_delete_paths,
+            to_copy_paths,
         }
-    }
-
-    pub fn set_entries(&mut self, src_entries: Vec<RootRelativePath>, dest_entries: Vec<RootRelativePath>) {
-        self.src_entries = src_entries;
-        self.dest_entries = dest_entries;
     }
 
     /// Forwards to ProgressBar::suspend(). We avoid exposing the ProgressBar directly so that
@@ -302,7 +317,7 @@ impl Progress {
     /// Called when all work has been sent to the dest doer.
     /// Returns a ProgressMarker that should be sent to the dest doer to mark this point of progress.
     pub fn all_work_sent(&mut self) -> ProgressMarker {
-     //   debug_assert_eq!(self.total, self.sent);
+        debug_assert_eq!(self.total, self.sent);
         ProgressMarker { 
             completed_work: self.sent.work,
             phase: ProgressPhase::Done 
@@ -316,20 +331,6 @@ impl Progress {
 
         match marker.phase {
             ProgressPhase::Deleting { num_entries_deleted } => {
-                // If this is the first progress marker for deleting, then reset from its Querying... state:
-                if num_entries_deleted == 0 {
-                    // We don't yet know how many entries need deleting/copying, so can't draw an accurate progress bar.
-                    // Start the progress bar initially with an upper bound assuming that everything needs deleting and everything
-                    // needs copying.
-                    // Note that we don't render the pos or length in the template, as the 'work' values are pretty meaningless
-                    // for the user. Instead we show the percentage, and include a custom message where we print more details
-                    self.bar.reset();
-                    self.bar.set_length(self.total.work);
-                    // Note the use of "wide_msg" vs "msg", which prevents the message from wrapping to the next line
-                    // which causes problems.
-                    self.bar.set_style(ProgressStyle::with_template("{percent}% {bar:40.green/black} {wide_msg}").unwrap());
-                }
-
                 self.completed.delete = num_entries_deleted;
 
                 // Update the progress bar based on the progress that the dest doer has made.
