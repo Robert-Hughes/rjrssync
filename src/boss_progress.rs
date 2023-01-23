@@ -116,36 +116,29 @@ struct BarState {
 
 /// Wrapper around progress-bar related logic.
 /// TODO: update this!
-/// Progress is a bit tricky because we initially don't know how much stuff needs deleting/copying,
-/// and we only figure this out as the sync progresses. Because the destination doer is asynchronous,
+/// Because the destination doer is asynchronous,
 /// just because the boss has sent a command to (e.g.) write a file, that command won't be completed
 /// until some time in the future, so we can't advance the progress bar until that point. 
 /// We also want the progress bar to move smoothly across different kinds of operation (deletes, 
 /// copies of small files, copies of large files), all of which might take different amounts of time to complete.
 /// 
 /// The solution works like this. During the querying phase of the sync, we simply show "Querying...",
-/// as we have no good indication of progress here. During this time we sum up a total of the amount of stuff
-/// that might need deleting or copying. Initially we assume that this is everything (everything on the dest
-/// will need deleting and everything on the source will need copying). This is pessimistic and gives an upper
-/// bound of the amount of work that needs doing. Once the boss starts looking through the entries it will decide
-/// what needs deleting and what doesn't. When it decides something doesn't need deleting we reduce our total work
-/// accordingly. When it decides something does needs deleting it will send a command to the dest doer, and also
-/// update a counter here of the amount of work sent to the doer. It will also (at some limited interval) send "progress marker"
+/// as we have no good indication of progress here. Once we know what we're going to be doing, we replace
+/// this with a proper progress bar, with length scaled heuristically to account for copies/deletes etc.
+/// The boss will (at some limited interval) send "progress marker"
 /// commands to the dest doer, so that when the doer gets to that command it will echo it back to the boss to show us
 /// how far the doer has got. When we receive that echoed marker back, we update a counter here with the amount of 
 /// work completed. The progress bar shows the amount completed vs. the total.
 /// 
 /// There's an additional requirement to keep the overhead of updating the progress bar small, especially
-/// for very fast syncs where nothing has changed. Because we will be updating the totals a lot for this case
-/// (summing up all the potential work, then reducing it back down to zero), we can't afford to update the progress
-/// bar so frequently. Instead, we run a background thread which updates it periodically.
+/// for very fast syncs where nothing has changed. In the past we were updating the totals a lot
+/// more frequency and so made a background thread which updates it periodically. Things might not be 
+/// so bad now, but the background thread is still there.
 pub struct Progress {
     /// The UI element from the `indicatif` crate that handles drawing the progress bar.
     bar: ProgressBar,
 
-    /// Keeps track of the total amount of work that the dest doer needs
-    /// to complete. Initially we won't have an accurate value for this, because we won't have checked which files are 
-    /// up-to-date etc. so this will be adjusted as we go so that the progress bar can be more accurate.
+    /// The total amount of work that the dest doer needs to complete, set on creation.
     total: ProgressValues,
     /// Keeps track of how much work has been sent to the dest doer 
     /// so far. The doer won't necessarily have completed (or even received) this work yet, so the 
@@ -172,7 +165,8 @@ pub struct Progress {
 }
 impl Progress {
     pub fn new(actions: &Actions) -> Self {
-        // Sum up the total amount of work that needs doing
+        // Sum up the total amount of work that needs doing, and store a copy of the 
+        // paths so that we can display these on the progress bar as we go
         let mut to_delete_paths = vec![];
         let mut total = ProgressValues::default();
         for (p, (d, _)) in actions.to_delete.iter() {
@@ -185,11 +179,11 @@ impl Progress {
             to_copy_paths.push(p.clone());
         }
 
-
-        // Note the use of "wide_msg" vs "msg", which prevents the message from wrapping to the next line
-        // which causes problems.
+        // Set up the UI element
         // Note that we don't render the pos or length in the template, as the 'work' values are pretty meaningless
         // for the user. Instead we show the percentage, and include a custom message where we print more details
+        // Note the use of "wide_msg" vs "msg", which prevents the message from wrapping to the next line
+        // which causes problems.
         let bar = ProgressBar::new(total.work).with_style(
             ProgressStyle::with_template("{percent}% {bar:40.green/black} {wide_msg}").unwrap());
 
@@ -217,43 +211,8 @@ impl Progress {
 
     /// Forwards to ProgressBar::suspend(). We avoid exposing the ProgressBar directly so that
     /// we can be the sole controller.
-    pub fn suspend<F: FnOnce() -> R, R>(&self, f: F) -> R {
+    pub fn suspend<F: FnOnce() -> R, R>(&self, f: F) -> R { //TODO: still needed?
         self.bar.suspend(f)
-    }
-
-    /// Increases the totals to account for the given entry being deleted.
-    pub fn inc_total_for_delete(&mut self, e: &EntryDetails) {
-        self.total += ProgressValues::for_delete(e);
-        // We don't need to update the bar length here (like we do in dec_total_for_delete)
-        // because this function is only called during querying, at which point we haven't 
-        // shown the proper progress bar yet.
-    }
-    /// Decreases the totals to account for the given entry not needing to be deleted.
-    pub fn dec_total_for_delete(&mut self, e: &EntryDetails) {
-        self.total -= ProgressValues::for_delete(e);
-
-        // Update the bar length, to show that there is less work to be done.
-        // We don't update it directly because this can lead to poor performance when do it
-        // a lot (see comment on background_updater).
-        self.update_bar_limited();
-    }
-
-    /// Increases the totals to account for the given entry being copied.
-    pub fn inc_total_for_copy(&mut self, e: &EntryDetails) {
-        self.total += ProgressValues::for_copy(e);
-
-        // We don't need to update the bar length here (like we do in dec_total_for_copy)
-        // because this function is only called during querying, at which point we haven't 
-        // shown the proper progress bar yet.
-    }
-    /// Decreases the totals to account for the given entry not needing to be copied.
-    pub fn dec_total_for_copy(&mut self, e: &EntryDetails) {
-        self.total -= ProgressValues::for_copy(e);
- 
-        // Update the bar length, to show that there is less work to be done.
-        // We don't update it directly because this can lead to poor performance when do it
-        // a lot (see comment on background_updater).
-        self.update_bar_limited();
     }
 
     /// Gets a ProgressMarker to be sent to the dest doer to mark the amount of work
@@ -274,6 +233,7 @@ impl Progress {
         // Remember when we last sent a marker, so that we don't do it too often
         self.last_progress_marker = self.sent.work;
 
+        //TODO: update
         // It's safe to compare sent vs total like this, because the total starts high and gets reduced,
         // and the sent starts at zero and gets increased. So they will only be equal once fully sent.
         debug_assert!(self.sent.delete <= self.total.delete);
@@ -361,16 +321,13 @@ impl Progress {
         // Note that we don't format the message string here, because this function will be called a lot
         // and that would be too slow. Instead we format it on the background thread, once we're about to use it.
        
-        // let current_entry = if let Some(current_entry_id) = self.current_entry_id {        
-        //     if self.first_copy_time.is_none() {
-        //         Some(self.dest_entries[current_entry_id as usize].clone())
-        //     } else {
-        //         Some(self.src_entries[current_entry_id as usize].clone())
-        //     }
-        // } else {
-        //     None
-        // };
-        let current_entry = None;
+        // The entry currently being processed is the one after the one we just did
+        let current_entry =         
+            if self.first_copy_time.is_none() {
+                Some(self.to_delete_paths[current_entry_id as usize].clone())
+            } else {
+                Some(self.to_copy_paths[current_entry_id as usize].clone())
+            };
 
         let new_state = Box::new(BarState {
             is_deleting: self.first_copy_time.is_none(),
@@ -393,6 +350,7 @@ impl Progress {
     /// when syncing two identical directories (we call dec_total_for_copy a lot very quickly).
     /// To avoid this, we run our own background thread (instead of using enable_steady_tick) which
     /// limits calls to any APIs on the ProgressBar.
+    //TODO: update comment
     fn background_updater(bar: WeakProgressBar, new_bar_state: Arc<AtomicCell<Option<Box<BarState>>>>) {
         loop {
             thread::sleep(Duration::from_secs_f32(1.0 / BAR_UPDATE_RATE));
