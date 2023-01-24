@@ -60,15 +60,15 @@ fn validate_trailing_slash(root_path: &str, entry_details: &EntryDetails) -> Res
 
 /// To increase performance, we don't wait for the dest doer to confirm that every command we sent has been
 /// successfully completed before moving on to do something else (like sending the next command),
-/// so any errors that result won't be picked up until we check later, which is what we do here. 
+/// so any errors that result won't be picked up until we check later, which is what we do here.
 /// This is called periodically to make sure nothing has gone wrong.
 /// It also handles progress bar updates, based on Marker commands that we send and the doer echoes back.
 /// If block_until_done is set, then this function will keep processing messages (blocking as necessary)
-/// until it finds a response with a progress marker that shows the doer is finished. 
+/// until it finds a response with a progress marker that shows the doer is finished.
 /// If not set, this function won't block and will return once it's processed all pending responses from the doer.
 /// If an error is encountered though, it will return rather than blocking.
-fn process_dest_responses(dest_comms: &mut Comms, progress: &mut Progress, 
-    mut block_until_done: bool) -> Result<(), String> 
+fn process_dest_responses(dest_comms: &mut Comms, progress: &mut Progress,
+    mut block_until_done: bool) -> Result<(), String>
 {
     // To make the rest of this function consistent for both cases of block_until_done,
     // this helper function will block or not as appropriate.
@@ -90,9 +90,9 @@ fn process_dest_responses(dest_comms: &mut Comms, progress: &mut Progress,
         match x {
             Ok(Response::Error(e)) => {
                 errors.push(e);
-                // If an error was encountered, don't block - just process the remaining messages to see if there 
+                // If an error was encountered, don't block - just process the remaining messages to see if there
                 // were any other errors to report, then return the error(s)
-                block_until_done = false; 
+                block_until_done = false;
             }
             Ok(Response::Marker(m)) => {
                 // Update the progress bar based on the progress that the dest doer has made.
@@ -164,7 +164,7 @@ impl<'a> SyncContext<'a> {
 
     fn send_progress_marker_limited(&mut self,) -> Result<(), String> {
         if let Some(m) = self.progress.as_mut().unwrap().get_progress_marker_limited() {
-            self.dest_comms.send_command(Command::Marker(m))                      
+            self.dest_comms.send_command(Command::Marker(m))
         } else {
             Ok(())
         }
@@ -240,7 +240,7 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), String> {
 
     let progress_bar = ProgressBar::new_spinner().with_message("Querying...");
     progress_bar.enable_steady_tick(Duration::from_millis(100));
-    //TODO: remove the one from boss_progress - don't create the Progress object til later, 
+    //TODO: remove the one from boss_progress - don't create the Progress object til later,
     // and it no longer needs to be aware of the querying phase!
 
     // First get details of the root file/folder etc. of each side, as this might affect the sync
@@ -267,18 +267,21 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), String> {
     }
 
     let mut actions = query_entries(&mut ctx, src_root_details, dest_root_details, dest_platform_differentiates_symlinks)?;
-    
+
+    // Stop the progress bar before we (potentially) prompt the user, so the progress bar
+    // redrawing doesn't interfere with the prompts
+    progress_bar.finish_and_clear();
+
     // Confirm that the user is happy to take these actions
     confirm_actions(&mut ctx, &mut actions)?;
 
     let query_elapsed_secs = sync_start.elapsed().as_secs_f32();
     show_post_query_stats(&ctx, query_elapsed_secs);
-    
+
     // Delete dest entries that don't exist on the source. This needs to be done first in case there
     // are entries with the same name but incompatible (e.g. files vs folders).
 
     // Update progress to start the deleting phase
-    progress_bar.finish_and_clear();
     ctx.progress = Some(Progress::new(&actions));
 
     {
@@ -295,7 +298,7 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), String> {
     {
         profile_this!("Sending copy commands");
         // Mark the exact start of copying, to make sure our timing stats are split accurately between copying and deleting
-        ctx.dest_comms.send_command(Command::Marker(ctx.progress.as_mut().unwrap().get_progress_marker()))?; 
+        ctx.dest_comms.send_command(Command::Marker(ctx.progress.as_mut().unwrap().get_progress_marker()))?;
         for (src_path, (src_details, _reason)) in actions.to_copy.iter() {
             copy_entry(&mut ctx, &src_path, &src_details)?;
 
@@ -359,7 +362,7 @@ fn get_root_details(ctx: &mut SyncContext) -> Result<(EntryDetails, Option<Entry
     };
     stop_timer(timer);
 
-    // If src is a file (or symlink, which we treat as a file), and the dest path ends in a slash, 
+    // If src is a file (or symlink, which we treat as a file), and the dest path ends in a slash,
     // then we want to sync the file _inside_ the folder, rather then replacing the folder with the file
     // (see README for reasoning).
     // To do this, we modify the dest path and then continue as if that was the path provided by the
@@ -385,7 +388,7 @@ fn get_root_details(ctx: &mut SyncContext) -> Result<(EntryDetails, Option<Entry
     Ok((src_root_details, dest_root_details, dest_platform_differentiates_symlinks))
 }
 
-fn check_dest_root_delete_ok(ctx: &mut SyncContext, src_root_details: &EntryDetails, dest_root_details: &EntryDetails) 
+fn check_dest_root_delete_ok(ctx: &mut SyncContext, src_root_details: &EntryDetails, dest_root_details: &EntryDetails)
     -> Result<bool, String> {
     let msg = format!(
         "{} needs deleting as it is incompatible with {}",
@@ -394,7 +397,7 @@ fn check_dest_root_delete_ok(ctx: &mut SyncContext, src_root_details: &EntryDeta
     let resolved_behaviour = match ctx.dest_root_needs_deleting_behaviour {
         DestRootNeedsDeletingBehaviour::Prompt => {
             let prompt_result = resolve_prompt(format!("{msg}. What do?"),
-                None, 
+                None,
                 &[
                     ("Skip", DestRootNeedsDeletingBehaviour::Skip),
                     ("Delete", DestRootNeedsDeletingBehaviour::Delete),
@@ -431,8 +434,8 @@ pub struct Actions {
 
 fn query_entries(ctx: &mut SyncContext, src_root_details: EntryDetails, dest_root_details: Option<EntryDetails>,
     dest_platform_differentiates_symlinks: bool)
- -> 
-    Result<Actions, String> 
+ ->
+    Result<Actions, String>
 {
     profile_this!();
 
@@ -448,7 +451,7 @@ fn query_entries(ctx: &mut SyncContext, src_root_details: EntryDetails, dest_roo
     let mut dest_entries = OrderedMap::<RootRelativePath, EntryDetails>::new();
     let mut dest_done = true;
 
-    process_src_entry(ctx, RootRelativePath::root(), src_root_details.clone(), 
+    process_src_entry(ctx, RootRelativePath::root(), src_root_details.clone(),
         &mut src_entries, &dest_entries, dest_platform_differentiates_symlinks, &mut to_delete, &mut to_copy);
 
     if matches!(src_root_details, EntryDetails::Folder) {
@@ -535,7 +538,7 @@ fn process_src_entry(ctx: &mut SyncContext, p: RootRelativePath, src_entry: Entr
         }
     }
 
-    src_entries.add(p, src_entry);        
+    src_entries.add(p, src_entry);
 }
 
 fn process_dest_entry(ctx: &mut SyncContext, p: RootRelativePath, dest_entry: EntryDetails,
@@ -561,7 +564,7 @@ fn process_dest_entry(ctx: &mut SyncContext, p: RootRelativePath, dest_entry: En
         Some(src_entry) => {
             if needs_delete(ctx, &p, src_entry, &dest_entry, dest_platform_differentiates_symlinks) {
                 to_delete.add(p, (dest_entry, DeleteReason::Incompatible));
-            } else 
+            } else
             {
                 if let Some(r) = needs_copy(ctx, &p, src_entry, &dest_entry) {
                     //  even though the entry is already in to_copy, the *reason* will need updating
@@ -578,7 +581,7 @@ fn process_dest_entry(ctx: &mut SyncContext, p: RootRelativePath, dest_entry: En
 
 /// Checks if a given existing dest entry could be updated to match the src, or if it needs
 /// to be deleted and recreated instead.
-fn needs_delete(_ctx: &SyncContext, _path: &RootRelativePath, src: &EntryDetails, dest: &EntryDetails, dest_platform_differentiates_symlinks: bool) 
+fn needs_delete(_ctx: &SyncContext, _path: &RootRelativePath, src: &EntryDetails, dest: &EntryDetails, dest_platform_differentiates_symlinks: bool)
     -> bool
 {
     match src {
@@ -606,8 +609,8 @@ fn needs_delete(_ctx: &SyncContext, _path: &RootRelativePath, src: &EntryDetails
 }
 
 /// Checks if a given source entry needs to be copied over the top of the given dest entry.
-fn needs_copy(ctx: &SyncContext, path: &RootRelativePath, src_details: &EntryDetails, dest_details: &EntryDetails) 
-    -> Option<CopyReason>  
+fn needs_copy(ctx: &SyncContext, path: &RootRelativePath, src_details: &EntryDetails, dest_details: &EntryDetails)
+    -> Option<CopyReason>
 {
     // Dest already has this entry - check if it is up-to-date
     match src_details {
@@ -615,7 +618,7 @@ fn needs_copy(ctx: &SyncContext, path: &RootRelativePath, src_details: &EntryDet
             let dest_modified_time = match dest_details {
                 EntryDetails::File { modified_time, .. } => modified_time,
                 _ => panic!("Wrong entry type"), // This should never happen as we check the type in the .find() above
-            };         
+            };
             match src_modified_time.cmp(&dest_modified_time) {
                 Ordering::Equal => {
                     trace!("{} has same modified time as {}. Will not update.",
@@ -630,10 +633,10 @@ fn needs_copy(ctx: &SyncContext, path: &RootRelativePath, src_details: &EntryDet
         EntryDetails::Folder |  // Folders are always up-to-date
         EntryDetails::Symlink { .. }  // Symlinks are always up-to-date, if should_delete indicated that we shouldn't delete it
         => {
-            trace!("{} already exists at {} - nothing to do", 
+            trace!("{} already exists at {} - nothing to do",
                 ctx.pretty_src(&path, &src_details),
                 ctx.pretty_dest(&path, dest_details));
-            None            
+            None
         },
     }
 }
@@ -653,7 +656,7 @@ fn confirm_actions(ctx: &mut SyncContext, actions: &mut Actions) -> Result<(), S
         let resolved_behaviour = match ctx.dest_entry_needs_deleting_behaviour {
             DestEntryNeedsDeletingBehaviour::Prompt => {
                 let prompt_result = resolve_prompt(format!("{msg}. What do?"),
-                    None, 
+                    None,
                     &[
                         ("Skip", DestEntryNeedsDeletingBehaviour::Skip),
                         ("Delete", DestEntryNeedsDeletingBehaviour::Delete),
@@ -698,7 +701,7 @@ fn confirm_actions(ctx: &mut SyncContext, actions: &mut Actions) -> Result<(), S
                 let resolved_behaviour = match ctx.dest_file_newer_behaviour {
                     DestFileUpdateBehaviour::Prompt => {
                         let prompt_result = resolve_prompt(format!("{msg}. What do?"),
-                            None, 
+                            None,
                             &[
                                 ("Skip", DestFileUpdateBehaviour::Skip),
                                 ("Overwrite", DestFileUpdateBehaviour::Overwrite),
@@ -733,7 +736,7 @@ fn confirm_actions(ctx: &mut SyncContext, actions: &mut Actions) -> Result<(), S
                 let resolved_behaviour = match ctx.dest_file_older_behaviour {
                     DestFileUpdateBehaviour::Prompt => {
                         let prompt_result = resolve_prompt(format!("{msg}. What do?"),
-                            None, 
+                            None,
                             &[
                                 ("Skip", DestFileUpdateBehaviour::Skip),
                                 ("Overwrite", DestFileUpdateBehaviour::Overwrite),
@@ -758,7 +761,7 @@ fn confirm_actions(ctx: &mut SyncContext, actions: &mut Actions) -> Result<(), S
                         trace!("{msg}. Overwriting.");
                     }
                 }
-            }   
+            }
         }
     }
     for p in to_remove {
@@ -790,7 +793,7 @@ fn show_post_query_stats(ctx: &SyncContext, query_elapsed_secs: f32) {
 }
 
 fn delete_dest_entry(ctx: &mut SyncContext, dest_details: &EntryDetails,
-    dest_path: &RootRelativePath) -> Result<(), String> 
+    dest_path: &RootRelativePath) -> Result<(), String>
 {
     trace!("{dest_path}. Deleting.");
     let c = match dest_details {
@@ -823,13 +826,13 @@ fn delete_dest_entry(ctx: &mut SyncContext, dest_details: &EntryDetails,
         // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be deleted
         info!("Would delete {}", ctx.pretty_dest(dest_path, dest_details));
     });
-    
+
     ctx.progress.as_mut().unwrap().delete_sent(&dest_details);
 
     result
 }
 
-fn copy_entry(ctx: &mut SyncContext, path: &RootRelativePath, src_details: &EntryDetails) -> Result<(), String> { 
+fn copy_entry(ctx: &mut SyncContext, path: &RootRelativePath, src_details: &EntryDetails) -> Result<(), String> {
     match src_details {
         EntryDetails::File { size, modified_time: src_modified_time } => {
             debug!("{} - copying", ctx.pretty_src(&path, &src_details));
@@ -875,7 +878,7 @@ fn copy_file(
     path: &RootRelativePath,
     size: u64,
     modified_time: SystemTime,
-    ctx: &mut SyncContext) -> Result<(), String> 
+    ctx: &mut SyncContext) -> Result<(), String>
 {
     ctx.send_progress_marker_limited()?;
 
@@ -912,7 +915,7 @@ fn copy_file(
             chunk_offset += chunk_size as u64;
 
             // For large files, it might be a while before process_dest_responses is called in the main sync function,
-            // so check it periodically here too. 
+            // so check it periodically here too.
             process_dest_responses(ctx.dest_comms, &mut ctx.progress.as_mut().unwrap(), false)?;
 
             if !more_to_follow {

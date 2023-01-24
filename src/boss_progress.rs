@@ -32,14 +32,14 @@ impl ProgressValues {
     fn for_copy(e: &EntryDetails) -> Self {
         match e {
             EntryDetails::File { size, .. } => {
-                ProgressValues { 
+                ProgressValues {
                     work: std::cmp::max(*size, MIN_FILE_SIZE), // Even small files will take some minimum amount of time to copy
                     copy: 1,
                     copy_bytes: *size,
                     ..Default::default()
                 }
             },
-            EntryDetails::Folder | EntryDetails::Symlink{..} => ProgressValues { 
+            EntryDetails::Folder | EntryDetails::Symlink{..} => ProgressValues {
                 work: MIN_FILE_SIZE, // Assume that folders/symlinks are equivalent to a small file
                 copy: 1,
                 ..Default::default()
@@ -54,7 +54,7 @@ impl ProgressValues {
         // than the threshold so it doesn't matter anyway
         if chunk_start + chunk_size < file_size {
             // Non-final chunks of the file
-            ProgressValues { 
+            ProgressValues {
                 work: if file_size > MIN_FILE_SIZE {
                     chunk_size
                 } else {
@@ -63,10 +63,10 @@ impl ProgressValues {
                 copy: 0, // Only once the file is complete will be increase this
                 copy_bytes: chunk_size,
                 ..Default::default()
-            }    
+            }
         } else {
             // The last chunk of the file
-            ProgressValues { 
+            ProgressValues {
                 work: if file_size > MIN_FILE_SIZE {
                     chunk_size
                 } else {
@@ -81,7 +81,7 @@ impl ProgressValues {
 
     /// Creates a set of ProgressValues to represent the deletion of a single entry.
     fn for_delete(_e: &EntryDetails) -> Self {
-        ProgressValues { 
+        ProgressValues {
             work: DELETE_WORK,
             delete: 1,
             ..Default::default()
@@ -114,34 +114,35 @@ struct BarState {
     current_entry: Option<RootRelativePath>, //TODO: check if it's OK to be updating a string frequently (overhead?)
 }
 
-/// Wrapper around progress-bar related logic.
-/// TODO: update this!
-/// Because the destination doer is asynchronous,
-/// just because the boss has sent a command to (e.g.) write a file, that command won't be completed
-/// until some time in the future, so we can't advance the progress bar until that point. 
-/// We also want the progress bar to move smoothly across different kinds of operation (deletes, 
-/// copies of small files, copies of large files), all of which might take different amounts of time to complete.
-/// 
-/// The solution works like this. During the querying phase of the sync, we simply show "Querying...",
-/// as we have no good indication of progress here. Once we know what we're going to be doing, we replace
-/// this with a proper progress bar, with length scaled heuristically to account for copies/deletes etc.
-/// The boss will (at some limited interval) send "progress marker"
-/// commands to the dest doer, so that when the doer gets to that command it will echo it back to the boss to show us
-/// how far the doer has got. When we receive that echoed marker back, we update a counter here with the amount of 
-/// work completed. The progress bar shows the amount completed vs. the total.
-/// 
-/// There's an additional requirement to keep the overhead of updating the progress bar small, especially
-/// for very fast syncs where nothing has changed. In the past we were updating the totals a lot
-/// more frequency and so made a background thread which updates it periodically. Things might not be 
-/// so bad now, but the background thread is still there.
+/// Wrapper around progress-bar related logic, which is a little tricky.
+///
+/// Because the destination doer is asynchronous, just because the boss has sent a command to (e.g.)
+/// write a file, that command won't be completed until some time in the future, so we can't advance
+/// the progress bar until that point. We also want the progress bar to move smoothly across
+/// different kinds of operation (deletes, copies of small files, copies of large files), all of
+/// which might take different amounts of time to complete.
+///
+/// The solution works like this. During the querying phase of the sync, we simply show
+/// "Querying...", as we have no good indication of progress here. Once we know what we're going to
+/// be doing, we replace this with a proper progress bar, with length scaled heuristically to
+/// account for copies/deletes of different sizes etc. The boss will (at some limited interval) send
+/// "progress marker" commands to the dest doer, so that when the doer gets to that command it will
+/// echo it back to the boss to show us how far the doer has got. When we receive that echoed marker
+/// back, we update a counter here with the amount of work completed. The progress bar shows the
+/// amount completed vs. the total.
+///
+/// There's an additional requirement to keep the overhead of updating the progress bar small,
+/// especially for very fast syncs where nothing has changed. In the past we were updating the
+/// totals a lot more frequency and so made a background thread which updates it periodically.
+/// Things might not be so bad now, but the background thread is still there (perhaps unnecessarily).
 pub struct Progress {
     /// The UI element from the `indicatif` crate that handles drawing the progress bar.
     bar: ProgressBar,
 
     /// The total amount of work that the dest doer needs to complete, set on creation.
     total: ProgressValues,
-    /// Keeps track of how much work has been sent to the dest doer 
-    /// so far. The doer won't necessarily have completed (or even received) this work yet, so the 
+    /// Keeps track of how much work has been sent to the dest doer
+    /// so far. The doer won't necessarily have completed (or even received) this work yet, so the
     /// progress bar isn't updated until we receive ProgressMarkers back from the doer.
     sent: ProgressValues,
     /// Keeps track of how much work has been completed by the dest doer so far.
@@ -165,7 +166,7 @@ pub struct Progress {
 }
 impl Progress {
     pub fn new(actions: &Actions) -> Self {
-        // Sum up the total amount of work that needs doing, and store a copy of the 
+        // Sum up the total amount of work that needs doing, and store a copy of the
         // paths so that we can display these on the progress bar as we go
         let mut to_delete_paths = vec![];
         let mut total = ProgressValues::default();
@@ -183,7 +184,7 @@ impl Progress {
         // Note that we don't render the pos or length in the template, as the 'work' values are pretty meaningless
         // for the user. Instead we show the percentage, and include a custom message where we print more details
         // Note the use of "wide_msg" vs "msg", which prevents the message from wrapping to the next line
-        // which causes problems.
+        // when the filename is long, which causes problems.
         let bar = ProgressBar::new(total.work).with_style(
             ProgressStyle::with_template("{percent}% {bar:40.green/black} {wide_msg}").unwrap());
 
@@ -233,28 +234,25 @@ impl Progress {
         // Remember when we last sent a marker, so that we don't do it too often
         self.last_progress_marker = self.sent.work;
 
-        //TODO: update
-        // It's safe to compare sent vs total like this, because the total starts high and gets reduced,
-        // and the sent starts at zero and gets increased. So they will only be equal once fully sent.
         debug_assert!(self.sent.delete <= self.total.delete);
         debug_assert!(self.sent.copy <= self.total.copy);
         if self.sent.delete < self.total.delete {
             // Still sending deletes
-            ProgressMarker { 
+            ProgressMarker {
                 completed_work: self.sent.work,
-                phase: ProgressPhase::Deleting { 
+                phase: ProgressPhase::Deleting {
                     num_entries_deleted: self.sent.delete,
                 },
-            }         
+            }
         } else {
             // Finished sending deletes, but still sending copies
             // Note that we might have actually finished sending all the copies too, and so we are Done,
             // but we don't return that here otherwise we might end up with two Done markers, which can
             // cause problems.
-            ProgressMarker { 
+            ProgressMarker {
                 completed_work: self.sent.work,
-                phase: ProgressPhase::Copying { 
-                    num_entries_copied: self.sent.copy, 
+                phase: ProgressPhase::Copying {
+                    num_entries_copied: self.sent.copy,
                     num_bytes_copied: self.sent.copy_bytes,
                 }
             }
@@ -278,9 +276,9 @@ impl Progress {
     /// Returns a ProgressMarker that should be sent to the dest doer to mark this point of progress.
     pub fn all_work_sent(&mut self) -> ProgressMarker {
         debug_assert_eq!(self.total, self.sent);
-        ProgressMarker { 
+        ProgressMarker {
             completed_work: self.sent.work,
-            phase: ProgressPhase::Done 
+            phase: ProgressPhase::Done
         }
     }
 
@@ -297,7 +295,7 @@ impl Progress {
                 self.update_bar_limited();
             }
             ProgressPhase::Copying { num_entries_copied, num_bytes_copied } => {
-                // If this is the first progress marker for Copying, then update stat timers as we know 
+                // If this is the first progress marker for Copying, then update stat timers as we know
                 // we have finished all the deletes and are now about to start the copies
                 if self.first_copy_time.is_none() && num_entries_copied == 0 {
                     self.first_copy_time = Some(Instant::now());
@@ -315,18 +313,19 @@ impl Progress {
         }
     }
 
-    // Doesn't directly update the bar, because we might do this too quickly and cause too much overhead 
+    // Doesn't directly update the bar, because we might do this too quickly and cause too much overhead
     // (see comment on background_updater).
     fn update_bar_limited(&mut self) {
         // Note that we don't format the message string here, because this function will be called a lot
         // and that would be too slow. Instead we format it on the background thread, once we're about to use it.
-       
-        // The entry currently being processed is the one after the one we just did
-        let current_entry =         
+
+        // The entry currently being processed is the one after the one we just did, so show that
+        // name alongside the progress bar.
+        let current_entry =
             if self.first_copy_time.is_none() {
-                self.to_delete_paths.get(self.completed.delete as usize + 1).cloned()
+                self.to_delete_paths.get(self.completed.delete as usize).cloned()
             } else {
-                self.to_copy_paths.get(self.completed.copy as usize + 1).cloned()
+                self.to_copy_paths.get(self.completed.copy as usize).cloned()
             };
 
         let new_state = Box::new(BarState {
@@ -336,21 +335,21 @@ impl Progress {
             current_entry,
         });
         // (static assert) Depending on what type put in the AtomicCell it might use locks, so we choose something that should collapse to a single pointer and thus be lock-free.
-        debug_assert!(AtomicCell::<Option<Box<BarState>>>::is_lock_free()); 
+        debug_assert!(AtomicCell::<Option<Box<BarState>>>::is_lock_free());
         self.new_bar_state.store(Some(new_state));
     }
-    
+
     pub fn get_first_copy_time(&self) -> Option<Instant> {
         self.first_copy_time
     }
 
     /// If we update the progress bar too often then the performance cost is too high.
     /// Even though the ProgressBar is supposed to have some kind of rate limiter/framerate to avoid
-    /// this, it doesn't seem to be enough, especially when calling set_length() a lot which happens
-    /// when syncing two identical directories (we call dec_total_for_copy a lot very quickly).
+    /// this, this wasn't enough, especially when we were calling set_length() a lot which happened
+    /// when syncing two identical directories. (After some refactoring though this no longer happens,
+    /// so the overhead might now not be a problem any more.)
     /// To avoid this, we run our own background thread (instead of using enable_steady_tick) which
     /// limits calls to any APIs on the ProgressBar.
-    //TODO: update comment
     fn background_updater(bar: WeakProgressBar, new_bar_state: Arc<AtomicCell<Option<Box<BarState>>>>) {
         loop {
             thread::sleep(Duration::from_secs_f32(1.0 / BAR_UPDATE_RATE));
@@ -366,26 +365,28 @@ impl Progress {
             }
 
             // Take out the new state put there by the main thread, replacing it with a None.
-            // If what we got out was a None, it means that there was no state put there, so nothing for us to do            
+            // If what we got out was a None, it means that there was no state put there, so nothing for us to do
             // (static assert) Depending on what type we put in the AtomicCell it might use locks, so we choose something that should collapse to a single pointer and thus be lock-free.
             debug_assert!(AtomicCell::<Option<Box<BarState>>>::is_lock_free());
             if let Some(new_state) = new_bar_state.take() {
                 let mut message = if new_state.is_deleting {
                     // The doer is deleting entries, and will be some amount behind the boss which may have queued
                     // up many more deletes. Show the progress through these delete operations.
-                    format!("Deleting {:>7}/{:>7}", 
+                    // Align values that will change, so that things stay in the same place as we progress
+                    format!("Deleting {:>7}/{}",
                         HumanCount(new_state.completed.delete as u64).to_string(),
                         HumanCount(new_state.total.delete as u64).to_string())
                 } else {
-                    // The doer is now copying entries (i.e. writing them to disk), and will be some amount behind the boss 
+                    // The doer is now copying entries (i.e. writing them to disk), and will be some amount behind the boss
                     // which may have queued up more copies.
                     // Show the progress through these copy operations, including the number of bytes being copied so that
                     // we can see this increase as large files are copied.
+                    // Align values that will change, so that things stay in the same place as we progress
                     // Note the extra whitespace after "Copying" for alignment with "Deleting"
-                    format!("Copying  {:>7}/{:>7} {:>11}/{:>11}", 
+                    format!("Copying  {:>7}/{} {:>11}/{}",
                         HumanCount(new_state.completed.copy as u64).to_string(), HumanCount(new_state.total.copy as u64).to_string(),
                         HumanBytes(new_state.completed.copy_bytes as u64).to_string(), HumanBytes(new_state.total.copy_bytes as u64).to_string())
-                };                
+                };
                 if let Some(e) = new_state.current_entry {
                     message += &format!("   {}", e);
                 }
@@ -418,14 +419,14 @@ mod tests {
             ProgressValues::for_copy(&EntryDetails::File { modified_time: SystemTime::UNIX_EPOCH, size: 10_000_000_000 }).work,
             ProgressValues::for_copy(&EntryDetails::File { modified_time: SystemTime::UNIX_EPOCH, size: 1_000_000_000 }).work * 10
         );
-        
+
         // Several partial copies add up to the same total as the whole file - small file
         let mut p = ProgressValues::for_copy_partial(0, 100, 1000);
         p += ProgressValues::for_copy_partial(100, 100, 1000);
         p += ProgressValues::for_copy_partial(200, 800, 1000);
         assert_eq!(p,
             ProgressValues::for_copy(&EntryDetails::File { modified_time: SystemTime::UNIX_EPOCH, size: 1000 })
-        );        
+        );
 
         // Several partial copies add up to the same total as the whole file - large file
         let mut p = ProgressValues::for_copy_partial(0, 100, 1_000_000_000);
@@ -434,6 +435,6 @@ mod tests {
         p += ProgressValues::for_copy_partial(1000, 999_999_000, 1_000_000_000);
         assert_eq!(p,
             ProgressValues::for_copy(&EntryDetails::File { modified_time: SystemTime::UNIX_EPOCH, size: 1_000_000_000 })
-        );        
+        );
     }
 }

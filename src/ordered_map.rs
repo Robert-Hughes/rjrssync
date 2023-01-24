@@ -1,7 +1,7 @@
 use std::{collections::HashMap, hash::Hash};
 
-/// A list of K and V which is ordered and has fast lookup from 
-/// K -> V.
+/// A map of K -> V which remembers the order in which things were added,
+/// and uses this order when iterating.
 /// Implemented simply as storing both a Vec and HashMap, and keeping these in sync.
 #[derive(Debug, Clone)]
 pub struct OrderedMap<K, V> {
@@ -20,7 +20,7 @@ impl<K: Clone+ Eq + Hash, V: Clone> OrderedMap<K, V> {
 
     pub fn len(&self) -> usize {
         // The vec len may be larger, if things have been removed, but the map len is always correct
-        self.map.len() 
+        self.map.len()
     }
 
     pub fn iter(&self) -> Box<dyn Iterator<Item = (&K, &V)> + '_> {
