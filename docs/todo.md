@@ -30,29 +30,24 @@ Remote launching
 
 * Additional SSH options as command-line arguments (separate for source and dest?)
 * SSH host key verification prompt doesn't echo the user's typing, but it does seem to work anyway
-* We could first attempt to use an already-installed version of rjrssync (in the PATH), and only if this doesn't exist or is incompatible do we deploy/build from scratch?
+* We could first attempt to use an already-installed version of rjrssync (in the PATH), and only if this doesn't exist or is incompatible do we deploy?
 * Sometimes see "ssh stderr: mesg: ttyname failed: Inappropriate ioctl for device" when deploying to remote (I think on 'F**A' platforms). Can we hide this using "-T" for example?
-* Launching on a new system can take a while, even if cargo is already installed, and if cargo isn't installed, this is an extra step for the user. Pre-built binaries?
 * The prompt messages don't account for --dry-run, so it will look like things are actually going to be deleted, when they're not
-* Statically link against c runtime? For more portable binary?
-* Embed aarch64-pc-windows-msvc binary, and detect it when checking a remote OS
+* Embed Windows on Arm (aarch64-pc-windows-msvc) binary, and detect it when checking a remote OS
 * Decide if embedded binaries should be always built in release, or the same as the main build?
 * Embedded binaries pass through other arguments, like profiling
 * When building embedded binaries, if the target platform cross-compiler isn't installed, then the build will produce a LOT of errors which is very noisy and slow. Maybe instead we should do our own quick check up front?
-* deploying a big binary to "less powerful"/slower targets may be bad because it will take ages to copy the big binary there, and the benefits of having a fully-functional rjrssync.exe on there may be minimal. Perhaps we do want the option(?) of deploying only a lite binary? That might make a lot of this work redundant, as we would no longer need to generate new big binaries on-demand, so wouldn't need to do all this section stuff. Perhaps instead we focus on making the binary smaller, which would be good anyway? One option could be to compress the embedded lite binaries.
+* Deploying a big binary to "less powerful"/slower targets may be bad because it will take ages to copy the big binary there, and the benefits of having a fully-functional rjrssync.exe on there may be minimal. Perhaps we do want the option(?) of deploying only a lite binary? That might make a lot of this work redundant, as we would no longer need to generate new big binaries on-demand, so wouldn't need to do all this section stuff. Perhaps instead we focus on making the binary smaller, which would be good anyway? One option could be to compress the embedded lite binaries.
 * When the doer is listening on network port, if the boss never connects (e.g. due to firewall) it seems that even when you close the boss, the doer is left behind and doesn't close, possibly because it's just sat waiting for network connection that never comes (cos of firewall). Maybe we should have a timeout on the doer, if the boss doesn't connect within some short time, it should exit? Or if the stdin drops (i.e. ssh disappears)?
-
 
 Syncing logic
 -------------
 
 * Compare and sync file permissions?
 * Progress bar
-  - when copying large files, the progress bar won't move. Maybe have a sub-bar per-file for large files? Or change the bar to be total bytes rather than total files?
   - hide progress bar for --dry-run? Confirm behaviour of all the progress code, as I think some is being skipped for dry run and some isn't (inconsistent)
   - hide progress bar for --quiet?
   - hide progress bar for --no-progress?
-  - show filenames as they are being copied?
   - show bytes or entries per seconds in the text as it goes?
 * What happens if src and dest both point to the same place?
    - Either directly, or via symlink(s)?
@@ -106,7 +101,7 @@ Testing
 * Tests for different combinations of platforms for binary deployment - the different executable formats have different code paths that all need testing.
 * Tests for deploying from an already-deployed (non-progenitor) binary, again, to all platforms? (all binaries are equal, no lite binaries every actually exist on disk)
 * Tests for --list-embedded-binaries
-*  Remote tests running in parallel can conflict if they both use the same remote platform - could we lock/mutex them? Need to be careful not to deadlock! (one test locks Windows then Linux, the other Linux then Windows!)
+* Remote tests running in parallel can conflict if they both use the same remote platform - could we lock/mutex them? Need to be careful not to deadlock! (one test locks Windows then Linux, the other Linux then Windows!)
 * When installing rust on the GitHub job, could use the "minimal" profile to avoid downloading things like clippy, rust-docs etc. which we don't need
 
 
@@ -118,7 +113,6 @@ Misc
 ERROR | rjrssync::boss_frontend: Sync error: Unexpected response from dest GetEntries: Ok(Error("normalize_path failed: Illegal characters in path"))
 * Would be nice to automatically detect cases where the version number hasn't been updated, e.g. if we could see that the Command/Response struct layout has changed.
 * Document that ssh is used for connecting and launching, and that the sync is performed over a different network port, and that it is encrypted. Some of this added to readme already, but needs more. This should possibly be moved/copied to the --help so is available there too? Mention firewall issues?
-* In boss_sync.rs, src_entries and progres.inc_total_for_copy/delete() - these things need to be done together and kept in sync - can we enforce this (custom type?). Same for dest_entries.
 * Add to readme list of features to "advertise" the program
 * Upload to cargo binstall (or similar) so that users don't need to build from source (especially if we're bundling embedded binaries, the initial build time will be looong!)
 * Look at cargo dependency graph, to see if we can remove some dependencies

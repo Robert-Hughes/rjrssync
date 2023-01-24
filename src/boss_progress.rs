@@ -110,8 +110,7 @@ struct BarState {
     is_deleting: bool,
     completed: ProgressValues,
     total: ProgressValues,
-    //TODO: PrettyPath? or at least some parts of it?
-    current_entry: Option<RootRelativePath>, //TODO: check if it's OK to be updating a string frequently (overhead?)
+    current_entry: Option<RootRelativePath>,
 }
 
 /// Wrapper around progress-bar related logic, which is a little tricky.
