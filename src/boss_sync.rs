@@ -251,7 +251,7 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), String> {
     // We do this before we start querying everything to show this prompt as the first one
     // (otherwise it would be the last prompt, as we delete in reverse order)
     if let Some(d) = &dest_root_details {
-        if needs_delete(&ctx, &RootRelativePath::root(), &src_root_details, d, dest_platform_differentiates_symlinks) {
+        if needs_delete(&src_root_details, d, dest_platform_differentiates_symlinks) {
             if !check_dest_root_delete_ok(&mut ctx, &src_root_details, d)? {
                 // Don't raise an error if we've been told to skip, but we can't continue as it will fail, so skip the entire sync
                 return Ok(());
@@ -533,17 +533,16 @@ fn process_src_entry(ctx: &mut SyncContext, p: RootRelativePath, src_entry: Entr
         None => to_copy.add(p.clone(), (src_entry.clone(), CopyReason::NotOnDest)),
         Some(dest_entry) => {
             // This entry will already be in to_delete, but we might need to remove it now
-            if !needs_delete(ctx, &p, &src_entry, dest_entry, dest_platform_differentiates_symlinks) {
+            if needs_delete(&src_entry, dest_entry, dest_platform_differentiates_symlinks) {
+                // Even though the entry is already in to_delete, the *reason* needs updating
+                to_delete.update(&p, (dest_entry.clone(), DeleteReason::Incompatible));
+                // Dest is going to be deleted, so we will definitely be copying the source
+                to_copy.add(p.clone(), (src_entry.clone(), CopyReason::NotOnDest));
+            } else {
                 to_delete.remove(&p);
                 if let Some(r) = needs_copy(ctx, &p, &src_entry, dest_entry) {
                     to_copy.add(p.clone(), (src_entry.clone(), r));
                 }
-            } else {
-                // even though the entry is already in to_delete, the *reason* will need updating
-                to_delete.update(&p, (dest_entry.clone(), DeleteReason::Incompatible));
-
-                // Dest is going to be deleted, so we will definitely be copying the source
-                to_copy.add(p.clone(), (src_entry.clone(), CopyReason::NotOnDest));
             }
         }
     }
@@ -565,21 +564,22 @@ fn process_dest_entry(ctx: &mut SyncContext, p: RootRelativePath, dest_entry: En
         EntryDetails::Folder => ctx.stats.num_dest_folders += 1,
         EntryDetails::Symlink { .. } => ctx.stats.num_dest_symlinks += 1,
     }
+
     dest_entries.add(p.clone(), dest_entry.clone());
 
+    // Check if we've already seen an equivalent entry on the source side, and decide
+    // whether or not we need to delete this entry
     match src_entries.lookup(&p) {
         None => to_delete.add(p, (dest_entry, DeleteReason::NotOnSource)),
         Some(src_entry) => {
-            if needs_delete(ctx, &p, src_entry, &dest_entry, dest_platform_differentiates_symlinks) {
+            // This entry will already be in to_copy, but we might need to remove it now
+            if needs_delete(src_entry, &dest_entry, dest_platform_differentiates_symlinks) {
                 to_delete.add(p, (dest_entry, DeleteReason::Incompatible));
-            } else
-            {
+            } else {
                 if let Some(r) = needs_copy(ctx, &p, src_entry, &dest_entry) {
-                    //  even though the entry is already in to_copy, the *reason* will need updating
+                    // Even though the entry is already in to_copy, the *reason* needs updating
                     to_copy.update(&p, (src_entry.clone(), r));
-                }
-                else {
-                    // This entry will already be in to_copy, but we might need to remove it now
+                } else {
                     to_copy.remove(&p);
                 }
             }
@@ -587,10 +587,10 @@ fn process_dest_entry(ctx: &mut SyncContext, p: RootRelativePath, dest_entry: En
     }
 }
 
-/// Checks if an existing dest needs to be deleted to make way for a source entry.
+/// Checks if an existing dest entry needs to be deleted to make way for a source entry.
 /// Some entries like files can be updated without needing to delete then recreate, but others
 /// like symlinks need deleting and recreating.
-fn needs_delete(_ctx: &SyncContext, _path: &RootRelativePath, src: &EntryDetails, dest: &EntryDetails, dest_platform_differentiates_symlinks: bool)
+fn needs_delete(src: &EntryDetails, dest: &EntryDetails, dest_platform_differentiates_symlinks: bool)
     -> bool
 {
     match src {
@@ -627,7 +627,7 @@ fn needs_copy(ctx: &SyncContext, path: &RootRelativePath, src_details: &EntryDet
         EntryDetails::File { modified_time: src_modified_time, .. } => {
             let dest_modified_time = match dest_details {
                 EntryDetails::File { modified_time, .. } => modified_time,
-                _ => panic!("Wrong entry type"), // This should never happen as we check the type in the .find() above
+                _ => panic!("Wrong entry type"), // This should never happen as we check the type in should_delete
             };
             match src_modified_time.cmp(&dest_modified_time) {
                 Ordering::Equal => {
@@ -652,7 +652,8 @@ fn needs_copy(ctx: &SyncContext, path: &RootRelativePath, src_details: &EntryDet
 }
 
 fn confirm_actions(ctx: &mut SyncContext, actions: &mut Actions) -> Result<(), String> {
-    let mut to_remove = vec![];
+    // Confirm deletes
+    let mut to_remove = vec![]; // Rather than removing things as we go, we remove them at the end
     for (path, (entry_to_delete, reason)) in actions.to_delete.iter() {
         let msg = format!(
             "{} needs deleting {}",
@@ -687,21 +688,18 @@ fn confirm_actions(ctx: &mut SyncContext, actions: &mut Actions) -> Result<(), S
                 trace!("{msg}. Skipping.");
                 to_remove.push(path.clone());
             }
-            DestEntryNeedsDeletingBehaviour::Delete => {
-                // Carry on
-            }
+            DestEntryNeedsDeletingBehaviour::Delete => (), // Carry on
         }
     }
     for p in to_remove {
         actions.to_delete.remove(&p);
     }
 
-    let mut to_remove = vec![];
+    // Confirm copies
+    let mut to_remove = vec![]; // Rather than removing things as we go, we remove them at the end
     for (path, (_entry_to_copy, reason)) in actions.to_copy.iter() {
         match reason {
-            CopyReason::NotOnDest => {
-                // Nothing to check
-            }
+            CopyReason::NotOnDest => (), // Nothing to confirm
             CopyReason::DestNewer => {
                 let msg = format!(
                     "{} is newer than {}",
@@ -805,7 +803,7 @@ fn show_post_query_stats(ctx: &SyncContext, query_elapsed_secs: f32) {
 fn delete_dest_entry(ctx: &mut SyncContext, dest_path: &RootRelativePath, dest_details: &EntryDetails)
     -> Result<(), String>
 {
-    trace!("{dest_path}. Deleting.");
+    trace!("Deleting {dest_path}");
     let c = match dest_details {
         EntryDetails::File { size, .. } => {
             ctx.stats.num_files_deleted += 1;
@@ -845,11 +843,11 @@ fn delete_dest_entry(ctx: &mut SyncContext, dest_path: &RootRelativePath, dest_d
 fn copy_entry(ctx: &mut SyncContext, path: &RootRelativePath, src_details: &EntryDetails) -> Result<(), String> {
     match src_details {
         EntryDetails::File { size, modified_time: src_modified_time } => {
-            debug!("{} - copying", ctx.pretty_src(&path, &src_details));
+            debug!("Copying file {}", ctx.pretty_src(&path, &src_details));
             copy_file(&path, *size, *src_modified_time, ctx)?
         }
         EntryDetails::Folder => {
-            debug!("{} doesn't exist on dest - creating", ctx.pretty_src(&path, &src_details));
+            debug!("Creating folder {}", ctx.pretty_src(&path, &src_details));
             ctx.send_progress_marker_limited()?;
             ctx.stats.num_folders_created += 1;
             if !ctx.dry_run {
@@ -864,7 +862,7 @@ fn copy_entry(ctx: &mut SyncContext, path: &RootRelativePath, src_details: &Entr
             ctx.progress.as_mut().unwrap().copy_sent(&src_details);
         },
         EntryDetails::Symlink { ref kind, ref target } => {
-            debug!("{} doesn't exist on dest - copying", ctx.pretty_src(&path, &src_details));
+            debug!("Copying symlink {}", ctx.pretty_src(&path, &src_details));
             ctx.send_progress_marker_limited()?;
             ctx.stats.num_symlinks_copied += 1;
             if !ctx.dry_run {
