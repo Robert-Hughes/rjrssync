@@ -844,11 +844,11 @@ fn copy_entry(ctx: &mut SyncContext, progress: &mut Progress,
 {
     match src_details {
         EntryDetails::File { size, modified_time: src_modified_time } => {
-            debug!("Copying file {}", ctx.pretty_src(&path, &src_details));
+            debug!("Copying {}", ctx.pretty_src(&path, &src_details));
             copy_file(&path, *size, *src_modified_time, ctx, progress)?
         }
         EntryDetails::Folder => {
-            debug!("Creating folder {}", ctx.pretty_src(&path, &src_details));
+            debug!("Creating {}", ctx.pretty_src(&path, &src_details));
             ctx.send_progress_marker_limited(progress)?;
             ctx.stats.num_folders_created += 1;
             if !ctx.dry_run {
@@ -863,7 +863,7 @@ fn copy_entry(ctx: &mut SyncContext, progress: &mut Progress,
             progress.copy_sent(&src_details);
         },
         EntryDetails::Symlink { ref kind, ref target } => {
-            debug!("Copying symlink {}", ctx.pretty_src(&path, &src_details));
+            debug!("Copying {}", ctx.pretty_src(&path, &src_details));
             ctx.send_progress_marker_limited(progress)?;
             ctx.stats.num_symlinks_copied += 1;
             if !ctx.dry_run {
