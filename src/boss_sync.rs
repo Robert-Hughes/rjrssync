@@ -132,7 +132,7 @@ struct SyncContext<'a> {
     show_stats: bool,
     src_root: String,
     dest_root: String,
-    progress: Option<Progress>, //TODO: unwrap() everywhere yuck!
+    progress: Option<Progress>, //TODO: unwrap() everywhere yuck! Maybe split SyncContext into pre/post query stuff?
 
     // Used for debugging/display only, shouldn't be needed for any syncing logic
     src_dir_separator: Option<char>,
@@ -238,17 +238,18 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), String> {
 
     let sync_start = Instant::now();
 
+    // We don't have a good way of estimating how long the querying phase will take,
+    // so we just show a spinner.
     let progress_bar = ProgressBar::new_spinner().with_message("Querying...");
     progress_bar.enable_steady_tick(Duration::from_millis(100));
-    //TODO: remove the one from boss_progress - don't create the Progress object til later,
-    // and it no longer needs to be aware of the querying phase!
 
     // First get details of the root file/folder etc. of each side, as this might affect the sync
     // before we start it (e.g. errors, or changing the dest root)
     let (src_root_details, dest_root_details, dest_platform_differentiates_symlinks) = get_root_details(&mut ctx)?;
 
     // Check if the dest root will need deleting, and potentially prompt the user.
-    // We do this before we start querying everything to show this prompt as soon as possible.
+    // We do this before we start querying everything to show this prompt as the first one
+    // (otherwise it would be the last prompt, as we delete in reverse order)
     if let Some(d) = &dest_root_details {
         if needs_delete(&ctx, &RootRelativePath::root(), &src_root_details, d, dest_platform_differentiates_symlinks) {
             if !check_dest_root_delete_ok(&mut ctx, &src_root_details, d)? {
@@ -266,30 +267,30 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), String> {
         }
     }
 
+    // Get the lists of entries to delete and copy, by querying both source and dest
+    // for what they have and checking for differences.
     let mut actions = query_entries(&mut ctx, src_root_details, dest_root_details, dest_platform_differentiates_symlinks)?;
 
     // Stop the progress bar before we (potentially) prompt the user, so the progress bar
     // redrawing doesn't interfere with the prompts
     progress_bar.finish_and_clear();
 
-    // Confirm that the user is happy to take these actions
-    confirm_actions(&mut ctx, &mut actions)?;
-
     let query_elapsed_secs = sync_start.elapsed().as_secs_f32();
     show_post_query_stats(&ctx, query_elapsed_secs);
 
-    // Delete dest entries that don't exist on the source. This needs to be done first in case there
-    // are entries with the same name but incompatible (e.g. files vs folders).
+    // Confirm that the user is happy to take these actions
+    confirm_actions(&mut ctx, &mut actions)?;
 
-    // Update progress to start the deleting phase
+    // Start the proper progress bar
     ctx.progress = Some(Progress::new(&actions));
 
+    // Delete dest entries that don't exist on the source. This needs to be done first in case there
+    // are entries with the same name but incompatible (e.g. files vs folders).
     {
         profile_this!("Sending delete commands");
         ctx.stats.delete_start_time = Some(Instant::now());
         for (dest_path, (dest_details, _reason)) in actions.to_delete.iter() {
-            delete_dest_entry(&mut ctx, dest_details, dest_path)?;
-
+            delete_dest_entry(&mut ctx, dest_path, dest_details)?;
             process_dest_responses(ctx.dest_comms, &mut ctx.progress.as_mut().unwrap(), false)?;
         }
     }
@@ -301,7 +302,6 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), String> {
         ctx.dest_comms.send_command(Command::Marker(ctx.progress.as_mut().unwrap().get_progress_marker()))?;
         for (src_path, (src_details, _reason)) in actions.to_copy.iter() {
             copy_entry(&mut ctx, &src_path, &src_details)?;
-
             process_dest_responses(ctx.dest_comms, &mut ctx.progress.as_mut().unwrap(), false)?;
         }
     }
@@ -427,6 +427,9 @@ pub enum CopyReason {
     DestOlder,
 }
 
+type ToDelete = OrderedMap<RootRelativePath, (EntryDetails, DeleteReason)>;
+type ToCopy = OrderedMap<RootRelativePath, (EntryDetails, CopyReason)>;
+
 pub struct Actions {
     pub to_delete: OrderedMap<RootRelativePath, (EntryDetails, DeleteReason)>,
     pub to_copy: OrderedMap<RootRelativePath, (EntryDetails, CopyReason)>,
@@ -439,10 +442,10 @@ fn query_entries(ctx: &mut SyncContext, src_root_details: EntryDetails, dest_roo
 {
     profile_this!();
 
-    // As we receive entry details from the source and dest, we will build up lists of which
-    // entries need copying and which need deleting. We will be both adding and removing entries
-    // from these lists as we need details from both source and dest to make the right decision.
-    let mut to_delete = OrderedMap::<RootRelativePath, (EntryDetails, DeleteReason)>::new(); //TODO: is the order of stuff in these lists ok? if we're adding/removing stuff?
+    // As we receive entry details from the source and dest, we will build up lists of which entries
+    // need copying and which need deleting. We will be both adding and removing entries from these
+    // lists as a decision might need changing once we receive details from both source and dest.
+    let mut to_delete = OrderedMap::<RootRelativePath, (EntryDetails, DeleteReason)>::new();
     let mut to_copy = OrderedMap::<RootRelativePath, (EntryDetails, CopyReason)>::new();
 
     let mut src_entries = OrderedMap::<RootRelativePath, EntryDetails>::new();
@@ -451,8 +454,10 @@ fn query_entries(ctx: &mut SyncContext, src_root_details: EntryDetails, dest_roo
     let mut dest_entries = OrderedMap::<RootRelativePath, EntryDetails>::new();
     let mut dest_done = true;
 
+    // Add the source root entry
     process_src_entry(ctx, RootRelativePath::root(), src_root_details.clone(),
-        &mut src_entries, &dest_entries, dest_platform_differentiates_symlinks, &mut to_delete, &mut to_copy);
+        &mut src_entries, &dest_entries, dest_platform_differentiates_symlinks,
+        &mut to_delete, &mut to_copy);
 
     if matches!(src_root_details, EntryDetails::Folder) {
         ctx.src_comms.send_command(Command::GetEntries { filters: ctx.filters.clone() })?;
@@ -460,17 +465,20 @@ fn query_entries(ctx: &mut SyncContext, src_root_details: EntryDetails, dest_roo
     }
 
     if let Some(d) = &dest_root_details {
-        process_dest_entry(ctx, RootRelativePath::root(), d.clone(), &src_entries, &mut dest_entries, dest_platform_differentiates_symlinks, &mut to_delete, &mut to_copy)
-    }
+        // Add the dest root entry
+        process_dest_entry(ctx, RootRelativePath::root(), d.clone(), &src_entries,
+            &mut dest_entries, dest_platform_differentiates_symlinks, &mut to_delete, &mut to_copy);
 
-    if matches!(dest_root_details, Some(EntryDetails::Folder)) {
-        ctx.dest_comms.send_command(Command::GetEntries { filters: ctx.filters.clone() })?;
-        dest_done = false;
+        if let EntryDetails::Folder = d {
+            ctx.dest_comms.send_command(Command::GetEntries { filters: ctx.filters.clone() })?;
+            dest_done = false;
+        }
     }
 
     while !src_done || !dest_done {
         // Wait for either src or dest to send us a response with an entry
         match memory_bound_channel::select_ready(ctx.src_comms.get_receiver(), ctx.dest_comms.get_receiver()) {
+            // Source entry
             0 => match ctx.src_comms.receive_response()? {
                 Response::Entry((p, src_entry)) => process_src_entry(ctx, p, src_entry,
                     &mut src_entries, &dest_entries, dest_platform_differentiates_symlinks,
@@ -478,6 +486,7 @@ fn query_entries(ctx: &mut SyncContext, src_root_details: EntryDetails, dest_roo
                 Response::EndOfEntries => src_done = true,
                 r => return Err(format!("Unexpected response getting entries from src: {:?}", r)),
             },
+            // Dest entry
             1 => match ctx.dest_comms.receive_response()? {
                 Response::Entry((p, dest_entry)) => process_dest_entry(ctx, p, dest_entry,
                     &src_entries, &mut dest_entries, dest_platform_differentiates_symlinks,
@@ -492,8 +501,8 @@ fn query_entries(ctx: &mut SyncContext, src_root_details: EntryDetails, dest_roo
     ctx.stats.num_src_entries = src_entries.len() as u32;
     ctx.stats.num_dest_entries = dest_entries.len() as u32;
 
-    // Reverse the order of to_delete
-    // We do this in reverse to make sure that files are deleted before their parent folder
+    // Reverse the order of to_delete, so that entries are deleted from last to first.
+    // We do this to make sure that files are deleted before their parent folder
     // (otherwise deleting the parent is harder/more risky - possibly would also have problems with
     // files being filtered so the folder is needed still as there are filtered-out files in there,
     // see test_remove_dest_folder_with_excluded_files())
@@ -579,8 +588,9 @@ fn process_dest_entry(ctx: &mut SyncContext, p: RootRelativePath, dest_entry: En
     }
 }
 
-/// Checks if a given existing dest entry could be updated to match the src, or if it needs
-/// to be deleted and recreated instead.
+/// Checks if an existing dest needs to be deleted to make way for a source entry.
+/// Some entries like files can be updated without needing to delete then recreate, but others
+/// like symlinks need deleting and recreating.
 fn needs_delete(_ctx: &SyncContext, _path: &RootRelativePath, src: &EntryDetails, dest: &EntryDetails, dest_platform_differentiates_symlinks: bool)
     -> bool
 {
@@ -609,6 +619,7 @@ fn needs_delete(_ctx: &SyncContext, _path: &RootRelativePath, src: &EntryDetails
 }
 
 /// Checks if a given source entry needs to be copied over the top of the given dest entry.
+/// For example, for files this checks if the modified times are different.
 fn needs_copy(ctx: &SyncContext, path: &RootRelativePath, src_details: &EntryDetails, dest_details: &EntryDetails)
     -> Option<CopyReason>
 {
@@ -792,8 +803,8 @@ fn show_post_query_stats(ctx: &SyncContext, query_elapsed_secs: f32) {
     }
 }
 
-fn delete_dest_entry(ctx: &mut SyncContext, dest_details: &EntryDetails,
-    dest_path: &RootRelativePath) -> Result<(), String>
+fn delete_dest_entry(ctx: &mut SyncContext, dest_path: &RootRelativePath, dest_details: &EntryDetails)
+    -> Result<(), String>
 {
     trace!("{dest_path}. Deleting.");
     let c = match dest_details {

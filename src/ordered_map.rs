@@ -5,6 +5,9 @@ use std::{collections::HashMap, hash::Hash};
 /// Implemented simply as storing both a Vec and HashMap, and keeping these in sync.
 #[derive(Debug, Clone)]
 pub struct OrderedMap<K, V> {
+    // Note that the vec doesn't store V. This means we don't have to keep V up to date here
+    // (e.g. in update()). We have to do a lookup in the map anyway when iterating, so we also
+    // fetch the V while we're there.
     vec: Vec<K>,
     map: HashMap<K, V>
 }
@@ -24,7 +27,8 @@ impl<K: Clone+ Eq + Hash, V: Clone> OrderedMap<K, V> {
     }
 
     pub fn iter(&self) -> Box<dyn Iterator<Item = (&K, &V)> + '_> {
-        // Some entries may have been removed, so filter these out on the fly
+        // Some entries may have been removed, so filter these out on the fly.
+        // Also grab the V from the map.
         let iter = self.vec.iter().filter_map(|k| self.map.get(k).and_then(|v| Some((k, v))));
         Box::new(iter)
     }
