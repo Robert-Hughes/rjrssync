@@ -324,9 +324,9 @@ impl Progress {
         // The entry currently being processed is the one after the one we just did
         let current_entry =         
             if self.first_copy_time.is_none() {
-                Some(self.to_delete_paths[current_entry_id as usize].clone())
+                self.to_delete_paths.get(self.completed.delete as usize + 1).cloned()
             } else {
-                Some(self.to_copy_paths[current_entry_id as usize].clone())
+                self.to_copy_paths.get(self.completed.copy as usize + 1).cloned()
             };
 
         let new_state = Box::new(BarState {
