@@ -397,7 +397,7 @@ fn check_dest_root_delete_ok(ctx: &mut SyncContext, src_root_details: &EntryDeta
     let resolved_behaviour = match ctx.dest_root_needs_deleting_behaviour {
         DestRootNeedsDeletingBehaviour::Prompt => {
             let prompt_result = resolve_prompt(format!("{msg}. What do?"),
-                None,
+                None, //TODO: need to hide the "querying" progress spinner?
                 &[
                     ("Skip", DestRootNeedsDeletingBehaviour::Skip),
                     ("Delete", DestRootNeedsDeletingBehaviour::Delete),
