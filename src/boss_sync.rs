@@ -427,12 +427,13 @@ pub enum CopyReason {
     DestOlder,
 }
 
+type EntriesList = OrderedMap<RootRelativePath, EntryDetails>;
 type ToDelete = OrderedMap<RootRelativePath, (EntryDetails, DeleteReason)>;
 type ToCopy = OrderedMap<RootRelativePath, (EntryDetails, CopyReason)>;
 
 pub struct Actions {
-    pub to_delete: OrderedMap<RootRelativePath, (EntryDetails, DeleteReason)>,
-    pub to_copy: OrderedMap<RootRelativePath, (EntryDetails, CopyReason)>,
+    pub to_delete: ToDelete,
+    pub to_copy: ToCopy,
 }
 
 fn query_entries(ctx: &mut SyncContext, src_root_details: EntryDetails, dest_root_details: Option<EntryDetails>,
@@ -445,13 +446,13 @@ fn query_entries(ctx: &mut SyncContext, src_root_details: EntryDetails, dest_roo
     // As we receive entry details from the source and dest, we will build up lists of which entries
     // need copying and which need deleting. We will be both adding and removing entries from these
     // lists as a decision might need changing once we receive details from both source and dest.
-    let mut to_delete = OrderedMap::<RootRelativePath, (EntryDetails, DeleteReason)>::new();
-    let mut to_copy = OrderedMap::<RootRelativePath, (EntryDetails, CopyReason)>::new();
+    let mut to_delete = ToDelete::new();
+    let mut to_copy = ToCopy::new();
 
-    let mut src_entries = OrderedMap::<RootRelativePath, EntryDetails>::new();
+    let mut src_entries = EntriesList::new();
     let mut src_done = true;
 
-    let mut dest_entries = OrderedMap::<RootRelativePath, EntryDetails>::new();
+    let mut dest_entries = EntriesList::new();
     let mut dest_done = true;
 
     // Add the source root entry
@@ -512,11 +513,9 @@ fn query_entries(ctx: &mut SyncContext, src_root_details: EntryDetails, dest_roo
 }
 
 fn process_src_entry(ctx: &mut SyncContext, p: RootRelativePath, src_entry: EntryDetails,
-    src_entries: &mut OrderedMap::<RootRelativePath, EntryDetails>,
-    dest_entries: &OrderedMap::<RootRelativePath, EntryDetails>,
+    src_entries: &mut EntriesList, dest_entries: &EntriesList,
     dest_platform_differentiates_symlinks: bool,
-    to_delete: &mut OrderedMap::<RootRelativePath, (EntryDetails, DeleteReason)>,
-    to_copy: &mut OrderedMap::<RootRelativePath, (EntryDetails, CopyReason)>,
+    to_delete: &mut ToDelete, to_copy: &mut ToCopy,
 ) {
     trace!("Source entry '{}': {:?}", p, src_entry);
     match src_entry {
@@ -528,6 +527,8 @@ fn process_src_entry(ctx: &mut SyncContext, p: RootRelativePath, src_entry: Entr
         EntryDetails::Folder => ctx.stats.num_src_folders += 1,
         EntryDetails::Symlink { .. } => ctx.stats.num_src_symlinks += 1,
     }
+    // Check if we've already seen an equivalent entry on the dest side, and decide
+    // whether or not we need to copy this entry over
     match dest_entries.lookup(&p) {
         None => to_copy.add(p.clone(), (src_entry.clone(), CopyReason::NotOnDest)),
         Some(dest_entry) => {
@@ -551,11 +552,9 @@ fn process_src_entry(ctx: &mut SyncContext, p: RootRelativePath, src_entry: Entr
 }
 
 fn process_dest_entry(ctx: &mut SyncContext, p: RootRelativePath, dest_entry: EntryDetails,
-    src_entries: &OrderedMap::<RootRelativePath, EntryDetails>,
-    dest_entries: &mut OrderedMap::<RootRelativePath, EntryDetails>,
+    src_entries: &EntriesList, dest_entries: &mut EntriesList,
     dest_platform_differentiates_symlinks: bool,
-    to_delete: &mut OrderedMap::<RootRelativePath, (EntryDetails, DeleteReason)>,
-    to_copy: &mut OrderedMap::<RootRelativePath, (EntryDetails, CopyReason)>,
+    to_delete: &mut ToDelete, to_copy: &mut ToCopy,
 ) {
     trace!("Dest entry '{}': {:?}", p, dest_entry);
     match dest_entry {
