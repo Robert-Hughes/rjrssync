@@ -210,12 +210,6 @@ impl Progress {
         }
     }
 
-    /// Forwards to ProgressBar::suspend(). We avoid exposing the ProgressBar directly so that
-    /// we can be the sole controller.
-    pub fn suspend<F: FnOnce() -> R, R>(&self, f: F) -> R { //TODO: still needed?
-        self.bar.suspend(f)
-    }
-
     /// Gets a ProgressMarker to be sent to the dest doer to mark the amount of work
     /// that has been already sent.
     /// This might return None if the last update was sent too recently, to avoid too much overhead

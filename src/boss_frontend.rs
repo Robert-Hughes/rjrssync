@@ -12,7 +12,6 @@ use regex::Regex;
 use yaml_rust::{YamlLoader, Yaml};
 use lazy_static::{lazy_static};
 
-use crate::boss_progress::Progress;
 use crate::profiling::{dump_all_profiling, start_timer, stop_timer, self};
 use crate::{boss_launch::*, profile_this, function_name, boss_deploy};
 use crate::boss_sync::*;
@@ -32,7 +31,7 @@ pub struct BossCliArgs {
 
     /// Instead of specifying SRC and DEST, this can be used to perform a sync defined by a config file.
     /// The spec file is a YAML file with the following structure:
-    /// 
+    ///
     /// ```
     ///     # Note that if no src_hostname is specified, then the respective src path is assumed to be local.
     ///     # The same goes for dest.
@@ -48,12 +47,12 @@ pub struct BossCliArgs {
     ///         dest_file_newer_behaviour: error
     ///         dest_file_older_behaviour: skip
     ///         dest_entry_needs_deleting_behaviour: prompt
-    ///         dest_root_needs_deleting_behaviour: delete         
+    ///         dest_root_needs_deleting_behaviour: delete
     ///       # Multiple paths can be synced
     ///       - src: D:/Source2
     ///         dest: D:/Dest2
     /// ```
-    /// 
+    ///
     /// In general, if parameters are provided in the both the spec file and then also as a command-line arg,
     /// the command-line arg will 'override' the value set in the spec file.
     #[arg(long)]
@@ -73,13 +72,13 @@ pub struct BossCliArgs {
     /// Normalized means:
     ///    - forward slashes are always used as directory separators, never backwards slashes.
     ///    - there are never any trailing slashes
-    /// If a folder is excluded, then none of the contents of the folder will be inspected, even if they would otherwise 
+    /// If a folder is excluded, then none of the contents of the folder will be inspected, even if they would otherwise
     /// be included by the filter.
     /// The source/dest root is never checked against the filter - this is always considered as included.
     /// The regex must match the entire normalized path for it to have an effect, not just a substring.
     #[arg(name="filter", long, allow_hyphen_values(true))]
     pub filters: Vec<String>,
-    
+
     /// Overrides the TCP port that any remote copy(s) of rjrssync on hostnames specified in src or dest
     /// will listen on, used for network communication between the local and remote copies.
     /// If not specified, a free port will be chosen.
@@ -89,7 +88,7 @@ pub struct BossCliArgs {
     #[arg(long)]
     pub dry_run: bool,
 
-    /// Specifies behaviour when rjrssync needs to be deployed to a remote target. 
+    /// Specifies behaviour when rjrssync needs to be deployed to a remote target.
     /// This uploads a binary to a folder on the remote target, so we check with the user first.
     /// The default is 'prompt'.
     // (the default isn't defined here, because it's defined in SyncSpec::default() and if we duplicate it
@@ -97,7 +96,7 @@ pub struct BossCliArgs {
     #[arg(long)]
     pub needs_deploy: Option<NeedsDeployBehaviour>,
 
-    /// Specifies behaviour when a file exists on both source and destination sides, but the 
+    /// Specifies behaviour when a file exists on both source and destination sides, but the
     /// destination file has a newer modified timestamp. This might indicate that data is about
     /// to be unintentionally lost.
     /// The default is 'prompt'.
@@ -111,13 +110,13 @@ pub struct BossCliArgs {
     )]
     pub dest_file_newer: Option<DestFileUpdateBehaviour>,
 
-    /// Specifies behaviour when a file exists on both source and destination sides, but the 
+    /// Specifies behaviour when a file exists on both source and destination sides, but the
     /// destination file has a older modified timestamp. This might indicate that data is about
     /// to be unintentionally lost.
     /// The default is 'overwrite'.
     // (the default isn't defined here, because it's defined in SyncSpec::default() and if we duplicate it
     //  here then we'll have no way of knowing if the user provided it on the cmd prompt as an override or not)
-    #[arg(long, 
+    #[arg(long,
         default_value_if("all_destructive_behaviour", "prompt", "prompt"),
         default_value_if("all_destructive_behaviour", "error", "error"),
         default_value_if("all_destructive_behaviour", "skip", "skip"),
@@ -187,7 +186,7 @@ pub struct BossCliArgs {
     ///     rjrssync --generate-auto-complete-script=bash > /usr/share/bash-completion/completions/rjrssync.bash
     /// ```
     /// And for PowerShell:
-    /// 
+    ///
     /// Add the following line to the file "C:\Users\<USER>\Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1"
     /// (create the file if it doesn't exist):
     /// ```
@@ -319,7 +318,7 @@ pub enum AllDestructiveBehaviour {
 }
 
 /// The hostname/usernames are fixed for the whole program (you can't set them differently for each
-/// sync like you can with the filters etc.), because this doesn't bring much benefit over just 
+/// sync like you can with the filters etc.), because this doesn't bring much benefit over just
 /// running rjrssync multiple times with different arguments. We do allow syncing multiple folders
 /// between the same two hosts though because this saves the connecting/setup time.
 #[derive(Debug, PartialEq)]
@@ -333,12 +332,12 @@ struct Spec {
 }
 impl Default for Spec {
     fn default() -> Self {
-        Self { 
-            src_hostname: String::from(""), 
-            src_username: String::from(""), 
-            dest_hostname: String::from(""), 
-            dest_username: String::from(""), 
-            needs_deploy_behaviour: NeedsDeployBehaviour::Prompt, 
+        Self {
+            src_hostname: String::from(""),
+            src_username: String::from(""),
+            dest_hostname: String::from(""),
+            dest_username: String::from(""),
+            needs_deploy_behaviour: NeedsDeployBehaviour::Prompt,
             syncs: vec![],
         }
     }
@@ -356,14 +355,14 @@ pub struct SyncSpec {
 }
 impl Default for SyncSpec {
     fn default() -> Self {
-        Self { 
+        Self {
             src: String::new(),
             dest: String::new(),
             filters: vec![],
             dest_file_newer_behaviour: DestFileUpdateBehaviour::Prompt,
             dest_file_older_behaviour: DestFileUpdateBehaviour::Overwrite,
             dest_entry_needs_deleting_behaviour: DestEntryNeedsDeletingBehaviour::Delete,
-            dest_root_needs_deleting_behaviour: DestRootNeedsDeletingBehaviour::Prompt, 
+            dest_root_needs_deleting_behaviour: DestRootNeedsDeletingBehaviour::Prompt,
         }
     }
 }
@@ -394,13 +393,13 @@ fn parse_sync_spec(yaml: &Yaml) -> Result<SyncSpec, String> {
                     x => return Err(format!("Unexpected value for 'filters'. Expected an array, but got {:?}", x)),
                 }
             },
-            Yaml::String(x) if x == "dest_file_newer_behaviour" => 
+            Yaml::String(x) if x == "dest_file_newer_behaviour" =>
                 result.dest_file_newer_behaviour = DestFileUpdateBehaviour::from_str(&parse_string(root_value, "dest")?, true)?,
-            Yaml::String(x) if x == "dest_file_older_behaviour" => 
+            Yaml::String(x) if x == "dest_file_older_behaviour" =>
                 result.dest_file_older_behaviour = DestFileUpdateBehaviour::from_str(&parse_string(root_value, "dest")?, true)?,
-            Yaml::String(x) if x == "dest_entry_needs_deleting_behaviour" => 
+            Yaml::String(x) if x == "dest_entry_needs_deleting_behaviour" =>
                 result.dest_entry_needs_deleting_behaviour = DestEntryNeedsDeletingBehaviour::from_str(&parse_string(root_value, "dest")?, true)?,
-            Yaml::String(x) if x == "dest_root_needs_deleting_behaviour" => 
+            Yaml::String(x) if x == "dest_root_needs_deleting_behaviour" =>
                 result.dest_root_needs_deleting_behaviour = DestRootNeedsDeletingBehaviour::from_str(&parse_string(root_value, "dest")?, true)?,
             x => return Err(format!("Unexpected key in 'syncs' entry: {:?}", x)),
         }
@@ -535,14 +534,14 @@ pub fn boss_main() -> ExitCode {
             Ok(eb) => {
                 for b in eb.0.binaries {
                     println!("{} ({})", b.target_triple, HumanBytes(b.data.len() as u64));
-                }        
+                }
                 return ExitCode::SUCCESS;
             }
             Err(e) => {
                 error!("Error getting embedded binaries: {e}");
                 return ExitCode::from(19);
             }
-        }        
+        }
     }
 
     // Decide what to sync - defined either on the command line or in a spec file if provided
@@ -591,8 +590,8 @@ fn resolve_spec(args: &BossCliArgs) -> Result<Spec, String> {
             spec.src_username = src.username.clone();
             spec.dest_hostname = dest.hostname.clone();
             spec.dest_username = dest.username.clone();
-            spec.syncs.push(SyncSpec { 
-                src: src.path.clone(), 
+            spec.syncs.push(SyncSpec {
+                src: src.path.clone(),
                 dest: dest.path.clone(),
                 ..Default::default()
             });
@@ -644,8 +643,8 @@ fn execute_spec(spec: Spec, args: &BossCliArgs) -> ExitCode {
     let progress = ProgressBar::new_spinner().with_message("Connecting...");
     // Unfortunately we can't use enable_steady_tick to get a nice animation as we connect, because
     // this will clash with potential ssh output/prompts
-    progress.tick(); 
-    
+    progress.tick();
+
     // Launch doers on remote hosts or threads on local targets and estabilish communication (check version etc.)
     let mut src_comms = match setup_comms(
         &spec.src_hostname,
@@ -690,7 +689,7 @@ fn execute_spec(spec: Spec, args: &BossCliArgs) -> ExitCode {
         }
     }
 
-    // Shutdown the comms before dumping profiling, so that any doer threads and comms threads have cleanly exited, 
+    // Shutdown the comms before dumping profiling, so that any doer threads and comms threads have cleanly exited,
     // and their profiling data is saved, and we have received profiling data from any remote doer processes.
     src_comms.shutdown();
     dest_comms.shutdown();
@@ -717,7 +716,7 @@ impl TestPromptResponses {
         let mut result = TestPromptResponses { responses: vec![] };
         if let Ok(all_responses) = std::env::var(TEST_PROMPT_RESPONSE_ENV_VAR) {
             // The env var is a comma-separated list of entries, where each entry has
-            // a regex defining what prompts it matches, a maximum number of prompts that it 
+            // a regex defining what prompts it matches, a maximum number of prompts that it
             // can be used to respond to and the prompt response itself.
             // The count reduces each time the response is used,
             // and once it hits zero it will no longer be used as a response.
@@ -763,8 +762,7 @@ impl<B: Copy> ResolvePromptResult<B> {
     }
 }
 
-//TODO: do we still need the progress_bar option?
-pub fn resolve_prompt<B: Copy>(prompt: String, progress_bar: Option<&Progress>,
+pub fn resolve_prompt<B: Copy>(prompt: String, progress_bar: Option<&ProgressBar>,
     options: &[(&str, B)], include_always_versions: bool, cancel_behaviour: B) -> ResolvePromptResult<B> {
 
     let mut items = vec![];
@@ -792,10 +790,10 @@ pub fn resolve_prompt<B: Copy>(prompt: String, progress_bar: Option<&Progress>,
                 debug!("Unattended terminal, behaving as if prompt cancelled");
                 items.len() - 1 // Last entry is always cancel
             } else {
-                // The prompt message provided as input to this function may have styling applied 
+                // The prompt message provided as input to this function may have styling applied
                 // (e.g. if it comes from our PrettyPath), which won't play nicely with the styling applied
                 // by the theme for the prompt. To work around this, we modify the provided prompt to append
-                // any occurences of the "reset" ANSI code with the code(s) that re-apply the theme used by 
+                // any occurences of the "reset" ANSI code with the code(s) that re-apply the theme used by
                 // the whole prompt.
                 let theme = dialoguer::theme::ColorfulTheme::default();
                 // Figure out the ANSI code(s) needed to apply the prompt theme
@@ -1070,14 +1068,14 @@ mod tests {
               dest_file_newer_behaviour: error
               dest_file_older_behaviour: skip
               dest_entry_needs_deleting_behaviour: prompt
-              dest_root_needs_deleting_behaviour: delete         
+              dest_root_needs_deleting_behaviour: delete
             - src: T:\Source2
               dest: T:\Dest2
               filters: [ "-exclude3", "-exclude4" ]
               dest_file_newer_behaviour: prompt
               dest_file_older_behaviour: overwrite
               dest_entry_needs_deleting_behaviour: error
-              dest_root_needs_deleting_behaviour: skip         
+              dest_root_needs_deleting_behaviour: skip
         "#).unwrap();
 
         let expected_result = Spec {
@@ -1261,7 +1259,7 @@ mod tests {
 
         "#).unwrap();
 
-        let args = BossCliArgs::try_parse_from(&["rjrssync", 
+        let args = BossCliArgs::try_parse_from(&["rjrssync",
             "--spec", spec_file.path().to_str().unwrap(),
             "--filter", "-meow",
             "--dest-file-newer", "error",
@@ -1287,7 +1285,7 @@ mod tests {
                     ..Default::default()
                 }
             ],
-            ..Default::default() 
+            ..Default::default()
         });
     }
 
@@ -1305,12 +1303,12 @@ mod tests {
               dest: d
         "#).unwrap();
 
-        let args = BossCliArgs::try_parse_from(&["rjrssync", 
+        let args = BossCliArgs::try_parse_from(&["rjrssync",
             "--spec", spec_file.path().to_str().unwrap(),
             "--all-destructive-behaviour", "error",
         ]).unwrap();
         let spec = resolve_spec(&args).unwrap();
-        assert_eq!(spec, Spec { 
+        assert_eq!(spec, Spec {
             syncs: vec![
                 SyncSpec {
                     src: "a".to_string(),
@@ -1333,7 +1331,7 @@ mod tests {
                     ..Default::default()
                 }
             ],
-            ..Default::default() 
+            ..Default::default()
         });
     }
 }

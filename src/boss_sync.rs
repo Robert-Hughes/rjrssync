@@ -250,7 +250,7 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), String> {
     // (otherwise it would be the last prompt, as we delete in reverse order)
     if let Some(d) = &dest_root_details {
         if needs_delete(&src_root_details, d, dest_platform_differentiates_symlinks) {
-            if !check_dest_root_delete_ok(&mut ctx, &src_root_details, d)? {
+            if !check_dest_root_delete_ok(&mut ctx, &progress_bar, &src_root_details, d)? {
                 // Don't raise an error if we've been told to skip, but we can't continue as it will fail, so skip the entire sync
                 return Ok(());
             }
@@ -386,8 +386,9 @@ fn get_root_details(ctx: &mut SyncContext) -> Result<(EntryDetails, Option<Entry
     Ok((src_root_details, dest_root_details, dest_platform_differentiates_symlinks))
 }
 
-fn check_dest_root_delete_ok(ctx: &mut SyncContext, src_root_details: &EntryDetails, dest_root_details: &EntryDetails)
-    -> Result<bool, String> {
+fn check_dest_root_delete_ok(ctx: &mut SyncContext, progress_bar: &ProgressBar,
+    src_root_details: &EntryDetails, dest_root_details: &EntryDetails) -> Result<bool, String>
+{
     let msg = format!(
         "{} needs deleting as it is incompatible with {}",
         ctx.pretty_dest(&RootRelativePath::root(), dest_root_details),
@@ -395,7 +396,7 @@ fn check_dest_root_delete_ok(ctx: &mut SyncContext, src_root_details: &EntryDeta
     let resolved_behaviour = match ctx.dest_root_needs_deleting_behaviour {
         DestRootNeedsDeletingBehaviour::Prompt => {
             let prompt_result = resolve_prompt(format!("{msg}. What do?"),
-                None, //TODO: need to hide the "querying" progress spinner?
+                Some(progress_bar),
                 &[
                     ("Skip", DestRootNeedsDeletingBehaviour::Skip),
                     ("Delete", DestRootNeedsDeletingBehaviour::Delete),
