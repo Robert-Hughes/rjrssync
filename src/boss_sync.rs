@@ -132,7 +132,6 @@ struct SyncContext<'a> {
     show_stats: bool,
     src_root: String,
     dest_root: String,
-    progress: Option<Progress>, //TODO: unwrap() everywhere yuck! Maybe split SyncContext into pre/post query stuff?
 
     // Used for debugging/display only, shouldn't be needed for any syncing logic
     src_dir_separator: Option<char>,
@@ -162,8 +161,8 @@ impl<'a> SyncContext<'a> {
         PrettyPath { side: Side::Dest, dir_separator: self.dest_dir_separator.unwrap_or('/'), root: &self.dest_root, path, kind }
     }
 
-    fn send_progress_marker_limited(&mut self,) -> Result<(), String> {
-        if let Some(m) = self.progress.as_mut().unwrap().get_progress_marker_limited() {
+    fn send_progress_marker_limited(&self, progress: &mut Progress) -> Result<(), String> {
+        if let Some(m) = progress.get_progress_marker_limited() {
             self.dest_comms.send_command(Command::Marker(m))
         } else {
             Ok(())
@@ -198,7 +197,6 @@ pub fn sync(
         dest_root_needs_deleting_behaviour: sync_spec.dest_root_needs_deleting_behaviour,
         src_root: sync_spec.src.clone(),
         dest_root: sync_spec.dest.clone(),
-        progress: None,
         src_dir_separator: None,
         dest_dir_separator: None,
     };
@@ -282,7 +280,7 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), String> {
     confirm_actions(&mut ctx, &mut actions)?;
 
     // Start the proper progress bar
-    ctx.progress = Some(Progress::new(&actions));
+    let mut progress = Progress::new(&actions);
 
     // Delete dest entries that don't exist on the source. This needs to be done first in case there
     // are entries with the same name but incompatible (e.g. files vs folders).
@@ -290,8 +288,8 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), String> {
         profile_this!("Sending delete commands");
         ctx.stats.delete_start_time = Some(Instant::now());
         for (dest_path, (dest_details, _reason)) in actions.to_delete.iter() {
-            delete_dest_entry(&mut ctx, dest_path, dest_details)?;
-            process_dest_responses(ctx.dest_comms, &mut ctx.progress.as_mut().unwrap(), false)?;
+            delete_dest_entry(&mut ctx, &mut progress, dest_path, dest_details)?;
+            process_dest_responses(ctx.dest_comms, &mut progress, false)?;
         }
     }
 
@@ -299,24 +297,24 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), String> {
     {
         profile_this!("Sending copy commands");
         // Mark the exact start of copying, to make sure our timing stats are split accurately between copying and deleting
-        ctx.dest_comms.send_command(Command::Marker(ctx.progress.as_mut().unwrap().get_progress_marker()))?;
+        ctx.dest_comms.send_command(Command::Marker(progress.get_progress_marker()))?;
         for (src_path, (src_details, _reason)) in actions.to_copy.iter() {
-            copy_entry(&mut ctx, &src_path, &src_details)?;
-            process_dest_responses(ctx.dest_comms, &mut ctx.progress.as_mut().unwrap(), false)?;
+            copy_entry(&mut ctx, &mut progress, &src_path, &src_details)?;
+            process_dest_responses(ctx.dest_comms, &mut progress, false)?;
         }
     }
 
     // Wait for the dest doer to finish processing all its Commands so that everything is finished.
     // We don't need to wait for the src doer, because the dest doer is always last to finish.
-    let m = ctx.progress.as_mut().unwrap().all_work_sent();
+    let m = progress.all_work_sent();
     ctx.dest_comms.send_command(Command::Marker(m))?;
     {
         profile_this!("Waiting for dest to finish");
-        process_dest_responses(ctx.dest_comms, &mut ctx.progress.as_mut().unwrap(), true)?;
+        process_dest_responses(ctx.dest_comms, &mut progress, true)?;
     }
 
-    ctx.stats.delete_end_time = ctx.progress.as_mut().unwrap().get_first_copy_time();
-    ctx.stats.copy_start_time = ctx.progress.as_mut().unwrap().get_first_copy_time();
+    ctx.stats.delete_end_time = progress.get_first_copy_time();
+    ctx.stats.copy_start_time = progress.get_first_copy_time();
     ctx.stats.copy_end_time = Some(Instant::now());
 
     show_post_sync_stats(&ctx);
@@ -800,7 +798,8 @@ fn show_post_query_stats(ctx: &SyncContext, query_elapsed_secs: f32) {
     }
 }
 
-fn delete_dest_entry(ctx: &mut SyncContext, dest_path: &RootRelativePath, dest_details: &EntryDetails)
+fn delete_dest_entry(ctx: &mut SyncContext, progress: &mut Progress,
+    dest_path: &RootRelativePath, dest_details: &EntryDetails)
     -> Result<(), String>
 {
     trace!("Deleting {dest_path}");
@@ -826,7 +825,7 @@ fn delete_dest_entry(ctx: &mut SyncContext, dest_path: &RootRelativePath, dest_d
             }
         }
     };
-    ctx.send_progress_marker_limited()?;
+    ctx.send_progress_marker_limited(progress)?;
 
     let result = Ok(if !ctx.dry_run {
         ctx.dest_comms.send_command(c)?;
@@ -835,20 +834,22 @@ fn delete_dest_entry(ctx: &mut SyncContext, dest_path: &RootRelativePath, dest_d
         info!("Would delete {}", ctx.pretty_dest(dest_path, dest_details));
     });
 
-    ctx.progress.as_mut().unwrap().delete_sent(&dest_details);
+    progress.delete_sent(&dest_details);
 
     result
 }
 
-fn copy_entry(ctx: &mut SyncContext, path: &RootRelativePath, src_details: &EntryDetails) -> Result<(), String> {
+fn copy_entry(ctx: &mut SyncContext, progress: &mut Progress,
+    path: &RootRelativePath, src_details: &EntryDetails) -> Result<(), String>
+{
     match src_details {
         EntryDetails::File { size, modified_time: src_modified_time } => {
             debug!("Copying file {}", ctx.pretty_src(&path, &src_details));
-            copy_file(&path, *size, *src_modified_time, ctx)?
+            copy_file(&path, *size, *src_modified_time, ctx, progress)?
         }
         EntryDetails::Folder => {
             debug!("Creating folder {}", ctx.pretty_src(&path, &src_details));
-            ctx.send_progress_marker_limited()?;
+            ctx.send_progress_marker_limited(progress)?;
             ctx.stats.num_folders_created += 1;
             if !ctx.dry_run {
                 ctx.dest_comms
@@ -859,11 +860,11 @@ fn copy_entry(ctx: &mut SyncContext, path: &RootRelativePath, src_details: &Entr
                 // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be copied
                 info!("Would create {}", ctx.pretty_dest_kind(&path, "folder"));
             }
-            ctx.progress.as_mut().unwrap().copy_sent(&src_details);
+            progress.copy_sent(&src_details);
         },
         EntryDetails::Symlink { ref kind, ref target } => {
             debug!("Copying symlink {}", ctx.pretty_src(&path, &src_details));
-            ctx.send_progress_marker_limited()?;
+            ctx.send_progress_marker_limited(progress)?;
             ctx.stats.num_symlinks_copied += 1;
             if !ctx.dry_run {
                 ctx.dest_comms
@@ -876,7 +877,7 @@ fn copy_entry(ctx: &mut SyncContext, path: &RootRelativePath, src_details: &Entr
                 // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be copied
                 info!("Would create {}", ctx.pretty_dest_kind(&path, "symlink"));
             }
-            ctx.progress.as_mut().unwrap().copy_sent(&src_details);
+            progress.copy_sent(&src_details);
         }
     }
     Ok(())
@@ -886,9 +887,10 @@ fn copy_file(
     path: &RootRelativePath,
     size: u64,
     modified_time: SystemTime,
-    ctx: &mut SyncContext) -> Result<(), String>
+    ctx: &mut SyncContext,
+    progress: &mut Progress) -> Result<(), String>
 {
-    ctx.send_progress_marker_limited()?;
+    ctx.send_progress_marker_limited(progress)?;
 
     if !ctx.dry_run {
         trace!("Fetching from {}", ctx.pretty_src_kind(&path, "file"));
@@ -900,7 +902,7 @@ fn copy_file(
         let mut chunk_offset: u64 = 0;
         loop {
             // Add progress markers during copies of large files, so we can see the progress (in bytes)
-            ctx.send_progress_marker_limited()?;
+            ctx.send_progress_marker_limited(progress)?;
 
             let (data, more_to_follow) = match ctx.src_comms.receive_response()? {
                 Response::FileContent { data, more_to_follow } => (data, more_to_follow),
@@ -919,19 +921,19 @@ fn copy_file(
                 })?;
 
             // This needs to be inside the chunking loop so we can update progress as the file is copied
-            ctx.progress.as_mut().unwrap().copy_sent_partial(chunk_offset, chunk_size as u64, size);
+            progress.copy_sent_partial(chunk_offset, chunk_size as u64, size);
             chunk_offset += chunk_size as u64;
 
             // For large files, it might be a while before process_dest_responses is called in the main sync function,
             // so check it periodically here too.
-            process_dest_responses(ctx.dest_comms, &mut ctx.progress.as_mut().unwrap(), false)?;
+            process_dest_responses(ctx.dest_comms, progress, false)?;
 
             if !more_to_follow {
                 break;
             }
         }
     } else {
-        ctx.progress.as_mut().unwrap().copy_sent_partial(0, size, size);
+        progress.copy_sent_partial(0, size, size);
         // Print dry-run as info level, as presumably the user is interested in exactly _what_ will be copied
         info!("Would copy {} => {}",
             ctx.pretty_src_kind(&path, "file"),

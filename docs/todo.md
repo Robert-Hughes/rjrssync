@@ -4,8 +4,6 @@ TODO:
 Current
 -------
 
-Tidying up inception branch ready for merge. Looking through diff on GitHub, only remaining file is exe_utils.rs!
-
 Interface
 ----------
 
