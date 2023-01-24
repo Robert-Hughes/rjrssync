@@ -13,7 +13,7 @@ use crate::root_relative_path::RootRelativePath;
 
 // We include the profiling config in the version number, as profiling and non-profiling builds are not compatible
 // (because a non-profiling doer won't record any events).
-pub const VERSION: &str = concatcp!("126", if cfg!(feature="profiling") { "+profiling"} else { "" });
+pub const VERSION: &str = concatcp!("127", if cfg!(feature="profiling") { "+profiling"} else { "" });
 
 // Message printed by a doer copy of the program to indicate that it has loaded and is ready
 // to receive data over its stdin. Once the boss receives this, it knows that ssh has connected
@@ -73,8 +73,6 @@ pub enum ProgressPhase {
     Deleting {
         /// The number of entries already deleted.
         num_entries_deleted: u32,
-        /// The ID of the (dest) entry that is being deleted next, so we can show the filename.
-        current_entry_id: Option<u32>,
     },
     Copying {
         /// The number of entries already copied.
@@ -82,8 +80,6 @@ pub enum ProgressPhase {
         /// Especially useful for when large files are being copied, this indicates how many total bytes have been copied,
         /// which can increase even though num_entries_copied remains the same.
         num_bytes_copied: u64,
-        /// The ID of the (src) entry that is being copied next, so we can show the filename.
-        current_entry_id: Option<u32>,
     },
     Done
 }

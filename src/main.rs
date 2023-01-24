@@ -6,7 +6,7 @@ mod boss_deploy;
 mod embedded_binaries;
 mod exe_utils;
 mod boss_sync;
-mod entries_list;
+mod ordered_map;
 mod histogram;
 mod boss_progress;
 mod doer;

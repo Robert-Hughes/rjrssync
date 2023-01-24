@@ -25,7 +25,7 @@ Interface
 * --force-redeploy is a bit confusing, because it still prompts you to deploy, even though you "forced" it
 * The "Connecting" spinner gets "lost" if we are deploying. it would be good to re-show this after deploy when we are trying to connect again (after Deploy successful!, there is a delay when nothing seems to be happening!)
 * If --force-redeploy is set, we shouldn't do two attempts at deployment if the first attempt fails?
-
+* When prompting and given the choice to remember for "all occurences", we could show the number of occurences, e.g. "All occurences (17)".
 
 Remote launching
 ----------------
@@ -121,11 +121,6 @@ ERROR | rjrssync::boss_frontend: Sync error: Unexpected response from dest GetEn
 * Would be nice to automatically detect cases where the version number hasn't been updated, e.g. if we could see that the Command/Response struct layout has changed.
 * Document that ssh is used for connecting and launching, and that the sync is performed over a different network port, and that it is encrypted. Some of this added to readme already, but needs more. This should possibly be moved/copied to the --help so is available there too? Mention firewall issues?
 * In boss_sync.rs, src_entries and progres.inc_total_for_copy/delete() - these things need to be done together and kept in sync - can we enforce this (custom type?). Same for dest_entries.
-* Add to readme list of features to "advertise" the program 
+* Add to readme list of features to "advertise" the program
 * Upload to cargo binstall (or similar) so that users don't need to build from source (especially if we're bundling embedded binaries, the initial build time will be looong!)
-* Look at cargo dependency graph, to see if we can remove some dependencies 
-* If copying is slow, it might be good to "look ahead" to see what else needs to be done, so that for example the progress bar will be more accurate. (Currently we will get blocked and not check what else needs copying/deleting). Seen when copying some tflite files to a board.
-Maybe if we decide what needs doing before starting to delete or copy, it would simplify a bunch of things (esp. progress bar updates)?
-Unless this takes a significant amount of time, in which case we might want to put it on another thread?
-In fact we could do it as we receive new entries from GetEntries, which is already in parallel, so should be even simpler!
-Can then simplify the progress bar stuff hopefully, and it will be more accurate as it will have the correct length right from the start (need to update the boss_progress file docs that explain the various stages of the progress bar)
+* Look at cargo dependency graph, to see if we can remove some dependencies

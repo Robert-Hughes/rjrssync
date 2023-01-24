@@ -763,6 +763,7 @@ impl<B: Copy> ResolvePromptResult<B> {
     }
 }
 
+//TODO: do we still need the progress_bar option?
 pub fn resolve_prompt<B: Copy>(prompt: String, progress_bar: Option<&Progress>,
     options: &[(&str, B)], include_always_versions: bool, cancel_behaviour: B) -> ResolvePromptResult<B> {
 
