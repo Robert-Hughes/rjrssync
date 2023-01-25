@@ -4,7 +4,7 @@ use std::{path::{PathBuf}};
 use regex::Regex;
 use tempdir::TempDir;
 
-use crate::test_utils::{run_process_with_live_output, get_unique_remote_temp_folder, RemotePlatform};
+use crate::test_utils::{run_process_with_live_output, get_unique_remote_temp_folder, RemotePlatforms};
 use crate::filesystem_node::*;
 
 /// Describes a test configuration in a generic way that hopefully covers various success and failure cases.
@@ -28,7 +28,7 @@ pub struct TestDesc<'a> {
     pub prompt_responses: Vec<String>,
     /// The expected exit code of rjrssync (e.g. 0 for success).
     pub expected_exit_code: i32,
-    /// Messages that are expected to be present in rjrssync's stdout/stderr, 
+    /// Messages that are expected to be present in rjrssync's stdout/stderr,
     /// along with the expected number of occurences (use zero to indicate that a message should _not_ appear).
     pub expected_output_messages: Vec<(usize, Regex)>,
     /// The filesystem at the given paths are expected to be as described (including None, for non-existent)
@@ -44,29 +44,36 @@ pub fn run(desc: TestDesc) {
     if let Ok(o) = std::env::var("RJRSSYNC_TEST_TEMP_OVERRIDE") {
         // For keeping test data around afterwards
         std::fs::create_dir_all(&o).expect("Failed to create override dir");
-        temp_folder = PathBuf::from(o); 
+        temp_folder = PathBuf::from(o);
     }
 
     // Lazy-initialize as we might not need these, and we want to be able to work when remote platforms
     // aren't available
+    let mut remote_platforms = None;
     let mut remote_windows_temp_path = None;
     let mut remote_linux_temp_path = None;
 
     // All paths provided in TestDesc have $TEMP (and remote windows/linux temps) replaced with the temporary folder.
     let mut substitute_vars = |p: &str| {
         let mut p = p.replace("$TEMP", &temp_folder.to_string_lossy());
-        // Lazily evaluate the remote windows/linux variables, so that tests which do not use them do not 
+        // Lazily evaluate the remote windows/linux variables, so that tests which do not use them do not
         // need to have remote platforms available (e.g. on GitHub Actions).
         // Use a new remote temporary folder for each test (rather than re-using the root one)
         if p.contains("$REMOTE_WINDOWS_TEMP") {
-            let platform = RemotePlatform::get_windows();
+            if remote_platforms.is_none() {
+                remote_platforms = Some(RemotePlatforms::lock());
+            }
+            let platform = &remote_platforms.as_ref().unwrap().windows;
             if remote_windows_temp_path.is_none() {
                 remote_windows_temp_path = Some(get_unique_remote_temp_folder(platform));
             }
             p = p.replace("$REMOTE_WINDOWS_TEMP", &format!("{}:{}", platform.user_and_host, remote_windows_temp_path.as_ref().unwrap()));
         }
         if p.contains("$REMOTE_LINUX_TEMP") {
-            let platform = RemotePlatform::get_linux();
+            if remote_platforms.is_none() {
+                remote_platforms = Some(RemotePlatforms::lock());
+            }
+            let platform = &remote_platforms.as_ref().unwrap().linux;
             if remote_linux_temp_path.is_none() {
                 remote_linux_temp_path = Some(get_unique_remote_temp_folder(platform));
             }
@@ -87,7 +94,7 @@ pub fn run(desc: TestDesc) {
 
     // Run rjrssync with the specified paths
     let rjrssync_path = env!("CARGO_BIN_EXE_rjrssync");
-    // Run with live output so that we can see the progress of slow tests as they happen, rather than waiting 
+    // Run with live output so that we can see the progress of slow tests as they happen, rather than waiting
     // until the end.
     let output = run_process_with_live_output(
         std::process::Command::new(rjrssync_path)
@@ -114,9 +121,9 @@ pub fn run(desc: TestDesc) {
         } else {
             load_filesystem_node_from_disk_local(&PathBuf::from(&p))
         };
-        
+
         println!("Checking filesystem contents at '{}'", p);
-        assert_eq!(actual_node.as_ref(), n);    
+        assert_eq!(actual_node.as_ref(), n);
     }
 }
 
@@ -168,7 +175,7 @@ impl NumActions {
                 self.deleted_folders,
                 self.deleted_symlinks)).unwrap()));
         } else {
-            result.push((0, Regex::new("Deleted|deleted").unwrap()));            
+            result.push((0, Regex::new("Deleted|deleted").unwrap()));
         }
         if self.copied_files + self.created_folders + self.copied_symlinks +
            self.deleted_files + self.deleted_folders + self.deleted_symlinks == 0 {
@@ -178,7 +185,7 @@ impl NumActions {
     }
 }
 
-/// Runs a test that syncs the given src FilesystemNode (e.g. file or folder) to the given dest 
+/// Runs a test that syncs the given src FilesystemNode (e.g. file or folder) to the given dest
 /// FilesystemNode, and checks that the sync is successful, and the destination is updated to be equal
 /// to the source.
 pub fn run_expect_success(src_node: &FilesystemNode, dest_node: &FilesystemNode, expected_actions: NumActions) {
@@ -192,7 +199,7 @@ pub fn run_expect_success(src_node: &FilesystemNode, dest_node: &FilesystemNode,
             "$TEMP/dest".to_string(),
             // Some tests require deleting the dest root, which we allow here. The default is to prompt
             // the user, which is covered by other tests (dest_root_needs_deleting_tests.rs)
-            String::from("--dest-root-needs-deleting"), 
+            String::from("--dest-root-needs-deleting"),
             String::from("delete"),
         ],
         expected_exit_code: 0,

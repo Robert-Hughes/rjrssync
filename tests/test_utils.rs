@@ -1,7 +1,7 @@
 // This file contains test utilities which is used by both the usage_tests binary
 // and the benchmarks binary.
 
-use std::{process::{Stdio, Command}, sync::mpsc::{Sender, Receiver, self, SendError}, thread, fmt::{Display, self}, io::{BufReader, BufRead, stdout}};
+use std::{process::{Stdio, Command}, sync::{mpsc::{Sender, Receiver, self, SendError}, Mutex, MutexGuard}, thread, fmt::{Display, self}, io::{BufReader, BufRead, stdout}};
 use network_interface::NetworkInterface;
 use network_interface::NetworkInterfaceConfig;
 use network_interface::V4IfAddr;
@@ -37,7 +37,7 @@ pub fn assert_process_with_live_output(c: &mut std::process::Command) {
 /// up and losing output, and unwanted clearing of the screen.
 /// This is mostly a copy-paste of the same function from boss_launch.rs, but we don't have a good way to share the code
 /// and this version is slightly different, more suitable for tests (e.g. simpler error checking, logging printed with println).
-pub fn run_process_with_live_output_impl(c: &mut std::process::Command, 
+pub fn run_process_with_live_output_impl(c: &mut std::process::Command,
     no_stdout: bool, no_stderr: bool, quiet: bool) -> ProcessOutput {
     if !quiet {
         println!("Running {:?} {:?}...", c.get_program(), c.get_args());
@@ -46,7 +46,7 @@ pub fn run_process_with_live_output_impl(c: &mut std::process::Command,
     // Setting stdin to null seems to fix issues with running all the tests in parallel (cargo test),
     // where some ssh processes get stuck waiting for input (pressing Enter in the command prompt a few times
     // seems to unstick it). It only seems to happen when running in parallel though strangely.
-    let mut child = c.stdin(Stdio::null()); 
+    let mut child = c.stdin(Stdio::null());
     if no_stdout {
         child = child.stdout(Stdio::null())
     } else {
@@ -202,8 +202,8 @@ fn get_peak_memory_usage(_process: &std::process::Child) -> Option<usize> {
         use std::os::windows::prelude::{AsRawHandle};
         let mut counters : winapi::um::psapi::PROCESS_MEMORY_COUNTERS = std::mem::zeroed();
         let handle = _process.as_raw_handle();
-        if winapi::um::psapi::GetProcessMemoryInfo(handle, &mut counters, 
-            std::mem::size_of::<winapi::um::psapi::PROCESS_MEMORY_COUNTERS>() as u32) == 0 
+        if winapi::um::psapi::GetProcessMemoryInfo(handle, &mut counters,
+            std::mem::size_of::<winapi::um::psapi::PROCESS_MEMORY_COUNTERS>() as u32) == 0
         {
             panic!("Win32 API failed!");
         }
@@ -231,21 +231,30 @@ pub struct RemotePlatform {
     pub is_windows: bool,
 }
 
-impl RemotePlatform {
-    pub fn get_windows() -> &'static RemotePlatform {
-        &REMOTE_WINDOWS_PLATFORM
-    }
-    pub fn get_linux() -> &'static RemotePlatform {
-        &REMOTE_LINUX_PLATFORM
+pub struct RemotePlatforms {
+    pub windows: RemotePlatform,
+    pub linux: RemotePlatform,
+}
+
+impl RemotePlatforms {
+    // Multiple tests can't use the same remote platform at the same time, as this can cause
+    // issues like trying to deploy rjrssync whilst it's already running.
+    // Therefore we lock access to the remote platforms in a mutex. It's important that we
+    // lock *all* the remote platforms in the *same* mutex, to prevent deadlocks
+    // (one test locks Windows then Linux, the other Linux then Windows!)
+    pub fn lock() -> MutexGuard<'static, RemotePlatforms> {
+        REMOTE_PLATFORMS.lock().expect("Failed to lock mutex")
     }
 }
 
 // Determine the remote config just once using lazy_static, as it might be a bit expensive
-// as it runs some commands.
-// Don't use these directly, use RemotePlatform::get_windows/linux instead
+// to run every time we need these platforms, as it runs some ssh commands etc.
+// Don't use these directly, use RemotePlatforms::get instead.
 lazy_static! {
-    static ref REMOTE_WINDOWS_PLATFORM: RemotePlatform = create_remote_windows_platform();
-    static ref REMOTE_LINUX_PLATFORM: RemotePlatform = create_remote_linux_platform();
+    pub static ref REMOTE_PLATFORMS: Mutex<RemotePlatforms> = Mutex::new(RemotePlatforms {
+        windows: create_remote_windows_platform(),
+        linux: create_remote_linux_platform(),
+    });
 }
 
 /// Gets the remote host configuration to use for remote Windows tests.
@@ -263,7 +272,7 @@ fn create_remote_windows_platform() -> RemotePlatform {
                     .filter_map(|i| i.addr.and_then(|a| if let V4(V4IfAddr { ip, .. }) = a { Some(ip.to_string()) } else { None }))
                     .filter(|a| a != "127.0.0.1").nth(0).expect("No appropriate network interfaces")
             } else if cfg!(unix) {
-                // Figure out the IP address of the external host windows system from /etc/resolv.conf, 
+                // Figure out the IP address of the external host windows system from /etc/resolv.conf,
                 // by looking for the line "nameserver XYZ.XYZ.XYZ.XYZ"
                 let windows_ip = std::fs::read_to_string("/etc/resolv.conf").expect("Failed to read /etc/resolv.conf")
                     .lines().filter_map(|l| l.split("nameserver ").last()).last().expect("Couldn't find nameserver in /etc/resolv.conf").to_string();
@@ -273,7 +282,7 @@ fn create_remote_windows_platform() -> RemotePlatform {
                 let output = std::process::Command::new("/mnt/c/Windows/system32/cmd.exe").arg("/c").arg("echo %USERNAME%").output().expect("Failed to query windows username");
                 assert!(output.status.success());
                 let username = String::from_utf8(output.stdout).expect("Unable to decode utf-8").trim().to_string();
-          
+
                 format!("{username}@{windows_ip}")
             } else {
                 panic!("Not implemented for this OS" );
@@ -295,7 +304,7 @@ fn create_remote_windows_platform() -> RemotePlatform {
         _ => panic!("Unexpected error"),
     };
     println!("Windows remote test folder: {test_folder}");
-    
+
     // Confirm that we can connect to this remote host, to help debugging the test environment
     confirm_remote_test_environment(&user_and_host, &test_folder, "Windows");
 
@@ -310,17 +319,17 @@ fn create_remote_linux_platform() -> RemotePlatform {
         Ok(x) => x,
         Err(std::env::VarError::NotPresent) => {
             if cfg!(windows) {
-                // We want to connect to the WSL instance which we assume is running, which can be done 
+                // We want to connect to the WSL instance which we assume is running, which can be done
                 // by simply using localhost or 127.0.0.1. If both WSL SSH and windows SSH are both listening,
                 // then WSL takes precedence.
-                // The username is more complicated, as the WSL username might differ from Windows username                
+                // The username is more complicated, as the WSL username might differ from Windows username
                 // Running wsl.exe messes up line endings while it is running, so this lock prevents it messing
                 // up other tests running at the same time.
                 let _lock = stdout().lock();
                 let output = run_process_with_live_output(std::process::Command::new("wsl").arg("echo").arg("$USER"));
                 assert!(output.exit_status.success());
                 let username = output.stdout.trim().to_string();
-                   
+
                 format!("{username}@127.0.0.1")
             } else if cfg!(unix) {
                 // Simply connect to the current OS, with the current user
@@ -339,7 +348,7 @@ fn create_remote_linux_platform() -> RemotePlatform {
         _ => panic!("Unexpected error"),
     };
     println!("Linux remote test folder: {test_folder}");
-    
+
     // Confirm that we can connect to this remote host, to help debugging the test environment
     confirm_remote_test_environment(&user_and_host, &test_folder, "Linux");
 

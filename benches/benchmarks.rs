@@ -13,13 +13,14 @@ mod test_utils;
 mod filesystem_node;
 
 use test_utils::RemotePlatform;
+use test_utils::RemotePlatforms;
 
 /// Global state
 struct Context {
     args: CliArgs,
 
     local_temp_dir: PathBuf,
-    
+
     /// The set of Targets that we have already set up source folders for,
     /// so that we don't need to do it again.
     src_folders_setup_on_targets: HashSet<Target>,
@@ -44,7 +45,7 @@ impl Display for Target {
                 } else {
                     "Linux"
                 },
-            },            
+            },
             Target::Remote { platform, .. } => if platform.is_windows {
                 "Remote Windows"
             } else {
@@ -113,7 +114,7 @@ fn set_up_src_folders(target: &Target, context: &mut Context) {
                 println!("Skipping setup of {target} because of --skip-setup. Beware this may be stale!");
                 return;
             }
-        
+
             set_up_src_folders_impl_remote(platform, &remote_path, context);
         }
     };
@@ -162,7 +163,7 @@ fn set_up_src_folders_impl_local(src_folder: &Path) {
     // stack overflow. https://github.com/PowerShell/Win32-OpenSSH/issues/1897
     std::fs::remove_dir_all(src_folder.join("example-repo/src/modules/previewpane/MonacoPreviewHandler/monacoSRC/min/vs")).expect("Failed to delete nested folders");
     std::fs::remove_dir_all(src_folder.join("example-repo/src/settings-ui/Settings.UI.UnitTests/BackwardsCompatibility/TestFiles/")).expect("Failed to delete nested folders");
-  
+
     std::fs::remove_dir_all(src_folder.join("example-repo-slight-change/src/modules/previewpane/MonacoPreviewHandler/monacoSRC/min/vs")).expect("Failed to delete nested folders");
     std::fs::remove_dir_all(src_folder.join("example-repo-slight-change/src/settings-ui/Settings.UI.UnitTests/BackwardsCompatibility/TestFiles/")).expect("Failed to delete nested folders");
 
@@ -189,7 +190,7 @@ fn set_up_src_folders_impl_remote(platform: &RemotePlatform, remote_path: &str, 
     // Note that we also make sure that all parent folders are there, hence the weird deletion/recreation here
     test_utils::delete_and_recreate_remote_folder(remote_path, platform);
     test_utils::delete_remote_folder(remote_path, platform);
-   
+
     // First set up the source folders locally, then we copy these to the remote source folder
     // Use the same local folder as for local targets, so we can avoid repeating the setup
     set_up_src_folders(&Target::Local(context.local_temp_dir.clone()), context);
@@ -228,7 +229,7 @@ fn main () {
             let wsl_tmp_path = PathBuf::from(format!("\\\\wsl$\\{distro_name}\\tmp"));
             println!("WSL tmp path = {:?}", wsl_tmp_path);
             // Older versions of WSL don't have this (e.g. on GitHub actions)
-            if PathBuf::from(&wsl_tmp_path).is_dir() { 
+            if PathBuf::from(&wsl_tmp_path).is_dir() {
                 Some(Target::Local(wsl_tmp_path.join("rjrssync-benchmarks")))
             } else {
                 None
@@ -257,22 +258,24 @@ fn main () {
         None
     };
 
-    let remote_windows_target = Target::Remote { 
-        platform: RemotePlatform::get_windows().clone(), 
-        folder: RemotePlatform::get_windows().test_folder.clone() + "\\" + "rjrssync-benchmarks",
+    let remote_platforms = RemotePlatforms::lock();
+
+    let remote_windows_target = Target::Remote {
+        platform: remote_platforms.windows.clone(),
+        folder: remote_platforms.windows.test_folder.clone() + "\\" + "rjrssync-benchmarks",
     };
 
-    let remote_linux_target = Target::Remote { 
-        platform: RemotePlatform::get_linux().clone(), 
-        folder: RemotePlatform::get_linux().test_folder.clone() + "/" + "rjrssync-benchmarks",  
+    let remote_linux_target = Target::Remote {
+        platform: remote_platforms.linux.clone(),
+        folder: remote_platforms.linux.test_folder.clone() + "/" + "rjrssync-benchmarks",
     };
 
 
     let mut results : AllResults = vec![];
-    
+
     let mut run_targets = |src: &Target, dest: &Target| {
         results.push((
-            TargetDesc { source: src.to_string(), dest: dest.to_string() }, 
+            TargetDesc { source: src.to_string(), dest: dest.to_string() },
             run_benchmarks_for_target(&args, src, dest, &mut context)
         ));
     };
@@ -280,7 +283,7 @@ fn main () {
     if !args.only_remote {
         run_targets(&local_target, &local_target);
     }
-        
+
     if !args.only_remote && !args.only_local {
         if let Some(w) = wsl_target {
             run_targets(&local_target, &w);
@@ -289,7 +292,7 @@ fn main () {
             run_targets(&local_target, &m);
         }
     }
-    
+
     if !args.only_local {
         run_targets(&local_target, &remote_windows_target);
         run_targets(&local_target, &remote_linux_target);
@@ -329,14 +332,14 @@ fn main () {
                     }
                     s
                 } else {
-                    format!("Skipped") 
+                    format!("Skipped")
                 };
 
                 table_data[case.iter().position(|x| x == case_name).unwrap()].push(summary_text);
             }
         }
 
-        ascii_table.print(table_data);    
+        ascii_table.print(table_data);
     }
 
     if let Some(json_filename) = args.json_output {
@@ -391,7 +394,7 @@ fn run_benchmarks_for_target(args: &CliArgs, src_target: &Target, dest_target: &
 
     // Set up test data on the source target if it's not there already
     set_up_src_folders(src_target, context);
-    
+
     let mut results : TargetResults = vec![];
 
     let both_local = matches!(src_target, Target::Local(..)) && matches!(dest_target, Target::Local(..));
@@ -401,9 +404,9 @@ fn run_benchmarks_for_target(args: &CliArgs, src_target: &Target, dest_target: &
         let rjrssync_path = env!("CARGO_BIN_EXE_rjrssync");
         results.push(("rjrssync", run_benchmarks_using_program(args, rjrssync_path, &["$SRC", "$DEST"], src_target.clone(), dest_target.clone())));
     }
-   
+
     // rsync is Linux -> Linux only, and doesn't support both src and dest being remote.
-    if args.programs.contains(&String::from("rsync")) && !both_remote && !matches!(dest_target, Target::Remote{ platform, .. } if platform.is_windows) { 
+    if args.programs.contains(&String::from("rsync")) && !both_remote && !matches!(dest_target, Target::Remote{ platform, .. } if platform.is_windows) {
         #[cfg(unix)]
         // Note trailing slash on the src is important for rsync!
         results.push(("rsync", run_benchmarks_using_program(args, "rsync", &["--archive", "--delete", "$SRC/", "$DEST"], src_target.clone(), dest_target.clone())));
@@ -412,7 +415,7 @@ fn run_benchmarks_for_target(args: &CliArgs, src_target: &Target, dest_target: &
     if args.programs.contains(&String::from("scp")) && !both_remote { // scp has problems with two remotes (it hangs :O)
         results.push(("scp", run_benchmarks_using_program(args, "scp", &["-r", "-q", "$SRC", "$DEST"], src_target.clone(), dest_target.clone())));
     }
-   
+
     if args.programs.contains(&String::from("cp")) && both_local { // cp is local only
         #[cfg(unix)]
         results.push(("cp", run_benchmarks_using_program(args, "cp", &["-r", "$SRC", "$DEST"], src_target.clone(), dest_target.clone())));
@@ -422,7 +425,7 @@ fn run_benchmarks_for_target(args: &CliArgs, src_target: &Target, dest_target: &
         #[cfg(windows)]
         results.push(("xcopy", run_benchmarks_using_program(args, "xcopy", &["/i", "/s", "/q", "/y", "$SRC", "$DEST"], src_target.clone(), dest_target.clone())));
     }
-   
+
     if args.programs.contains(&String::from("robocopy")) && both_local { // robocopy is local only
         #[cfg(windows)]
         results.push(("robocopy", run_benchmarks_using_program(args, "robocopy", &["/MIR", "/nfl", "/NJH", "/NJS", "/nc", "/ns", "/np", "/ndl", "$SRC", "$DEST"], src_target.clone(), dest_target.clone())));
@@ -448,7 +451,7 @@ struct PeakMemoryUsage {
     remote: Option<usize>,
 }
 
-fn run_benchmarks_using_program(cli_args: &CliArgs, program: &str, program_args: &[&str], 
+fn run_benchmarks_using_program(cli_args: &CliArgs, program: &str, program_args: &[&str],
     src_target: Target, dest_target: Target) -> ProgramResults {
     let id = Path::new(program).file_name().unwrap().to_string_lossy().to_string();
     let f = |src: String, dest: String| -> PeakMemoryUsage {
@@ -476,12 +479,12 @@ fn run_benchmarks_using_program(cli_args: &CliArgs, program: &str, program_args:
         }
 
         // Because reporting of memory usage is tricky (we can't do it well on Linux, nor for the remote
-        // part of processes on any OS), we have our own instrumentation built into rjrssync. We use this 
+        // part of processes on any OS), we have our own instrumentation built into rjrssync. We use this
         // when possible, otherwise use the memory usage from the process we launched (which only works on
         // Windows, and doesn't include remote usage)
         if program.contains("rjrssync") {
             // For rjrssync, parse the output to get the instrumented memory usage for both boss (local) and doer (remote, if relevant for this test)
-            PeakMemoryUsage { 
+            PeakMemoryUsage {
                 local: Some(result.stdout.lines().filter(|l| l.contains("Boss peak memory usage")).next().expect("Couldn't find line")
                     .rsplit_once(':').expect("Failed to parse line").1.trim()
                     .parse::<usize>().expect("Failed to parse number")),
@@ -490,7 +493,7 @@ fn run_benchmarks_using_program(cli_args: &CliArgs, program: &str, program_args:
                     Target::Remote { .. } => Some(result.stderr.lines().filter(|l| l.contains("Doer peak memory usage")).next().expect("Couldn't find line")
                         .rsplit_once(':').expect("Failed to parse line").1.trim()
                         .parse::<usize>().expect("Failed to parse number")),
-                } 
+                }
             }
         } else {
             // For other programs, use the value reported by run_process_with_live_output_impl, which has some limitations
@@ -500,7 +503,7 @@ fn run_benchmarks_using_program(cli_args: &CliArgs, program: &str, program_args:
     run_benchmarks(cli_args, &id, f, src_target, dest_target.clone())
 }
 
-fn run_benchmarks<F>(cli_args: &CliArgs, id: &str, sync_fn: F, 
+fn run_benchmarks<F>(cli_args: &CliArgs, id: &str, sync_fn: F,
     src_target: Target, dest_target: Target) -> ProgramResults
     where F : Fn(String, String) -> PeakMemoryUsage
 {
@@ -547,7 +550,7 @@ fn run_benchmarks<F>(cli_args: &CliArgs, id: &str, sync_fn: F,
             let start = Instant::now();
             let peak_memory = sync_fn(src, dest);
             let time = start.elapsed();
-            Sample { time, peak_memory }    
+            Sample { time, peak_memory }
         };
 
         // Sync example-repo to an empty folder, so this means everything is copied

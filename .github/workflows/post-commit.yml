@@ -1,4 +1,4 @@
-# This workflow builds and runs unit tests on both Windows and Linux, 
+# This workflow builds and runs unit tests on both Windows and Linux,
 # as well as running WSL to test "remote" launching, connection and syncing between OSes.
 
 name: Post-Commit
@@ -9,7 +9,7 @@ on:
   pull_request:
     branches: [ "main" ]
   schedule:
-    # Run the job every night as well to collect more benchmark data, to hopefully be able to 
+    # Run the job every night as well to collect more benchmark data, to hopefully be able to
     # average out inconsistencies and spot definite changes.
     # Note that GitHub will automatically stop running scheduled runs after 60 days of repo inactivity which is good
     - cron:  '19 4 * * *'   # Every day at 4:19am (not on the hour to avoid high load periods)
@@ -18,7 +18,7 @@ on:
     inputs:
       tmate_enabled:
         type: boolean
-        description: 'Run the build with tmate debugging enabled (https://github.com/marketplace/actions/debugging-with-tmate)'     
+        description: 'Run the build with tmate debugging enabled (https://github.com/marketplace/actions/debugging-with-tmate)'
         required: false
         default: false
 
@@ -58,7 +58,7 @@ jobs:
           ~/.cargo/git/db/
           target/
         key: native-${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-      
+
     - name: Build
       # --no-default-features means we don't need to build all the embedded binaries.
       # They aren't needed for these local-only tests, but will still be tested in the
@@ -102,7 +102,7 @@ jobs:
           mingw-w64
 
     - name: Copy source code to WSL
-      # By copying the source code into the native WSL filesystem this is more "faithful" to a proper linux setup, 
+      # By copying the source code into the native WSL filesystem this is more "faithful" to a proper linux setup,
       # and should be faster as the build will be done in the linux filesystem, not through the mounted windows one.
       # This also prevents any problems with sharing build folders between Windows and Linux and any caching/overwriting.
       shell: pwsh
@@ -112,7 +112,7 @@ jobs:
           New-Item -ItemType Directory -Path C:\hostedtoolcache\windows\Debian\1.0.0\x64\rootfs\root\rjrssync
         }
         Copy-Item -Recurse -Path $env:GITHUB_WORKSPACE\* -Destination C:\hostedtoolcache\windows\Debian\1.0.0\x64\rootfs\root\rjrssync -Exclude @(".git", "target") -Verbose
-      
+
     # Speed up the following cache step, when _restoring_ the cache (note it actually seems to make it slower when _saving_ the cache!)
     # See: https://github.com/actions/cache/blob/main/tips-and-workarounds.md#improving-cache-restore-performance-on-windows-using-cross-os-caching
     - if: ${{ runner.os == 'Windows' }}
@@ -137,7 +137,7 @@ jobs:
           C:\hostedtoolcache\windows\Debian\1.0.0\x64\rootfs\root\.cargo\registry\index\
           C:\hostedtoolcache\windows\Debian\1.0.0\x64\rootfs\root\.cargo\registry\cache\
           C:\hostedtoolcache\windows\Debian\1.0.0\x64\rootfs\root\.cargo\git\db\
-          
+
           target\
 
           C:\hostedtoolcache\windows\Debian\1.0.0\x64\rootfs\root\rjrssync\target\
@@ -154,7 +154,7 @@ jobs:
       run: |
         rustup target add x86_64-unknown-linux-musl
         rustup target add aarch64-unknown-linux-musl
-     
+
     - name: Set up cargo on WSL
       shell: wsl-bash {0}
       run: |
@@ -177,7 +177,7 @@ jobs:
       run: |
         sleep 3 # Make sure log output is visible up to here, before it crashes
         rustc --version
-      
+
     # Can't seem to get the windows OpenSSH server installed, as we get an error when adding the optional package.
     # There is an sshd already installed as part of cygwin, but this means that when we log in we get a cygwin prompt, not a windows prompt
     # So instead we use chocolatey to install a native windows OpenSSH.
@@ -253,7 +253,7 @@ jobs:
 
         # Create ssh key
         ssh-keygen -f ~/.ssh/id_rsa -q -N ""
-       
+
         # Disable host key checking so we don't get the prompt
         echo "Host *" > ~/.ssh/config
         echo "  StrictHostKeyChecking no" >> ~/.ssh/config
@@ -270,12 +270,12 @@ jobs:
       run: |
         wsl bash -c "cat /mnt/c/Users/runneradmin/.ssh/id_rsa.pub >> ~/.ssh/authorized_keys"
         ssh root@127.0.0.1 "uname -a && echo Windows to WSL SSH is working"
-      
+
     - name: Setup WSL to Windows SSH
       shell: wsl-bash {0}
       run: |
         cat ~/.ssh/id_rsa.pub >> /mnt/c/Users/runneradmin/.ssh/authorized_keys
-        # Get the IP address to use to connect to Windows SSH. Now that we have both Windows and WSL SSH running, 
+        # Get the IP address to use to connect to Windows SSH. Now that we have both Windows and WSL SSH running,
         # we need to use the IP address of a different interface than just localhost in order to get the right one
         WINDOWS_IP=$(hostname -I | cut -d ' ' -f1)
         ssh runneradmin@$WINDOWS_IP "ver && echo WSL to Windows SSH is working"
@@ -289,35 +289,31 @@ jobs:
       run: |
         mkdir ${env:TEMP}\rjrssync-tests
         wsl mkdir /tmp/rjrssync-tests
-    
+
     - name: Run remote tests on Windows
       shell: pwsh
       # Only run tests that require a remote, as the other tests are covered by the "native" jobs above.
       # The logic in remote_tests.rs should automatically detect the WSL instance and connect to that
-      # These tests can conflict with each other if two tests use the same remote platform at the same time,
-      # so run one at a time.
-      # Specify double-verbose to get output of the build.rs (building embedded binaries), 
+      # Specify double-verbose to get output of the build.rs (building embedded binaries),
       # as this takes a while and otherwise it appears the build has hung.
-      run: cargo test -vv -- "remote" --test-threads 1
+      run: cargo test -vv -- "remote"
 
     - name: Run remote tests on WSL
       # Only run tests that require a remote, as the other tests are covered by the "native" jobs above.
       # The logic in remote_tests.rs should automatically detect the Windows host and connect to that (for the most part)
-      # These tests can conflict with each other if two tests use the same remote platform at the same time,
-      # so run one at a time.
       # Note we use the copy of the source code on the native Linux filesystem, not the one in the Github actions workspace
       # via /mnt/... (so that it's faster and more faithful to a 'proper' linux setup)
-      # Specify double-verbose to get output of the build.rs (building embedded binaries), 
+      # Specify double-verbose to get output of the build.rs (building embedded binaries),
       # as this takes a while and otherwise it appears the build has hung.
       shell: wsl-bash {0}
-      run: cd ~/rjrssync && cargo test -vv -- "remote" --test-threads 1
+      run: cd ~/rjrssync && cargo test -vv -- "remote"
 
     - name: Run benchmarks on Windows
       shell: pwsh
       run: cargo bench -- -n 5 --json-output benchmark-results-windows-$(Get-Date -Format "yyyy-MM-dd-HH-mm")-$env:GITHUB_SHA.json
 
     - name: Run benchmarks on WSL
-      shell: wsl-bash {0}      
+      shell: wsl-bash {0}
       # Note we use the copy of the source code on the native Linux filesystem, not the one in the Github actions workspace
       # via /mnt/... (so that it's faster and more faithful to a 'proper' linux setup)
       run: |
@@ -336,7 +332,7 @@ jobs:
     # Only do this for stuff already merged to main - we don't want the benchmark results history to include pull requests for example
     if: ${{ github.ref == 'refs/heads/main' }}
     needs: remote-platforms
-    runs-on: ubuntu-latest    
+    runs-on: ubuntu-latest
     permissions: write-all # Set permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
     steps:
       - name: Checkout default branch (for scripts)
@@ -353,7 +349,7 @@ jobs:
         with:
           name: benchmark-results
           path: benchmark-results
-        
+
       - name: Commit to benchmark-results branch
         run: |
           cd benchmark-results
@@ -368,12 +364,12 @@ jobs:
           python3 -m pip install pandas plotly
           mkdir pages
           .github/workflows/generate-benchmark-graphs.py --json-files benchmark-results/ --output-html pages/index.html
-     
+
       - name: Setup Pages
         uses: actions/configure-pages@v2
       - name: Upload pages artifact
         uses: actions/upload-pages-artifact@v1
-        with:          
+        with:
           path: pages # Upload just the graph file inside this folder
       - name: Deploy to GitHub Pages
         uses: actions/deploy-pages@v1

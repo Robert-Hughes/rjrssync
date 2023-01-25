@@ -101,7 +101,6 @@ Testing
 * Tests for different combinations of platforms for binary deployment - the different executable formats have different code paths that all need testing.
 * Tests for deploying from an already-deployed (non-progenitor) binary, again, to all platforms? (all binaries are equal, no lite binaries every actually exist on disk)
 * Tests for --list-embedded-binaries
-* Remote tests running in parallel can conflict if they both use the same remote platform - could we lock/mutex them? Need to be careful not to deadlock! (one test locks Windows then Linux, the other Linux then Windows!)
 * When installing rust on the GitHub job, could use the "minimal" profile to avoid downloading things like clippy, rust-docs etc. which we don't need
 
 

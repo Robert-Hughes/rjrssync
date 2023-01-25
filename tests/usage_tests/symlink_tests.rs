@@ -166,7 +166,7 @@ fn test_symlink_change_kind_folder_to_file() {
     // On Linux though, all symlinks are the same so nothing needs doing!
     #[cfg(not(windows))]
     let expected_actions = NumActions { deleted_folders: 1, copied_files: 1, deleted_symlinks: 0, copied_symlinks: 0, ..Default::default() };
-    
+
     run_expect_success(&src, &dest, expected_actions);
 }
 
@@ -188,7 +188,7 @@ fn test_symlink_change_kind_file_to_folder() {
     // On Linux though, all symlinks are the same so nothing needs doing!
     #[cfg(not(windows))]
     let expected_actions = NumActions { deleted_files: 1, created_folders: 1, deleted_symlinks: 0, copied_symlinks: 0, ..Default::default() };
-    
+
     run_expect_success(&src, &dest, expected_actions);
 }
 
@@ -197,10 +197,10 @@ fn test_symlink_change_kind_file_to_folder() {
 /// Folder => Broken
 /// Broken => File
 /// Broken => Folder
-/// This test isn't relevant for Windows, because all symlinks would be file/folder. 
+/// This test isn't relevant for Windows, because all symlinks would be file/folder.
 /// There is a test further down for syncing a broken symlink from Unix to Windows (cross-platform).
 #[test]
-#[cfg(not(windows))] 
+#[cfg(not(windows))]
 fn test_symlink_change_kind_broken() {
     let src = folder! {
         "symlink1" => symlink_generic("target1"),
@@ -248,7 +248,7 @@ fn test_symlink_delete_from_dest() {
             "file2.txt" => file_with_modified("contents2", SystemTime::UNIX_EPOCH),
         }
     };
-    run_expect_success(&src, &dest, NumActions { copied_files: 1, created_folders: 1, copied_symlinks: 0, 
+    run_expect_success(&src, &dest, NumActions { copied_files: 1, created_folders: 1, copied_symlinks: 0,
         deleted_files: 3, deleted_folders: 1, deleted_symlinks: 4 });
 }
 
@@ -260,7 +260,7 @@ fn test_symlink_root_broken() {
     run_expect_success(&src, &empty_folder(), NumActions { copied_symlinks: 1, deleted_folders: 1, ..Default::default() });
 }
 
-/// Tests that having a symlink file as the dest root will be replaced by the source, 
+/// Tests that having a symlink file as the dest root will be replaced by the source,
 /// but only the symlink itself will be deleted - the target will remain as it was.
 #[test]
 fn test_file_to_symlink_file_dest_root() {
@@ -278,7 +278,7 @@ fn test_file_to_symlink_file_dest_root() {
             "$TEMP/dest".to_string(),
             // This test requires deleting the dest root, which we allow here. The default is to prompt
             // the user, which is covered by other tests (dest_root_needs_deleting_tests.rs)
-            String::from("--dest-root-needs-deleting"), 
+            String::from("--dest-root-needs-deleting"),
             String::from("delete"),
         ],
         expected_exit_code: 0,
@@ -316,7 +316,7 @@ fn test_file_to_symlink_folder_dest_root() {
             "$TEMP/dest".to_string(),
             // This test requires deleting the dest root, which we allow here. The default is to prompt
             // the user, which is covered by other tests (dest_root_needs_deleting_tests.rs)
-            String::from("--dest-root-needs-deleting"), 
+            String::from("--dest-root-needs-deleting"),
             String::from("delete"),
         ],
         expected_exit_code: 0,
@@ -337,7 +337,7 @@ fn test_file_to_symlink_folder_dest_root() {
 // "Tag" these tests as they require remote platforms (GitHub Actions differentiates these)
 mod remote {
 
-use crate::{test_utils::RemotePlatform, test_utils::{run_process_with_live_output, get_unique_remote_temp_folder}};
+use crate::{test_utils::{run_process_with_live_output, get_unique_remote_temp_folder, RemotePlatforms}};
 
 use super::*;
 
@@ -351,13 +351,14 @@ fn test_symlink_target_slashes() {
         // Start with a symlink with a relative path in the native representation.
         // Note the target must exist, so that the symlink kind can be determined when doing Linux => Windows
         "relative-symlink" => symlink_file(Path::new("..").join("src").join("..").join("src").join("dummy-target").to_str().unwrap()),
-        // And a symlink with an absolute path in the native representation 
+        // And a symlink with an absolute path in the native representation
         "absolute-symlink" => symlink_folder(&abs_path),
         "dummy-target" => file("contents"),
     };
-    // Sync it to a remote platform (both Windows and Linux), and check that they were converted to the correct 
+    // Sync it to a remote platform (both Windows and Linux), and check that they were converted to the correct
     // representation for that platform
-    for remote_platform in [RemotePlatform::get_windows(), RemotePlatform::get_linux()] {
+    let remote_platforms = RemotePlatforms::lock();
+    for remote_platform in [&remote_platforms.windows, &remote_platforms.linux] {
         // The remote part of the test framework doesn't handle symlinks so well, as tar messes about
         // with the links, so we do the check manually, and so need to create our own temp folder rather
         // than using REMOTE_WINDOWS_TEMP.
@@ -382,14 +383,14 @@ fn test_symlink_target_slashes() {
         // with the links, so we do the check manually.
         let mut cmd = std::process::Command::new("ssh");
         let cmd = cmd.arg(&remote_platform.user_and_host);
-        let cmd = match &remote_platform.path_separator {            
+        let cmd = match &remote_platform.path_separator {
             '/' => cmd.arg("ls").arg("-al").arg(remote_dest),
             '\\' => cmd.arg("dir").arg(remote_dest),
             _ => panic!()
         };
         let result = run_process_with_live_output(cmd);
         assert!(result.exit_status.success());
-        match &remote_platform.path_separator {            
+        match &remote_platform.path_separator {
             '/' => {
                 assert!(result.stdout.contains("relative-symlink -> ../src/../src/dummy-target")); // Forward slashes on the relative symlink (converted from the local representation)
                 assert!(result.stdout.contains(&format!("absolute-symlink -> {abs_path}"))); // Absolute symlink has been unchanged
@@ -399,7 +400,7 @@ fn test_symlink_target_slashes() {
                 assert!(result.stdout.contains(&format!("<SYMLINKD>     absolute-symlink [{abs_path}]"))); // Absolute symlink has been unchanged
             }
             _ => panic!()
-        };        
+        };
     }
 }
 
