@@ -3,26 +3,28 @@ use std::time::SystemTime;
 use regex::Regex;
 
 use map_macro::map;
-use crate::{test_framework::{run, TestDesc, NumActions, copied_files}, folder};
+use crate::{test_framework::{run, TestDesc, NumActions, copied_files}, folder, test_utils::{RemotePlatforms, run_process_with_live_output, RemotePlatform}};
 use crate::filesystem_node::*;
 
 /// Tests that rjrssync can be launched on a remote platform, and communication is estabilished.
-/// There is no proper sync performed (just syncing an empty folder), but this checks that
-/// the binary building, ssh/scp commands, TCP connection etc. works.
-fn test_remote_launch_impl(remote_platform_temp_variable: &str) {
+/// There is no proper sync performed, but this checks that
+/// the binary augmentation, ssh/scp commands, TCP connection etc. works.
+fn test_remote_launch_impl(remote_platforms: &RemotePlatforms, first_remote_platform: &RemotePlatform) {
     let deploy_msg = "Deploying onto";
     // First run with --force-redeploy, to check that the remote deploying works,
     // even when the remote already has rjrssync set up.
     run(TestDesc {
         setup_filesystem_nodes: vec![
-            ("$TEMP/src", &empty_folder())
+            ("$TEMP/src", &file("blah"))
         ],
         args: vec![
             "--force-redeploy".to_string(),
             "--needs-deploy".to_string(),
             "deploy".to_string(), // Skip the confirmation prompt for deploying
+            "--dest-root-needs-deleting".to_string(),
+            "skip".to_string(), // We sync a file to a folder, and then skip when we hit the prompt. This means that no sync is performed, but it checks the connection is good
             "$TEMP/src".to_string(),
-            format!("{remote_platform_temp_variable}/dest"),
+            format!("{}:{}", first_remote_platform.user_and_host, first_remote_platform.test_folder),
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
@@ -34,11 +36,13 @@ fn test_remote_launch_impl(remote_platform_temp_variable: &str) {
     // Then run without --force-redeploy, and it should use the existing copy
     run(TestDesc {
         setup_filesystem_nodes: vec![
-            ("$TEMP/src", &empty_folder())
+            ("$TEMP/src", &file("blah"))
         ],
         args: vec![
+            "--dest-root-needs-deleting".to_string(),
+            "skip".to_string(), // We sync a file to a folder, and then skip when we hit the prompt. This means that no sync is performed, but it checks the connection is good
             "$TEMP/src".to_string(),
-            format!("{remote_platform_temp_variable}/dest")
+            format!("{}:{}", first_remote_platform.user_and_host, first_remote_platform.test_folder),
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
@@ -46,21 +50,52 @@ fn test_remote_launch_impl(remote_platform_temp_variable: &str) {
         ],
         ..Default::default()
     });
+
+    // Now make sure that the binary we deployed is also capable of deploying
+    // to other platforms (i.e. that we deployed a big binary, not a lite one)
+    for second_remote_platform in &[&remote_platforms.windows, &remote_platforms.linux] {
+        if *second_remote_platform == first_remote_platform {
+            continue; // Don't try deploying to yourself, because then it would try to overwrite the rjrssync exe that's already running
+        }
+
+        if first_remote_platform.is_windows {
+            continue; // Windows ssh seems to have a bug(?) where if we run rjrssync through ssh, it then can't ssh to something else
+        }
+
+        let output = run_process_with_live_output(
+            std::process::Command::new("ssh")
+            .arg(&first_remote_platform.user_and_host).arg(&first_remote_platform.rjrssync_path)
+            .arg("--dest-root-needs-deleting")
+            .arg("skip") // We sync a file to a folder, and then skip when we hit the prompt. This means that no sync is performed, but it checks the connection is good
+            .arg(&first_remote_platform.rjrssync_path) // This is a file we know exists!
+            .arg(format!("{}:{}", second_remote_platform.user_and_host, second_remote_platform.test_folder))
+            .arg("--force-redeploy")
+            .arg("--needs-deploy")
+            .arg("deploy") // Skip the confirmation prompt for deploying
+        );
+
+        assert_eq!(output.exit_status.code(), Some(0));
+
+        let actual_output = output.stderr + &output.stdout;
+        assert!(actual_output.contains(deploy_msg));
+    }
 }
 
 #[test]
 fn test_remote_launch_windows() {
-    test_remote_launch_impl("$REMOTE_WINDOWS_TEMP");
+    let remote_platforms = RemotePlatforms::lock();
+    test_remote_launch_impl(&remote_platforms, &remote_platforms.windows);
 }
 
 #[test]
 fn test_remote_launch_linux() {
-    test_remote_launch_impl("$REMOTE_LINUX_TEMP");
+    let remote_platforms = RemotePlatforms::lock();
+    test_remote_launch_impl(&remote_platforms, &remote_platforms.linux);
 }
 
 /// Checks that a directory structure can be synced between OSes, and between local and remote.
 /// This includes syncing between the same remote (as both src and dest).
-/// This checks for example that paths are normalized to have the same slashes, so that we can interop 
+/// This checks for example that paths are normalized to have the same slashes, so that we can interop
 /// correctly.
 #[test]
 fn test_cross_platform() {

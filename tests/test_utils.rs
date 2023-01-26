@@ -229,6 +229,9 @@ pub struct RemotePlatform {
     pub test_folder: String,
     pub path_separator: char,
     pub is_windows: bool,
+    /// Path to the deployed rjrssync on the remote platform (e.g. %TEMP%\rjrssync\rjrssync.exe).
+    /// This needs to be kept in sync with where rjrssync actually deploys itself.
+    pub rjrssync_path: String,
 }
 
 pub struct RemotePlatforms {
@@ -268,9 +271,18 @@ fn create_remote_windows_platform() -> RemotePlatform {
                 // We want to simply connect to the current OS, but using localhost or 127.0.0.1 won't
                 // work if SSH on WSL is also listening on the same port, as that takes precedence.
                 // Instead we need to find another IP to refer to the current OS.
-                NetworkInterface::show().expect("Error getting network interfaces").into_iter()
+                let host = NetworkInterface::show().expect("Error getting network interfaces").into_iter()
                     .filter_map(|i| i.addr.and_then(|a| if let V4(V4IfAddr { ip, .. }) = a { Some(ip.to_string()) } else { None }))
-                    .filter(|a| a != "127.0.0.1").nth(0).expect("No appropriate network interfaces")
+                    .filter(|a| a != "127.0.0.1").nth(0).expect("No appropriate network interfaces");
+
+                // We specify the user explicitly so that we can connect to this remote platform
+                // even from a different one (not running the local device). e.g. in the test_remote_launch_impl
+                // test, where we connect to one remote platform from another.
+                let output = std::process::Command::new("cmd.exe").arg("/c").arg("echo %USERNAME%").output().expect("Failed to query windows username");
+                assert!(output.status.success());
+                let username = String::from_utf8(output.stdout).expect("Unable to decode utf-8").trim().to_string();
+
+                format!("{username}@{host}")
             } else if cfg!(unix) {
                 // Figure out the IP address of the external host windows system from /etc/resolv.conf,
                 // by looking for the line "nameserver XYZ.XYZ.XYZ.XYZ"
@@ -308,7 +320,8 @@ fn create_remote_windows_platform() -> RemotePlatform {
     // Confirm that we can connect to this remote host, to help debugging the test environment
     confirm_remote_test_environment(&user_and_host, &test_folder, "Windows");
 
-    RemotePlatform { user_and_host, test_folder, path_separator: '\\', is_windows: true }
+    RemotePlatform { user_and_host, test_folder, path_separator: '\\', is_windows: true,
+        rjrssync_path: "%TEMP%\\rjrssync\\rjrssync.exe".to_string() }
 }
 
 /// Gets the remote host configuration to use for remote Linux tests.
@@ -333,7 +346,16 @@ fn create_remote_linux_platform() -> RemotePlatform {
                 format!("{username}@127.0.0.1")
             } else if cfg!(unix) {
                 // Simply connect to the current OS, with the current user
-                "127.0.0.1".to_string()
+                let host = "127.0.0.1";
+
+                // We specify the user explicitly so that we can connect to this remote platform
+                // even from a different one (not running the local device). e.g. in the test_remote_launch_impl
+                // test, where we connect to one remote platform from another.
+                let output = run_process_with_live_output(std::process::Command::new("bash").arg("-c").arg("echo $USER"));
+                assert!(output.exit_status.success());
+                let username = output.stdout.trim().to_string();
+
+                format!("{username}@{host}")
             } else {
                 panic!("Not implemented for this OS" );
             }
@@ -352,15 +374,16 @@ fn create_remote_linux_platform() -> RemotePlatform {
     // Confirm that we can connect to this remote host, to help debugging the test environment
     confirm_remote_test_environment(&user_and_host, &test_folder, "Linux");
 
-    RemotePlatform { user_and_host, test_folder, path_separator: '/', is_windows: false }
+    RemotePlatform { user_and_host, test_folder, path_separator: '/', is_windows: false,
+        rjrssync_path: "/var/tmp/rjrssync/rjrssync".to_string() }
 }
 
 fn confirm_remote_test_environment(remote_user_and_host: &str, remote_folder: &str, expected_os: &str) {
     // Confirm that we can connect to this remote host, to help debugging the test environment
-    // And make sure that the folder specified exists, otherwise we'll run into other issues later one
+    // And make sure that the folder specified exists, otherwise we'll run into other issues later on
     let test_command = match expected_os {
-        "Windows" => format!("echo Remote host is working && ver && dir {remote_folder}"),
-        "Linux" => format!("echo Remote host is working && uname -a && stat {remote_folder}"),
+        "Windows" => format!("echo Remote host is working && ver && cd {remote_folder}"),
+        "Linux" => format!("echo Remote host is working && uname -a && cd {remote_folder}"),
         _ => panic!("Unexpected OS"),
     };
 

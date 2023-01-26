@@ -99,7 +99,6 @@ Testing
 * Add test for multiple syncs with remote doer (to make sure it stays alive and can be used for multiple syncs) spec file
 * Tests for progress bar (large files, small files, deleting and copying files). Could unit test some of the stuff, especially boss_progress.rs
 * Tests for different combinations of platforms for binary deployment - the different executable formats have different code paths that all need testing.
-* Tests for deploying from an already-deployed (non-progenitor) binary, again, to all platforms? (all binaries are equal, no lite binaries every actually exist on disk)
 * Tests for --list-embedded-binaries
 * When installing rust on the GitHub job, could use the "minimal" profile to avoid downloading things like clippy, rust-docs etc. which we don't need
 
