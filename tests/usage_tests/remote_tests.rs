@@ -52,7 +52,26 @@ fn test_remote_launch_impl(remote_platforms: &RemotePlatforms, first_remote_plat
     });
 
     // Now make sure that the binary we deployed is also capable of deploying
-    // to other platforms (i.e. that we deployed a big binary, not a lite one)
+    // to other platforms (i.e. that we deployed a big binary, not a lite one).
+
+    // Initially do a simpler check with --list-embedded-binaries, because
+    // our testing coverage of actually deploying from this binary is limited (see below)
+    let output = run_process_with_live_output(
+        std::process::Command::new("ssh")
+        .arg(&first_remote_platform.user_and_host).arg(&first_remote_platform.rjrssync_path)
+        .arg("--list-embedded-binaries")
+    );
+    assert_eq!(output.exit_status.code(), Some(0));
+    // No need to check all the embedded binaries, just a couple
+    assert!(output.stdout.contains("x86_64-pc-windows") && output.stdout.contains("aarch64"));
+
+    // Coverage of exe_utils.rs functions:
+    //  extract_section_from_pe (on a progenitor binary):       Yes - Deploying from Windows to Linux
+    //  extract_section_from_pe (on a non-progenitor binary):   Yes - Deploying from Linux -> Windows (and then checking with --list-embedded-binaries)
+    //  add_section_to_pe (on a lite binary):                   Yes - Deploying from Linux to Windows (and then checking with --list-embedded-binaries)
+    //  extract_section_from_elf (on a progenitor binary):      Yes - Deploying from Linux to Windows
+    //  extract_section_from_elf (on a non-progenitor binary):  Yes - Deploying from Windows -> Linux (and then checking with --list-embedded-binaries)
+    //  add_section_to_elf (on a lite binary):                  Yes - Deploying from Windows to Linux (and then checking with --list-embedded-binaries)
     for second_remote_platform in &[&remote_platforms.windows, &remote_platforms.linux] {
         if *second_remote_platform == first_remote_platform {
             continue; // Don't try deploying to yourself, because then it would try to overwrite the rjrssync exe that's already running
