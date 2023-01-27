@@ -13,6 +13,8 @@ use crate::root_relative_path::RootRelativePath;
 
 // We include the profiling config in the version number, as profiling and non-profiling builds are not compatible
 // (because a non-profiling doer won't record any events).
+//TODO: use package version?
+//TODO: have a --version, and/or include this in the --help text. Maybe clap does this automatically - yes, it can?
 pub const VERSION: &str = concatcp!("127", if cfg!(feature="profiling") { "+profiling"} else { "" });
 
 // Message printed by a doer copy of the program to indicate that it has loaded and is ready
@@ -29,15 +31,15 @@ pub const HANDSHAKE_COMPLETED_MSG: &str = "Waiting for incoming network connecti
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Filters {
     /// Use a RegexSet rather than separate Regex objects for better performance.
-    /// Serialize the regexes as strings - even though they will need compiling on the 
-    /// doer side as well (as part of deserialization), we compile them on the boss side to report earlier errors to 
+    /// Serialize the regexes as strings - even though they will need compiling on the
+    /// doer side as well (as part of deserialization), we compile them on the boss side to report earlier errors to
     /// user (as part of input validation, rather than waiting until the sync starts),
     /// and so that we don't need to validate them again on the doer side,
     /// and won't report the same error twice (from both doers).
-    #[serde(serialize_with = "serialize_regex_set_as_strings", deserialize_with="deserialize_regex_set_from_strings")] 
+    #[serde(serialize_with = "serialize_regex_set_as_strings", deserialize_with="deserialize_regex_set_from_strings")]
     pub regex_set: RegexSet,
     /// For each regex in the RegexSet above, is it an include filter or an exclude filter.
-    pub kinds: Vec<FilterKind>, 
+    pub kinds: Vec<FilterKind>,
 }
 
 /// Serializes a RegexSet by serializing the patterns (strings) that it was originally created from.
@@ -103,8 +105,8 @@ pub enum Command {
         path: RootRelativePath,
         #[serde(with = "serde_bytes")] // Make serde fast
         data: Vec<u8>,
-        // Note that SystemTime is safe to serialize across platforms, because Serde serializes this 
-        // as the elapsed time since UNIX_EPOCH, so it is platform-independent.        
+        // Note that SystemTime is safe to serialize across platforms, because Serde serializes this
+        // as the elapsed time since UNIX_EPOCH, so it is platform-independent.
         set_modified_time: Option<SystemTime>,
         /// If set, there is more data for this same file being sent in a following Command.
         /// This is used to split up large files so that we don't send them all in one huge message.
@@ -132,10 +134,10 @@ pub enum Command {
 
     ProfilingTimeSync,
 
-    /// Used to mark a position in the sequence of commands, which the doer will echo back 
-    /// so that the boss knows when the doer has reached this point. 
-    /// The boss can't update the progress bar as soon as it sends a command, as the doer hasn't actually done 
-    /// anything yet, so instead it inserts a marker and when the doer echoes this marker back 
+    /// Used to mark a position in the sequence of commands, which the doer will echo back
+    /// so that the boss knows when the doer has reached this point.
+    /// The boss can't update the progress bar as soon as it sends a command, as the doer hasn't actually done
+    /// anything yet, so instead it inserts a marker and when the doer echoes this marker back
     /// (meaning it got this far), the boss updates the progress bar.
     Marker(ProgressMarker),
 
@@ -197,7 +199,7 @@ pub enum SymlinkTarget {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum EntryDetails {
     File {
-        // Note that SystemTime is safe to serialize across platforms, because Serde serializes this 
+        // Note that SystemTime is safe to serialize across platforms, because Serde serializes this
         // as the elapsed time since UNIX_EPOCH, so it is platform-independent.
         modified_time: SystemTime,
         size: u64

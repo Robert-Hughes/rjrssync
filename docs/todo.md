@@ -10,17 +10,20 @@ Interface
 * Could have some kind of hierarchy of filters, so can exclude something without continuing to evaluate other filters?
 * Perhaps could have hard/soft includes/excludes - soft would keep evaluating other filters which may change the decision, hard would stop evaluating and keep that as the final decision.
 * Ctrl-C doesn't seem to work very well at stopping rjrssync when it's running
-* Tidy up --help output - maybe we need a short and long version?
+* Tidy up --help output -
+  - short and long version (clap supports this). Need to have short text on one line with blank line then additional long text.
   - Things in the README or notes.md shouldn't be needed for a user as they won't necessarily have access to then. These would need to be in --help, so might need moving.
   - The README is displayed on crates.io though, so it's likely that a user would see this.
+  - Add reference to trailing slash and symlink behaviour in notes.md?
+  - the preformatted text for the spec file isn't working
 * The naming for the behaviour flags isn't great - too verbose and not clear enough?
-* In the spec file, could allow some settings to be set at both per-sync level, and at the top level (which would then apply to all syncs, but allowing overrides)
+* In the spec file, could allow some settings to be set at both per-sync level, and at the top level (which would then apply to all syncs, but allowing overrides per-sync as well)
 * Decide if info! (and other) log messages should be on stdout or stderr
 * When showing multiple prompts, could remember the selection from previous time the same prompt was shown and use that as the default for the next one?
 * Maybe could make "Connecting" spinner actually spin, until the first message from ssh?
 * Long prompt messages (multi-line) duplicate themselves once answered.
 * Could warn or similar when filters will lead to an error, like trying to delete a folder that isn't empty (because the filters hid the files inside)
-* --force-redeploy is a bit confusing, because it still prompts you to deploy, even though you "forced" it
+* --force-redeploy is a bit confusing, because it still prompts you to deploy, even though you "forced" it. However I think we rely on this behaviour for tests of the --needs-deploy prompts? Perhaps --force-redeploy should imply --needs-deploy deploy, and then the tests can override --needs-deploy, so all is fine?
 * The "Connecting" spinner gets "lost" if we are deploying. it would be good to re-show this after deploy when we are trying to connect again (after Deploy successful!, there is a delay when nothing seems to be happening!)
 * If --force-redeploy is set, we shouldn't do two attempts at deployment if the first attempt fails?
 * When prompting and given the choice to remember for "all occurences", we could show the number of occurences, e.g. "All occurences (17)".

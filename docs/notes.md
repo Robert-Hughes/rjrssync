@@ -243,26 +243,26 @@ Some more advanced options (see `cargo bench -- --help` for details):
 Each cell shows <min> - <max> over 5 sample(s) for: time | local memory (if available) | remote memory (if available)
 
 Windows -> Windows
-┌───────────────────┬────────────────────────────────────────────┐────────────────────────────────────────────┬────────────────────────────────────────────┬────────────────────────────────────────────┬───────────────────┐      
-│ Test case         │ rjrssync.exe (x10)                         │ scp (x10)                                  │ xcopy (x10)                                │ robocopy (x10)                             │ APIs (x10)        │      
-├───────────────────┼────────────────────────────────────────────┤────────────────────────────────────────────┼────────────────────────────────────────────┼────────────────────────────────────────────┼───────────────────┤      
-│ Everything copied │ 3.09s   - 3.90s  | 37.84 MiB  - 78.93 MiB  │ 2.40s   - 3.08s  | 7.23 MiB   - 7.25 MiB   │ 2.43s   - 3.01s  | 5.70 MiB   - 5.84 MiB   │ 1.85s   - 2.46s  | 6.83 MiB   - 6.96 MiB   │ 2.02s   - 2.98s   │      
-│ Nothing copied    │ 58ms    - 119ms  | 9.54 MiB   - 9.90 MiB   │ Skipped                                    │ Skipped                                    │ 93ms    - 126ms  | 5.69 MiB   - 5.71 MiB   │ Skipped           │      
-│ Some copied       │ 78ms    - 127ms  | 9.51 MiB   - 9.97 MiB   │ Skipped                                    │ Skipped                                    │ 237ms   - 291ms  | 6.04 MiB   - 6.11 MiB   │ Skipped           │      
-│ Delete and copy   │ 2.87s   - 3.59s  | 64.95 MiB  - 65.14 MiB  │ Skipped                                    │ Skipped                                    │ 2.76s   - 3.17s  | 6.91 MiB   - 7.04 MiB   │ Skipped           │      
-│ Single large file │ 725ms   - 888ms  | 29.40 MiB  - 70.22 MiB  │ 403ms   - 488ms  | 7.23 MiB   - 7.24 MiB   │ 380ms   - 438ms  | 5.63 MiB   - 5.65 MiB   │ 382ms   - 462ms  | 6.69 MiB   - 6.80 MiB   │ 387ms   - 537ms   │      
-└───────────────────┴────────────────────────────────────────────┘────────────────────────────────────────────┴────────────────────────────────────────────┴────────────────────────────────────────────┴───────────────────┘      
+┌───────────────────┬────────────────────────────────────────────┐────────────────────────────────────────────┬────────────────────────────────────────────┬────────────────────────────────────────────┬───────────────────┐
+│ Test case         │ rjrssync.exe (x10)                         │ scp (x10)                                  │ xcopy (x10)                                │ robocopy (x10)                             │ APIs (x10)        │
+├───────────────────┼────────────────────────────────────────────┤────────────────────────────────────────────┼────────────────────────────────────────────┼────────────────────────────────────────────┼───────────────────┤
+│ Everything copied │ 3.09s   - 3.90s  | 37.84 MiB  - 78.93 MiB  │ 2.40s   - 3.08s  | 7.23 MiB   - 7.25 MiB   │ 2.43s   - 3.01s  | 5.70 MiB   - 5.84 MiB   │ 1.85s   - 2.46s  | 6.83 MiB   - 6.96 MiB   │ 2.02s   - 2.98s   │
+│ Nothing copied    │ 58ms    - 119ms  | 9.54 MiB   - 9.90 MiB   │ Skipped                                    │ Skipped                                    │ 93ms    - 126ms  | 5.69 MiB   - 5.71 MiB   │ Skipped           │
+│ Some copied       │ 78ms    - 127ms  | 9.51 MiB   - 9.97 MiB   │ Skipped                                    │ Skipped                                    │ 237ms   - 291ms  | 6.04 MiB   - 6.11 MiB   │ Skipped           │
+│ Delete and copy   │ 2.87s   - 3.59s  | 64.95 MiB  - 65.14 MiB  │ Skipped                                    │ Skipped                                    │ 2.76s   - 3.17s  | 6.91 MiB   - 7.04 MiB   │ Skipped           │
+│ Single large file │ 725ms   - 888ms  | 29.40 MiB  - 70.22 MiB  │ 403ms   - 488ms  | 7.23 MiB   - 7.24 MiB   │ 380ms   - 438ms  | 5.63 MiB   - 5.65 MiB   │ 382ms   - 462ms  | 6.69 MiB   - 6.80 MiB   │ 387ms   - 537ms   │
+└───────────────────┴────────────────────────────────────────────┘────────────────────────────────────────────┴────────────────────────────────────────────┴────────────────────────────────────────────┴───────────────────┘
 
 Windows -> \\wsl$\...
-┌───────────────────┬────────────────────────────────────────────┐────────────────────────────────────────────┬────────────────────────────────────────────┬────────────────────────────────────────────┬───────────────────┐      
-│ Test case         │ rjrssync.exe (x10)                         │ scp (x10)                                  │ xcopy (x10)                                │ robocopy (x10)                             │ APIs (x10)        │      
-├───────────────────┼────────────────────────────────────────────┤────────────────────────────────────────────┼────────────────────────────────────────────┼────────────────────────────────────────────┼───────────────────┤      
-│ Everything copied │ 8.56s   - 10.46s | 78.58 MiB  - 79.03 MiB  │ 23.85s  - 24.51s | 7.22 MiB   - 7.25 MiB   │ 23.76s  - 24.31s | 12.28 MiB  - 12.59 MiB  │ 12.81s  - 13.15s | 13.77 MiB  - 14.02 MiB  │ 8.80s   - 9.14s   │      
-│ Nothing copied    │ 219ms   - 241ms  | 8.85 MiB   - 9.16 MiB   │ Skipped                                    │ Skipped                                    │ 925ms   - 973ms  | 5.70 MiB   - 5.72 MiB   │ Skipped           │      
-│ Some copied       │ 282ms   - 316ms  | 8.92 MiB   - 9.14 MiB   │ Skipped                                    │ Skipped                                    │ 1.04s   - 1.07s  | 5.95 MiB   - 6.04 MiB   │ Skipped           │      
-│ Delete and copy   │ 12.15s  - 12.96s | 65.18 MiB  - 65.46 MiB  │ Skipped                                    │ Skipped                                    │ 18.73s  - 19.09s | 13.82 MiB  - 14.09 MiB  │ Skipped           │      
-│ Single large file │ 6.90s   - 8.22s  | 222.62 MiB - 222.69 MiB │ 2.94s   - 3.03s  | 7.22 MiB   - 7.25 MiB   │ 2.96s   - 3.03s  | 12.18 MiB  - 12.19 MiB  │ 2.91s   - 3.00s  | 13.67 MiB  - 13.72 MiB  │ 2.90s   - 2.98s   │      
-└───────────────────┴────────────────────────────────────────────┘────────────────────────────────────────────┴────────────────────────────────────────────┴────────────────────────────────────────────┴───────────────────┘      
+┌───────────────────┬────────────────────────────────────────────┐────────────────────────────────────────────┬────────────────────────────────────────────┬────────────────────────────────────────────┬───────────────────┐
+│ Test case         │ rjrssync.exe (x10)                         │ scp (x10)                                  │ xcopy (x10)                                │ robocopy (x10)                             │ APIs (x10)        │
+├───────────────────┼────────────────────────────────────────────┤────────────────────────────────────────────┼────────────────────────────────────────────┼────────────────────────────────────────────┼───────────────────┤
+│ Everything copied │ 8.56s   - 10.46s | 78.58 MiB  - 79.03 MiB  │ 23.85s  - 24.51s | 7.22 MiB   - 7.25 MiB   │ 23.76s  - 24.31s | 12.28 MiB  - 12.59 MiB  │ 12.81s  - 13.15s | 13.77 MiB  - 14.02 MiB  │ 8.80s   - 9.14s   │
+│ Nothing copied    │ 219ms   - 241ms  | 8.85 MiB   - 9.16 MiB   │ Skipped                                    │ Skipped                                    │ 925ms   - 973ms  | 5.70 MiB   - 5.72 MiB   │ Skipped           │
+│ Some copied       │ 282ms   - 316ms  | 8.92 MiB   - 9.14 MiB   │ Skipped                                    │ Skipped                                    │ 1.04s   - 1.07s  | 5.95 MiB   - 6.04 MiB   │ Skipped           │
+│ Delete and copy   │ 12.15s  - 12.96s | 65.18 MiB  - 65.46 MiB  │ Skipped                                    │ Skipped                                    │ 18.73s  - 19.09s | 13.82 MiB  - 14.09 MiB  │ Skipped           │
+│ Single large file │ 6.90s   - 8.22s  | 222.62 MiB - 222.69 MiB │ 2.94s   - 3.03s  | 7.22 MiB   - 7.25 MiB   │ 2.96s   - 3.03s  | 12.18 MiB  - 12.19 MiB  │ 2.91s   - 3.00s  | 13.67 MiB  - 13.72 MiB  │ 2.90s   - 2.98s   │
+└───────────────────┴────────────────────────────────────────────┘────────────────────────────────────────────┴────────────────────────────────────────────┴────────────────────────────────────────────┴───────────────────┘
 
 Windows -> Remote Windows
 ┌───────────────────┬─────────────────────────────────────────────────────────────────────┐────────────────────────────────────────────┐
@@ -357,7 +357,7 @@ A build from source should be as simple as "cargo build" - ideally we don't have
 
 For the targets that we include as embedded binaries:
 
-We prefer to always have the exact same set, no matter the platform that we are building on. 
+We prefer to always have the exact same set, no matter the platform that we are building on.
 This means we can't use -msvc for the windows target for example, as this isn't available when building from Linux. Even though the "outer binary" (the code that actually runs) will be built with MSVC when building on Windows, the embedded binaries payload will still be -gnu. We could choose to additionally/instead always include the platform that we are currently targeting, but this would lead to differences in the embedded binaries which could be confusing. Of course somebody can get the source code and build rjrssync for any target they want and run it there, but it will only ever be deployable onto targets that are in the predefined list, so we want this to always be consistent. If somebody wants to deploy onto another platform, they'd have to add it to the list and rebuild, or manually "install" rjrssync on that target, doing a build from source.
 
 Maybe if we have a "rjrssync-lite" name for lite binaries, this will be enough to distinguish them. This might lift some of the restrictions? Getting the environment set up to build all of the embedded binaries on all platforms is difficult, e.g. mingw doesn't support Windows on Arm, so I'm not sure if there is a way to build for Windows on Arm from Linux. Getting mingw to work for a cross-build seems to require downloading mingw binaries separately (e.g. apt install mingw-w64 on Linux), which is a pain.
@@ -372,3 +372,10 @@ One option is that remote source builds should just build lite binaries, for spe
 But it does mean that users would need to set up all the rustup cross-compilation targets on their remote platform.
 
 On Windows, we could embed the lite binaries as proper "resources" (using .rc file etc.), but this isn't a thing on Linux, so we choose to use the same approach for both and so don't use this Windows feature. Instead we append the embedded binaries as sections in the final binary (.exe/.elf) (both platforms have the concept of sections in their executable formats). Because we'll need to manipulate the binaries anyway at runtime when building a new big binary, we're gonna need to mess around with the sections anyway, and making them work as resources is more work.
+
+Documentation
+=============
+
+The output of --help is quite long and verbose, and yet is still missing a lot of information. This might not be the best place to put a lot of detailed documentation, and instead be used as more of a short reference guide? We could have a short and a long version of --help, which clap does support. Alternatively we could put more information in the README.md, as this is easier to read (e.g. in a browser, not a terminal window). However the README isn't part of the built program, and therefore a user might not have access to it. We can probably assume that they have internet access though, and they probably got the program via GitHub or crates.io (which both show the README), so we link to the README in the --help. This link isn't great though because the version on GitHub won't necessarily be the same as the version the user has a binary of.
+
+Even if we include all the information we need in the --help, it's still good to have stuff in the README because that's the "advertisement" for the program that people would see before they have downloaded it. We don't want people to have to download and build it just to see what kind of features it has.

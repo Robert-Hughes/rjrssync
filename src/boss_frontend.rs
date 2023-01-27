@@ -16,6 +16,13 @@ use crate::profiling::{dump_all_profiling, start_timer, stop_timer, self};
 use crate::{boss_launch::*, profile_this, function_name, boss_deploy};
 use crate::boss_sync::*;
 
+/// Fast rsync-like tool for incrementally copying files.
+///
+/// Runs natively on both Windows and Linux
+/// and uses network for communication, to maximise speed when syncing between Windows and WSL
+/// filesystems.
+///
+/// Also see README.md on GitHub for more documentation: https://github.com/Robert-Hughes/rjrssync/blob/main/README.md
 #[derive(clap::Parser)]
 pub struct BossCliArgs {
     /// The source path, which will be synced to the destination path.
