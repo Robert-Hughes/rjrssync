@@ -3,16 +3,30 @@ About
 
 Fast rsync-like tool for incrementally copying files. Runs natively on both Windows and Linux and uses network for communication, to maximise speed when syncing between Windows and WSL filesystems.
 
+Features
+========
+
+* Local or remote targets (including remote to remote)
+* Fast, especially when nothing has changed
+* Runs natively on Windows and Linux. Much faster than using WSL with `/mnt/` or `\\wsl$\`
+* No setup needed on remote targets
+* Preserves symlinks
+* Filters
+* Replay frequently used syncs
+* Sync multiple folders in one command
+* Dry run
+* Progress bar and statistics
+
 Installation
 ============
 
-```
-cargo install rjrssync
-```
+1. Install the rust build tools: https://www.rust-lang.org/tools/install
+2. Install build tools for cross-compiling (see below)
+2. Run `cargo install rjrssync`
 
-This will build and install rjrssync from source.
+This will download the latest release of the source code from [crates.io](https://crates.io/crates/rjrssync), build and then install rjrssync.
 
-rjrssync embeds pre-built binaries for other platforms inside itself as part of the build, so you may need to add some additional targets using `rustup` to get a working build.
+As part of the build, rjrssync is also cross-compiled for several other platforms and these are embedded into the final binary. You may need to set up your build environment for this to work, for example adding some additional targets to `rustup`.
 
 ## Example (Linux)
 
