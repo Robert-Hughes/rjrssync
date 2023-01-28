@@ -36,8 +36,7 @@ fn run_trailing_slashes_test_expect_success_override_dest(src_node: Option<&File
             "$TEMP/dest".to_string() + dest_trailing_slash,
             // Some tests require deleting the dest root, which we allow here. The default is to prompt
             // the user, which is covered by other tests (dest_root_needs_deleting_tests.rs)
-            String::from("--dest-root-needs-deleting"), 
-            String::from("delete"),
+            String::from("--dest-root-needs-deleting=delete"),
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
@@ -82,7 +81,7 @@ fn run_trailing_slashes_test_expected_failure(src_node: Option<&FilesystemNode>,
         expected_filesystem_nodes: vec![
             // Both src and dest should be unchanged, as the sync should have failed
             ("$TEMP/src", src_node),
-            ("$TEMP/dest", dest_node),                
+            ("$TEMP/dest", dest_node),
         ],
         ..Default::default()
     });
@@ -90,7 +89,7 @@ fn run_trailing_slashes_test_expected_failure(src_node: Option<&FilesystemNode>,
 
 // In some environments (e.g. Linux), a file with a trailing slash is caught on the doer side when it attempts to
 // get the metadata for the root, but on some environments it isn't caught (Windows, depending on the drive)
-// so we do our own additional check, so the error message could be either. Note that different versions of Windows 
+// so we do our own additional check, so the error message could be either. Note that different versions of Windows
 // seem to report this differently (observed different behaviour locally vs on GitHub Actions).
 fn get_file_trailing_slash_error() -> Regex {
     return Regex::new("(is a file or symlink but is referred to with a trailing slash)|(can't be read)").unwrap();
@@ -146,7 +145,7 @@ fn test_file_no_trailing_slash_to_folder_no_trailing_slash() {
     run_trailing_slashes_test_expect_success(Some(&file("contents1")), "", Some(&empty_folder()), "", 1);
 }
 
-/// Tries syncing a file to a folder/. This should place the file inside the folder 
+/// Tries syncing a file to a folder/. This should place the file inside the folder
 #[test]
 fn test_file_no_trailing_slash_to_folder_trailing_slash() {
     run_trailing_slashes_test_expect_success_override_dest(Some(&file("contents1")), "", Some(&empty_folder()), "/", 1, "$TEMP/dest/src");
@@ -212,8 +211,8 @@ fn test_folder_trailing_slash_to_file_trailing_slash() {
 #[test]
 fn test_file_no_trailing_slash_to_file_no_trailing_slash() {
     run_trailing_slashes_test_expect_success(
-        Some(&file_with_modified("contents1", SystemTime::UNIX_EPOCH + Duration::from_secs(1))), "", 
-        Some(&file_with_modified("contents2", SystemTime::UNIX_EPOCH)), "", 
+        Some(&file_with_modified("contents1", SystemTime::UNIX_EPOCH + Duration::from_secs(1))), "",
+        Some(&file_with_modified("contents2", SystemTime::UNIX_EPOCH)), "",
         1);
 }
 
@@ -353,18 +352,18 @@ fn test_symlinks_broken_targets() {
 #[test]
 #[cfg(unix)]
 fn test_symlinks_broken_targets() {
-    run_trailing_slashes_test_expected_failure(Some(&symlink_file("hello")), "/", Some(&file("contents")), "", 
+    run_trailing_slashes_test_expected_failure(Some(&symlink_file("hello")), "/", Some(&file("contents")), "",
         Regex::new("src path .* doesn't exist").unwrap());
     // This is a bit of a weird one - the destination has a trailing slash, so Linux interprets it as the symlink target,
     // which doesn't exist, so we treat the dest as non-existent. Because it has a trailing slash though and the source is a file,
     // we assume that the user intends to copy the file into a new folder on the destination side, so we try to create that folder.
     // However this fails, because the dest symlink is already there!
-    run_trailing_slashes_test_expected_failure(Some(&file("hello")), "", Some(&symlink_file("hello")), "/", 
+    run_trailing_slashes_test_expected_failure(Some(&file("hello")), "", Some(&symlink_file("hello")), "/",
         Regex::new("Error creating folder and ancestors .* File exists").unwrap());
 
     run_trailing_slashes_test_expected_failure(Some(&symlink_folder("hello")), "/", Some(&file("contents")), "",
         Regex::new("src path .* doesn't exist").unwrap());
-    
+
     // Same weirdness as above
     run_trailing_slashes_test_expected_failure(Some(&file("hello")), "", Some(&symlink_folder("hello")), "/",
         Regex::new("Error creating folder and ancestors .* File exists").unwrap());
@@ -402,10 +401,10 @@ fn test_symlinks_valid_targets() {
             ("$TEMP/src", Some(&symlink_folder("target"))), // src unchanged
             ("$TEMP/target", Some(&folder! { // target unchanged
                 "file" => file_with_modified("hello", SystemTime::UNIX_EPOCH)
-            })), 
-            ("$TEMP/dest", Some(&folder! { // dest is a folder containing the file 
+            })),
+            ("$TEMP/dest", Some(&folder! { // dest is a folder containing the file
                 "file" => file_with_modified("hello", SystemTime::UNIX_EPOCH)
-            })), 
+            })),
         ],
         ..Default::default()
     });
@@ -431,13 +430,13 @@ fn test_symlinks_valid_targets() {
             ("$TEMP/target", Some(&folder! { // target folder has the new source file in it
                 "file" => file_with_modified("hello", SystemTime::UNIX_EPOCH),
                 "src" => file_with_modified("src file", SystemTime::UNIX_EPOCH)
-            })), 
+            })),
             ("$TEMP/dest", Some(&symlink_folder("target"))), // dest is still a symlink
         ],
         ..Default::default()
     });
 
-    // Trailing slash on both source and dest symlink folders, so both links are followed and 
+    // Trailing slash on both source and dest symlink folders, so both links are followed and
     // the contents of the symlink target folders are synced.
     run(TestDesc {
         setup_filesystem_nodes: vec![
@@ -461,7 +460,7 @@ fn test_symlinks_valid_targets() {
             ("$TEMP/dest", Some(&symlink_folder("target2"))), // dest is still a symlink
             ("$TEMP/target2", Some(&folder! { // dest target folder is updated
                 "src_file" => file_with_modified("hello1", SystemTime::UNIX_EPOCH)
-            })), 
+            })),
         ],
         ..Default::default()
     });
@@ -477,7 +476,7 @@ fn test_symlink_no_trailing_slash_to_folder_no_trailing_slash() {
     run_trailing_slashes_test_expect_success(Some(&symlink_file("target1")), "", Some(&empty_folder()), "", 1);
 }
 
-/// Tries syncing a symlink to a folder/. This should place the symlink inside the folder 
+/// Tries syncing a symlink to a folder/. This should place the symlink inside the folder
 #[test]
 fn test_symlink_no_trailing_slash_to_folder_trailing_slash() {
     run_trailing_slashes_test_expect_success_override_dest(Some(&symlink_file("target")), "", Some(&empty_folder()), "/", 1, "$TEMP/dest/src");

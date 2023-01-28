@@ -29,8 +29,7 @@ fn prompt_skip_then_overwrite() {
         args: vec![
             "$TEMP/src".to_string(),
             "$TEMP/dest".to_string(),
-            "--dest-file-older".to_string(),
-            "prompt".to_string(),
+            "--dest-file-older=prompt".to_string(),
         ],
         prompt_responses: vec![
             // We don't know what order the prompts will appear, so make sure that we match against the filename
@@ -43,7 +42,7 @@ fn prompt_skip_then_overwrite() {
             (1, Regex::new("dest file .*c1' is older than source file .*c1.*").unwrap()),
             (1, Regex::new("dest file .*c2' is older than source file .*c2.*").unwrap()),
             // Note that we need this last check, to make sure that the second prompt response only affects one file, not all remaining files
-            (1, Regex::new("dest file .*c3' is older than source file .*c3.*").unwrap()), 
+            (1, Regex::new("dest file .*c3' is older than source file .*c3.*").unwrap()),
             (1, Regex::new(&regex::escape("Copied 1 file(s)")).unwrap()), // 1 file copied the other skipped
         ],
         expected_filesystem_nodes: vec![
@@ -79,8 +78,7 @@ fn prompt_skip_all() {
         args: vec![
             "$TEMP/src".to_string(),
             "$TEMP/dest".to_string(),
-            "--dest-file-older".to_string(),
-            "prompt".to_string(),
+            "--dest-file-older=prompt".to_string(),
         ],
         prompt_responses: vec![
             String::from("1:.*:Skip (all occurences)"),
@@ -119,8 +117,7 @@ fn prompt_overwrite_all() {
         args: vec![
             "$TEMP/src".to_string(),
             "$TEMP/dest".to_string(),
-            "--dest-file-older".to_string(),
-            "prompt".to_string(),
+            "--dest-file-older=prompt".to_string(),
         ],
         prompt_responses: vec![
             String::from("1:.*:Overwrite (all occurences)"),
@@ -157,8 +154,7 @@ fn prompt_cancel() {
         args: vec![
             "$TEMP/src".to_string(),
             "$TEMP/dest".to_string(),
-            "--dest-file-older".to_string(),
-            "prompt".to_string(),
+            "--dest-file-older=prompt".to_string(),
         ],
         prompt_responses: vec![
             String::from("1:.*:Cancel sync"),
@@ -166,7 +162,7 @@ fn prompt_cancel() {
         expected_exit_code: 12,
         expected_output_messages: vec![
             // We actaully get this message twice - once for the prompt and once in the error message after the prompt is cancelled
-            (2, Regex::new("dest file .*c1' is older than source file .*c1.*").unwrap()), 
+            (2, Regex::new("dest file .*c1' is older than source file .*c1.*").unwrap()),
             (1, Regex::new(&regex::escape("Will not overwrite")).unwrap()), // Cancelled
         ],
         expected_filesystem_nodes: vec![
@@ -196,8 +192,7 @@ fn error() {
         args: vec![
             "$TEMP/src".to_string(),
             "$TEMP/dest".to_string(),
-            "--dest-file-older".to_string(),
-            "error".to_string(),
+            "--dest-file-older=error".to_string(),
         ],
         expected_exit_code: 12,
         expected_output_messages: vec![
@@ -230,8 +225,7 @@ fn skip() {
         args: vec![
             "$TEMP/src".to_string(),
             "$TEMP/dest".to_string(),
-            "--dest-file-older".to_string(),
-            "skip".to_string(),
+            "--dest-file-older=skip".to_string(),
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
@@ -264,8 +258,7 @@ fn overwrite() {
         args: vec![
             "$TEMP/src".to_string(),
             "$TEMP/dest".to_string(),
-            "--dest-file-older".to_string(),
-            "overwrite".to_string(),
+            "--dest-file-older=overwrite".to_string(),
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![

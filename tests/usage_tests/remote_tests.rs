@@ -19,8 +19,7 @@ fn test_remote_launch_impl(remote_platforms: &RemotePlatforms, first_remote_plat
         ],
         args: vec![
             "--deploy=force".to_string(),
-            "--dest-root-needs-deleting".to_string(),
-            "skip".to_string(), // We sync a file to a folder, and then skip when we hit the prompt. This means that no sync is performed, but it checks the connection is good
+            "--dest-root-needs-deleting=skip".to_string(), // We sync a file to a folder, and then skip when we hit the prompt. This means that no sync is performed, but it checks the connection is good
             "$TEMP/src".to_string(),
             format!("{}:{}", first_remote_platform.user_and_host, first_remote_platform.test_folder),
         ],
@@ -37,8 +36,7 @@ fn test_remote_launch_impl(remote_platforms: &RemotePlatforms, first_remote_plat
             ("$TEMP/src", &file("blah"))
         ],
         args: vec![
-            "--dest-root-needs-deleting".to_string(),
-            "skip".to_string(), // We sync a file to a folder, and then skip when we hit the prompt. This means that no sync is performed, but it checks the connection is good
+            "--dest-root-needs-deleting=skip".to_string(), // We sync a file to a folder, and then skip when we hit the prompt. This means that no sync is performed, but it checks the connection is good
             "$TEMP/src".to_string(),
             format!("{}:{}", first_remote_platform.user_and_host, first_remote_platform.test_folder),
         ],
@@ -82,8 +80,7 @@ fn test_remote_launch_impl(remote_platforms: &RemotePlatforms, first_remote_plat
         let output = run_process_with_live_output(
             std::process::Command::new("ssh")
             .arg(&first_remote_platform.user_and_host).arg(&first_remote_platform.rjrssync_path)
-            .arg("--dest-root-needs-deleting")
-            .arg("skip") // We sync a file to a folder, and then skip when we hit the prompt. This means that no sync is performed, but it checks the connection is good
+            .arg("--dest-root-needs-deleting=skip") // We sync a file to a folder, and then skip when we hit the prompt. This means that no sync is performed, but it checks the connection is good
             .arg(&first_remote_platform.rjrssync_path) // This is a file we know exists!
             .arg(format!("{}:{}", second_remote_platform.user_and_host, second_remote_platform.test_folder))
             .arg("--deploy=force")

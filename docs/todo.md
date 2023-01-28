@@ -10,13 +10,7 @@ Interface
 * Could have some kind of hierarchy of filters, so can exclude something without continuing to evaluate other filters?
 * Perhaps could have hard/soft includes/excludes - soft would keep evaluating other filters which may change the decision, hard would stop evaluating and keep that as the final decision.
 * Ctrl-C doesn't seem to work very well at stopping rjrssync when it's running
-* Tidy up --help output -
-  - short and long version (clap supports this). Need to have short text on one line with blank line then additional long text.
-  - Things in the README or notes.md shouldn't be needed for a user as they won't necessarily have access to then. These would need to be in --help, so might need moving.
-  - The README is displayed on crates.io though, so it's likely that a user would see this.
-  - Add reference to trailing slash and symlink behaviour in notes.md?
-  - the preformatted text for the spec file isn't working
-* The naming for the behaviour flags isn't great - too verbose and not clear enough?
+* Documentation - Add reference somewhere to the trailing slash and symlink behaviour section of notes.md?
 * In the spec file, could allow some settings to be set at both per-sync level, and at the top level (which would then apply to all syncs, but allowing overrides per-sync as well)
 * Decide if info! (and other) log messages should be on stdout or stderr
 * When showing multiple prompts, could remember the selection from previous time the same prompt was shown and use that as the default for the next one?

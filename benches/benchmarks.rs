@@ -134,8 +134,8 @@ fn set_up_src_folders_impl_local(src_folder: &Path) {
     // Representative example of a directory structure with varied depth, varied file size etc.
     // PowerToys, specific version (so doesn't change in future runs)
     let result = std::process::Command::new("git").arg("clone")
-        .arg("--depth").arg("1")
-        .arg("--branch").arg("v0.64.0")
+        .arg("--depth=1")
+        .arg("--branch=v0.64.0")
         .arg("https://github.com/microsoft/PowerToys.git")
         .arg(src_folder.join("example-repo"))
         .status().expect("Failed to launch git");
@@ -148,7 +148,7 @@ fn set_up_src_folders_impl_local(src_folder: &Path) {
     assert!(std::process::Command::new("git").arg("remote").arg("set-branches").arg("origin").arg("*")
         .current_dir(src_folder.join("example-repo-slight-change"))
         .status().expect("Failed to launch git").success());
-    assert!(std::process::Command::new("git").arg("fetch").arg("--depth").arg("1").arg("origin").arg("v0.64.1")
+    assert!(std::process::Command::new("git").arg("fetch").arg("--depth=1").arg("origin").arg("v0.64.1")
         .current_dir(src_folder.join("example-repo-slight-change"))
         .status().expect("Failed to launch git").success());
     assert!(std::process::Command::new("git").arg("checkout").arg("FETCH_HEAD")

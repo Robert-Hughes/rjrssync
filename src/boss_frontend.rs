@@ -1309,8 +1309,8 @@ mod tests {
         let args = BossCliArgs::try_parse_from(&["rjrssync",
             "--spec", spec_file.path().to_str().unwrap(),
             "--filter", "-meow",
-            "--dest-file-newer", "error",
-            "--deploy", "ok",
+            "--dest-file-newer=error",
+            "--deploy=ok",
         ]).unwrap();
         let spec = resolve_spec(&args).unwrap();
         assert_eq!(spec, Spec {
@@ -1352,7 +1352,7 @@ mod tests {
 
         let args = BossCliArgs::try_parse_from(&["rjrssync",
             "--spec", spec_file.path().to_str().unwrap(),
-            "--all-destructive-behaviour", "error",
+            "--all-destructive-behaviour=error",
         ]).unwrap();
         let spec = resolve_spec(&args).unwrap();
         assert_eq!(spec, Spec {

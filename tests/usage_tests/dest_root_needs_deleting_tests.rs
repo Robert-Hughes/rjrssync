@@ -12,7 +12,7 @@ use crate::filesystem_node::*;
 fn prompt_cancel() {
     let src = file("this will replace the dest!");
     let dest = folder! {
-        // We put some files in the destination folder, to make sure that these aren't deleted even though the 
+        // We put some files in the destination folder, to make sure that these aren't deleted even though the
         // root isn't (because we delete in reverse order, this would be a potential bug)
         "c1" => file_with_modified("contents3", SystemTime::UNIX_EPOCH),
         "c2" => file_with_modified("contents4", SystemTime::UNIX_EPOCH),
@@ -25,8 +25,7 @@ fn prompt_cancel() {
         args: vec![
             "$TEMP/src".to_string(),
             "$TEMP/dest".to_string(),
-            "--dest-root-needs-deleting".to_string(),
-            "prompt".to_string(),
+            "--dest-root-needs-deleting=prompt".to_string(),
         ],
         prompt_responses: vec![
             String::from("1:.*:Cancel sync"),
@@ -59,8 +58,7 @@ fn prompt_delete() {
         args: vec![
             "$TEMP/src".to_string(),
             "$TEMP/dest".to_string(),
-            "--dest-root-needs-deleting".to_string(),
-            "prompt".to_string(),
+            "--dest-root-needs-deleting=prompt".to_string(),
         ],
         prompt_responses: vec![
             String::from("1:.*:Delete"),
@@ -68,7 +66,7 @@ fn prompt_delete() {
         expected_exit_code: 0,
         expected_output_messages: [&[
             (1, Regex::new("dest root folder .* needs deleting").unwrap()),
-        ], &<NumActions as Into<Vec<(usize, Regex)>>>::into(NumActions { 
+        ], &<NumActions as Into<Vec<(usize, Regex)>>>::into(NumActions {
             deleted_folders: 1,  // The root folder is deleted
             copied_files: 1,
             ..Default::default() })[..]].concat(),
@@ -94,8 +92,7 @@ fn prompt_skip() {
         args: vec![
             "$TEMP/src".to_string(),
             "$TEMP/dest".to_string(),
-            "--dest-root-needs-deleting".to_string(),
-            "prompt".to_string(),
+            "--dest-root-needs-deleting=prompt".to_string(),
         ],
         prompt_responses: vec![
             String::from("1:.*:Skip"),
@@ -118,7 +115,7 @@ fn prompt_skip() {
 fn error() {
     let src = file("this will replace the dest!");
     let dest = folder! {
-        // We put some files in the destination folder, to make sure that these aren't deleted even though the 
+        // We put some files in the destination folder, to make sure that these aren't deleted even though the
         // root isn't (because we delete in reverse order, this would be a potential bug)
         "c1" => file_with_modified("contents3", SystemTime::UNIX_EPOCH),
         "c2" => file_with_modified("contents4", SystemTime::UNIX_EPOCH),
@@ -131,8 +128,7 @@ fn error() {
         args: vec![
             "$TEMP/src".to_string(),
             "$TEMP/dest".to_string(),
-            "--dest-root-needs-deleting".to_string(),
-            "error".to_string(),
+            "--dest-root-needs-deleting=error".to_string(),
         ],
         expected_exit_code: 12,
         expected_output_messages: vec![
@@ -152,7 +148,7 @@ fn error() {
 fn skip() {
     let src = file("this will replace the dest!");
     let dest = folder! {
-        // We put some files in the destination folder, to make sure that these aren't deleted even though the 
+        // We put some files in the destination folder, to make sure that these aren't deleted even though the
         // root isn't (because we delete in reverse order, this would be a potential bug)
         "c1" => file_with_modified("contents3", SystemTime::UNIX_EPOCH),
         "c2" => file_with_modified("contents4", SystemTime::UNIX_EPOCH),
@@ -165,8 +161,7 @@ fn skip() {
         args: vec![
             "$TEMP/src".to_string(),
             "$TEMP/dest".to_string(),
-            "--dest-root-needs-deleting".to_string(),
-            "skip".to_string(),
+            "--dest-root-needs-deleting=skip".to_string(),
         ],
         expected_exit_code: 0,
         expected_filesystem_nodes: vec![
@@ -193,15 +188,14 @@ fn delete() {
         args: vec![
             "$TEMP/src".to_string(),
             "$TEMP/dest".to_string(),
-            "--dest-root-needs-deleting".to_string(),
-            "delete".to_string(),
+            "--dest-root-needs-deleting=delete".to_string(),
         ],
         expected_exit_code: 0,
         // The file inside and the root folder deleted
-        expected_output_messages: NumActions { 
-            deleted_files: 1, deleted_folders: 1, 
+        expected_output_messages: NumActions {
+            deleted_files: 1, deleted_folders: 1,
             copied_files: 1,
-            ..Default::default() }.into(), 
+            ..Default::default() }.into(),
         expected_filesystem_nodes: vec![
             ("$TEMP/src", Some(&src)), // Unchanged
             ("$TEMP/dest", Some(&src)), // Dest root deleted and replaced by src, so same as src

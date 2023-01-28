@@ -8,7 +8,7 @@ use embedded_binaries::*;
 
 /// The set of target triples that we build and embed binaries for.
 /// This means that we can deploy onto these platforms without needing to build from source.
-/// This set depends on what targets are available, which depends on the build platform, 
+/// This set depends on what targets are available, which depends on the build platform,
 /// so is a function not a constant.
 fn get_embedded_binary_target_triples() -> Vec<&'static str> {
     let mut result = vec![];
@@ -41,11 +41,11 @@ fn get_embedded_binary_target_triples() -> Vec<&'static str> {
 /// There is logic in rjrssync to create a new "big" binary for a given target from its embedded binaries,
 /// but we need a way of creating this initial big binary.
 /// We'd like this to be done through the standard "cargo build" command, rather than wrapping
-/// cargo in our own build script, which would be non-standard (hard to discover etc.). 
-/// Therefore we use this build.rs, which runs before cargo builds the rjrssync binary itself. 
-/// This script runs cargo (nested) to build all of the "lite" binaries for each target platform 
-/// we want to embed, and then gets these lite binaries embedded into the final binary, 
-/// so that we end up with a big binary. 
+/// cargo in our own build script, which would be non-standard (hard to discover etc.).
+/// Therefore we use this build.rs, which runs before cargo builds the rjrssync binary itself.
+/// This script runs cargo (nested) to build all of the "lite" binaries for each target platform
+/// we want to embed, and then gets these lite binaries embedded into the final binary,
+/// so that we end up with a big binary.
 /// This is called a "progenitor" binary and is controlled by a cargo feature flag.
 fn main() {
     // Cargo's default behaviour of re-running this script whenever any file in the package changes
@@ -56,7 +56,7 @@ fn main() {
     println!("cargo:rustc-env=TARGET={}", std::env::var("TARGET").unwrap());
 
     // If this isn't a progenitor build, then we have nothing to do.
-    // We need this check otherwise we will recurse forever as we call into cargo to build the lite 
+    // We need this check otherwise we will recurse forever as we call into cargo to build the lite
     // binaries, which will run this script.
     if env::var("CARGO_FEATURE_PROGENITOR") != Ok("1".to_string()) {
         return;
@@ -64,16 +64,16 @@ fn main() {
 
     // Build lite binaries for all supported targets
     // Use the same cargo binary as the one we were called from (in case it isn't the default one)
-    let cargo = env::var("CARGO").unwrap(); 
+    let cargo = env::var("CARGO").unwrap();
     // Build the lite binaries into a nested build folder. We can put all the different target
     // builds into this same target folder, because cargo automatically makes a subfolder for each target triple
     let lite_target_dir = Path::new(&env::var("OUT_DIR").unwrap()).join("lite");
     let mut embedded_binaries = EmbeddedBinaries::default();
     for target_triple in get_embedded_binary_target_triples() {
-        let mut cargo_cmd = Command::new(&cargo);        
+        let mut cargo_cmd = Command::new(&cargo);
         cargo_cmd.arg("build").arg("--release")
             // Build just the rjrssync binary, not any of the tests, examples etc.
-            .arg("--bin").arg("rjrssync")
+            .arg("--bin=rjrssync")
             // Disable the progenitor feature, so that this is a lite binary
             .arg("--no-default-features")
             .arg(format!("--target={target_triple}"))
@@ -81,10 +81,10 @@ fn main() {
 
         // Prevent passing through environment variables that cargo has set for this build script.
         // This leads to problems because the build script that the nested cargo will call would
-        // then see these env vars which were not meant for it. 
+        // then see these env vars which were not meant for it.
         // Particularly the CARGO_FEATURE_PROGENITOR var should NOT be set for the child build script,
         // but it IS set for us, and so it would be inherited and cause an infinitely recursive build!
-        // We do however want to pass through other environment variables, as the user/system may have other 
+        // We do however want to pass through other environment variables, as the user/system may have other
         // stuff set that needs to be preserved.
         cargo_cmd.env_clear().envs(
             env::vars().filter(|&(ref v, _)| !v.starts_with("CARGO_")).collect::<HashMap<String, String>>());
@@ -94,11 +94,11 @@ fn main() {
         assert!(cargo_status.success());
 
         // We need the filename of the executable that cargo built (something like target/release/rjrssync.exe),
-        // but this isn't easily discoverable as it depends on debug vs release and possibly other cargo 
-        // implementation details that we don't  want to rely on. 
+        // but this isn't easily discoverable as it depends on debug vs release and possibly other cargo
+        // implementation details that we don't  want to rely on.
         // The "proper" way of getting this is to use the JSON output from cargo, but this
         // is mutually exclusive with the regular (human) output. We want to keep the human output because
-        // it may contain useful error messages, so unfortunately we now have to run cargo _again_, to get 
+        // it may contain useful error messages, so unfortunately we now have to run cargo _again_, to get
         // the JSON output. This should be fast though, because the build is already done.
         cargo_cmd.arg("--message-format=json");
         println!("Running {:?}", cargo_cmd);
@@ -122,7 +122,7 @@ fn main() {
         println!("{}", lite_binary_filename.display());
         let data = std::fs::read(lite_binary_filename).expect("Failed to read lite binary data");
 
-        embedded_binaries.binaries.push(EmbeddedBinary { 
+        embedded_binaries.binaries.push(EmbeddedBinary {
             target_triple: target_triple.to_string(),
             data,
         });
@@ -137,7 +137,7 @@ fn main() {
     }
     let embedded_binaries_size = std::fs::metadata(&embedded_binaries_filename).unwrap().len();
 
-    // Generate an .rs file that includes the contents of this file into the final binary, in a 
+    // Generate an .rs file that includes the contents of this file into the final binary, in a
     // specially named section of the executable. This is include!'d from boss_deploy.rs.
     // We also need to have a proper reference to the data, otherwise the compiler/linker will optimise it out,
     // which is also done in boss_deploy.rs.
@@ -145,7 +145,7 @@ fn main() {
     let generated_rs_contents = format!(
         r#"
 // This file is generated by build.rs
-#[link_section = "{section_name}"] 
+#[link_section = "{section_name}"]
 static EMBEDDED_BINARIES_DATA: [u8;{embedded_binaries_size}] = *include_bytes!(r"{}");
         "#, embedded_binaries_filename.display());
     let generated_rs_filename = Path::new(&env::var("OUT_DIR").unwrap()).join("embedded_binaries.rs");

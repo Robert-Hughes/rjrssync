@@ -6,7 +6,7 @@ use crate::{folder, test_framework::{run, TestDesc}};
 use map_macro::map;
 use crate::filesystem_node::*;
 
-/// Dest has three files which need deleting. The expected behaviour is controlled by a command-line argument, 
+/// Dest has three files which need deleting. The expected behaviour is controlled by a command-line argument,
 /// which in this case we set to "prompt", and choose "skip" and then "delete", then "skip" again.
 #[test]
 fn prompt_skip_then_delete() {
@@ -24,8 +24,7 @@ fn prompt_skip_then_delete() {
         args: vec![
             "$TEMP/src".to_string(),
             "$TEMP/dest".to_string(),
-            "--dest-entry-needs-deleting".to_string(),
-            "prompt".to_string(),
+            "--dest-entry-needs-deleting=prompt".to_string(),
         ],
         prompt_responses: vec![
             // We don't know what order the prompts will appear, so make sure that we match against the filename
@@ -38,7 +37,7 @@ fn prompt_skip_then_delete() {
             (1, Regex::new("dest file .*c1' needs deleting").unwrap()),
             (1, Regex::new("dest file .*c2' needs deleting").unwrap()),
             // Note that we need this last check, to make sure that the second prompt response only affects one file, not all remaining files
-            (1, Regex::new("dest file .*c3' needs deleting").unwrap()), 
+            (1, Regex::new("dest file .*c3' needs deleting").unwrap()),
             (1, Regex::new(&regex::escape("Deleted 1 file(s)")).unwrap()), // 1 file deleted the other two skipped
         ],
         expected_filesystem_nodes: vec![
@@ -69,8 +68,7 @@ fn prompt_skip_all() {
         args: vec![
             "$TEMP/src".to_string(),
             "$TEMP/dest".to_string(),
-            "--dest-entry-needs-deleting".to_string(),
-            "prompt".to_string(),
+            "--dest-entry-needs-deleting=prompt".to_string(),
         ],
         prompt_responses: vec![
             String::from("1:.*:Skip (all occurences)"),
@@ -105,8 +103,7 @@ fn prompt_delete_all() {
         args: vec![
             "$TEMP/src".to_string(),
             "$TEMP/dest".to_string(),
-            "--dest-entry-needs-deleting".to_string(),
-            "prompt".to_string(),
+            "--dest-entry-needs-deleting=prompt".to_string(),
         ],
         prompt_responses: vec![
             String::from("1:.*:Delete (all occurences)"),
@@ -140,8 +137,7 @@ fn prompt_cancel() {
         args: vec![
             "$TEMP/src".to_string(),
             "$TEMP/dest".to_string(),
-            "--dest-entry-needs-deleting".to_string(),
-            "prompt".to_string(),
+            "--dest-entry-needs-deleting=prompt".to_string(),
         ],
         prompt_responses: vec![
             String::from("1:.*:Cancel sync"),
@@ -176,8 +172,7 @@ fn error() {
         args: vec![
             "$TEMP/src".to_string(),
             "$TEMP/dest".to_string(),
-            "--dest-entry-needs-deleting".to_string(),
-            "error".to_string(),
+            "--dest-entry-needs-deleting=error".to_string(),
         ],
         expected_exit_code: 12,
         expected_output_messages: vec![
@@ -207,8 +202,7 @@ fn skip() {
         args: vec![
             "$TEMP/src".to_string(),
             "$TEMP/dest".to_string(),
-            "--dest-entry-needs-deleting".to_string(),
-            "skip".to_string(),
+            "--dest-entry-needs-deleting=skip".to_string(),
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
@@ -238,8 +232,7 @@ fn delete() {
         args: vec![
             "$TEMP/src".to_string(),
             "$TEMP/dest".to_string(),
-            "--dest-entry-needs-deleting".to_string(),
-            "delete".to_string(),
+            "--dest-entry-needs-deleting=delete".to_string(),
         ],
         expected_exit_code: 0,
         expected_output_messages: vec![
