@@ -4,6 +4,9 @@ TODO:
 Current
 -------
 
+Fix perf regression
+Upload new version to crates.io
+
 Interface
 ----------
 
@@ -37,6 +40,7 @@ Remote launching
 * Deploying a big binary to "less powerful"/slower targets may be bad because it will take ages to copy the big binary there, and the benefits of having a fully-functional rjrssync.exe on there may be minimal. Perhaps we do want the option(?) of deploying only a lite binary? That might make a lot of this work redundant, as we would no longer need to generate new big binaries on-demand, so wouldn't need to do all this section stuff. Perhaps instead we focus on making the binary smaller, which would be good anyway? One option could be to compress the embedded lite binaries.
 * When the doer is listening on network port, if the boss never connects (e.g. due to firewall) it seems that even when you close the boss, the doer is left behind and doesn't close, possibly because it's just sat waiting for network connection that never comes (cos of firewall). Maybe we should have a timeout on the doer, if the boss doesn't connect within some short time, it should exit? Or if the stdin drops (i.e. ssh disappears)?
 * The windows mingw build seems to be very slow as a remote doer when receiving large files
+* (Possibly related to above) Perf regression around 22nd Jan for large files (https://robert-hughes.github.io/rjrssync/), probably related to binary deployment, maybe the embedded builds are worse than native builds? Maybe -gnu is slower than -msvc for Windows, and -musl is slower and -gnu for Linux?
 
 Syncing logic
 -------------
@@ -79,6 +83,7 @@ Performance
    - Possibly want to keep the authentication aspects, but drop the encryption?
 * Investigate different values of BOSS_DOER_CHANNEL_MEMORY_CAPACITY using profiling
    - could this be set based on e.g. 10% of the system memory?
+* Looks like we're worse than competitors on wsl: Linux -> Linux for "everything copied"
 
 Testing
 -------
@@ -110,3 +115,4 @@ ERROR | rjrssync::boss_frontend: Sync error: Unexpected response from dest GetEn
 * Upload to cargo binstall (or similar) so that users don't need to build from source (especially if we're bundling embedded binaries, the initial build time will be looong!)
 * Look at cargo dependency graph, to see if we can remove some dependencies
 * Incremental build is really slow, with embedded binaries being built :(
+* Add Josh as crates.io package owner (needs to make an account first)
