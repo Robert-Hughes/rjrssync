@@ -71,13 +71,21 @@ fn main() {
     let mut embedded_binaries = EmbeddedBinaries::default();
     for target_triple in get_embedded_binary_target_triples() {
         let mut cargo_cmd = Command::new(&cargo);
-        cargo_cmd.arg("build").arg("--release")
+        cargo_cmd.arg("build")
+            // Add "-vv" for investigating build perf issues. (This won't be shown in the outer build unless "-vv" is also specified there.)
+            .arg("-vv")
             // Build just the rjrssync binary, not any of the tests, examples etc.
             .arg("--bin=rjrssync")
             // Disable the progenitor feature, so that this is a lite binary
             .arg("--no-default-features")
             .arg(format!("--target={target_triple}"))
             .arg("--target-dir").arg(&lite_target_dir);
+
+        // Match the debug/release-ness of the outer build. This is mainly so that debug builds are
+        // faster (40s release down to 15s debug even when basically nothing has changed).
+        if env::var("PROFILE").unwrap() == "release" {
+            cargo_cmd.arg("--release");
+        }
 
         // Prevent passing through environment variables that cargo has set for this build script.
         // This leads to problems because the build script that the nested cargo will call would
@@ -88,6 +96,12 @@ fn main() {
         // stuff set that needs to be preserved.
         cargo_cmd.env_clear().envs(
             env::vars().filter(|&(ref v, _)| !v.starts_with("CARGO_")).collect::<HashMap<String, String>>());
+
+        // Turn on logging that shows why things are being rebuilt. This is helpful for investigating
+        // build performance. (This won't be shown in the outer build unless "-vv" is specified there.)
+        // It might also be helpful to turn on this option for the outer build when investigating
+        cargo_cmd
+            .env("CARGO_LOG", "cargo::core::compiler::fingerprint=info");
 
         println!("Running {:?}", cargo_cmd);
         let cargo_status = cargo_cmd.status().expect("Failed to run cargo");

@@ -34,7 +34,6 @@ Remote launching
 * Sometimes see "ssh stderr: mesg: ttyname failed: Inappropriate ioctl for device" when deploying to remote (I think on 'F**A' platforms). Can we hide this using "-T" for example?
 * The prompt messages don't account for --dry-run, so it will look like things are actually going to be deleted, when they're not
 * Embed Windows on Arm (aarch64-pc-windows-msvc) binary, and detect it when checking a remote OS
-* Decide if embedded binaries should be always built in release, or the same as the main build?
 * Embedded binaries pass through other arguments, like profiling
 * When building embedded binaries, if the target platform cross-compiler isn't installed, then the build will produce a LOT of errors which is very noisy and slow. Maybe instead we should do our own quick check up front?
 * Deploying a big binary to "less powerful"/slower targets may be bad because it will take ages to copy the big binary there, and the benefits of having a fully-functional rjrssync.exe on there may be minimal. Perhaps we do want the option(?) of deploying only a lite binary? That might make a lot of this work redundant, as we would no longer need to generate new big binaries on-demand, so wouldn't need to do all this section stuff. Perhaps instead we focus on making the binary smaller, which would be good anyway? One option could be to compress the embedded lite binaries.
@@ -84,6 +83,7 @@ Performance
 * Investigate different values of BOSS_DOER_CHANNEL_MEMORY_CAPACITY using profiling
    - could this be set based on e.g. 10% of the system memory?
 * Looks like we're worse than competitors on wsl: Linux -> Linux for "everything copied"
+* Looks like perf got worse (or at least more variable) around Jan 15, esp. on wsl: Linux -> Remote Linux job and maybe a few others
 
 Testing
 -------
