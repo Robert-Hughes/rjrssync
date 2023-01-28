@@ -48,9 +48,6 @@ fn get_embedded_binary_target_triples() -> Vec<&'static str> {
 /// so that we end up with a big binary.
 /// This is called a "progenitor" binary and is controlled by a cargo feature flag.
 fn main() {
-    // Cargo's default behaviour of re-running this script whenever any file in the package changes
-    // is appropriate, so we don't emit any "cargo:rerun-if-..." instructions.
-
     // Pass on the target triple env var to the proper build, so that we can access this when building
     // boss_deploy.rs (this isn't available there otherwise)
     println!("cargo:rustc-env=TARGET={}", std::env::var("TARGET").unwrap());
@@ -62,6 +59,19 @@ fn main() {
         return;
     }
 
+    // Cargo's default behaviour is to re-run this script whenever any file in the package changes.
+    // This is OK, but it results in all the embedded binaries being rebuilt even if only a test
+    // file (etc.) is changed, slowing down incremental builds (embedded binaries don't depend on test code).
+    // Instead, we tell cargo to run this script only when the main source changes
+    // Note that we output different dependencies depending on CARGO_FEATURE_PROGENITOR. This seems
+    // to work correctly (i.e. toggling this feature on and off along with incremental builds),
+    // because cargo caches stuff in different folders based on the features used
+    // (different folders with names like rjrssync-e000b82bf13fda43)
+    println!("cargo:rerun-if-changed=.cargo");
+    println!("cargo:rerun-if-changed=src");
+    println!("cargo:rerun-if-changed=Cargo.lock");
+    println!("cargo:rerun-if-changed=Cargo.toml");
+
     // Build lite binaries for all supported targets
     // Use the same cargo binary as the one we were called from (in case it isn't the default one)
     let cargo = env::var("CARGO").unwrap();
@@ -72,8 +82,8 @@ fn main() {
     for target_triple in get_embedded_binary_target_triples() {
         let mut cargo_cmd = Command::new(&cargo);
         cargo_cmd.arg("build")
-            // Add "-vv" for investigating build perf issues. (This won't be shown in the outer build unless "-vv" is also specified there.)
-            .arg("-vv")
+            // For investigating build perf issues. (This won't be shown in the outer build unless "-vv" is specified there.)
+            .arg("-v")
             // Build just the rjrssync binary, not any of the tests, examples etc.
             .arg("--bin=rjrssync")
             // Disable the progenitor feature, so that this is a lite binary
