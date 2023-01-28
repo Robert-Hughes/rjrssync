@@ -25,60 +25,87 @@ use crate::boss_sync::*;
 /// Also see README.md on GitHub for more documentation: https://github.com/Robert-Hughes/rjrssync/blob/main/README.md
 #[derive(clap::Parser)]
 pub struct BossCliArgs {
-    /// The source path. Can be a file, folder or symlink, local or remote. Format: [[username@]hostname:]path
+    /// The source path. Must be an existing file, folder or symlink, local or remote. Format: [[username@]hostname:]path
+    ///
+    /// If a file or symlink is provided, only that single item will be copied (symlinks are not followed).
+    /// If a folder is provided, all its contents will be copied as well, recursively. Symlinks inside the folder are never followed.
     #[arg(required_unless_present_any=["spec", "generate_auto_complete_script", "list_embedded_binaries"], conflicts_with="spec")]
     src: Option<RemotePathDesc>,
-    /// The destination path. Can be a file, folder or symlink, local or remote. Format: [[username@]hostname:]path
+    /// The destination path. Can be existent or non-existent, local or remote. Format: [[username@]hostname:]path
+    ///
+    /// The sync will make the destination path equivalent to the source path, replacing whatever
+    /// is there already.
+    ///
+    /// One exception to this is that if the source is a file/symlink and the destination path ends
+    /// with a trailing slash, the file will be placed inside a destination folder (created if necessary).
+    ///
+    /// Some examples:
+    ///
+    ///   * Syncing a folder to a folder will update the contents of the destination folder to match the source folder.
+    ///
+    ///   * Syncing a folder to a file will delete the destination file and copy the source folder in its place
+    ///
+    ///   * Syncing a file to a destination path like "dest/" will copy the file inside the "dest/" folder
+    ///
+    ///   * Syncing a file to a symlink will delete the destination symlink and copy the source file its place
+    ///
     #[arg(required_unless_present_any=["spec", "generate_auto_complete_script", "list_embedded_binaries"], conflicts_with="spec")]
     dest: Option<RemotePathDesc>,
 
     /// Instead of providing SRC and DEST, a YAML file can be used to define the sync.
     ///
-    /// The spec file is a YAML file with the following structure:
+    /// The file has the following structure:
     ///
-    /// ```
-    ///     # Note that if no src_hostname is specified, then the respective src path is assumed to be local.
-    ///     # The same goes for dest.
-    ///     src_hostname: computer1
+    ///     # Omit src_hostname/dest_hostname for local targets
+    ///     src_hostname: source.domain.com
     ///     src_username: root
-    ///     dest_hostname: computer2
+    ///     dest_hostname: dest.domain.com
     ///     dest_username: myuser
     ///     syncs:
-    ///       - src: D:/Source
-    ///         dest: D:/Dest
-    ///         # Filters are regular expressions with a leading '+' or '-', indicating includes or excludes.
-    ///         filter: [ "+.*\.txt", "-garbage\.txt" ]
+    ///       - src: /root/source
+    ///         dest: /home/myuser/dest
+    ///         # See description of the --filter parameter
+    ///         filters: [ "+.*\.txt", "-garbage\.txt" ]
     ///         dest_file_newer_behaviour: error
     ///         dest_file_older_behaviour: skip
     ///         dest_entry_needs_deleting_behaviour: prompt
     ///         dest_root_needs_deleting_behaviour: delete
     ///       # Multiple paths can be synced
-    ///       - src: D:/Source2
-    ///         dest: D:/Dest2
-    /// ```
+    ///       - src: /root/source2
+    ///         dest: /home/myuser/dest2
     ///
-    /// In general, if parameters are provided in the both the spec file and then also as a command-line arg,
-    /// the command-line arg will 'override' the value set in the spec file.
-    #[arg(long)]
+    /// If the same argument is given in both the spec file and on the command-line,
+    /// the command-line value will take precedence.
+    #[arg(long, verbatim_doc_comment)]
     spec: Option<String>,
 
-    /// Ignore or include matching entries.
+    /// Ignore or include matching entries inside a folder being synced
     ///
-    /// Each filter is a regex, prepended with either a '+' or '-' character, to indicate if this filter
-    /// should include or exclude matching entries.
-    /// If the first filter provided is an include (+), then only those entries matching this filter will be included.
-    /// If the first filter provided is an exclude (-), then only those entries not matching this filter will be included.
-    /// Further filters can then add or remove entries.
-    /// The regexes are matched against a 'normalized' path relative to the root of the source/dest.
-    /// Normalized means:
-    ///    - forward slashes are always used as directory separators, never backwards slashes.
-    ///    - there are never any trailing slashes
-    /// If a folder is excluded, then none of the contents of the folder will be inspected, even if they would otherwise
-    /// be included by the filter.
-    /// The source/dest root is never checked against the filter - this is always considered as included.
-    /// The regex must match the entire normalized path for it to have an effect, not just a substring.
+    /// Can be specified multiple times to define a list of filters.
+    /// Each filter is a '+' or '-' character followed by a regular expression (https://docs.rs/regex/latest/regex/#syntax).
+    /// The '+'/'-' indicates if this filter includes (+) or excludes (-) matching entries.
+    ///
+    /// If the first filter is an include (+), then only those entries matching this filter will be synced.
+    /// If the first filter is an exclude (-), then entries matching this filter will *not* be synced.
+    /// Further filters can then override this decision.
+    ///
+    /// The regexes are matched against a 'normalized' path relative to the root path of the source/dest:
+    ///
+    ///    * Forward slashes are always used as directory separators, even on Windows platforms
+    ///
+    ///    * There are never any trailing slashes
+    ///
+    ///    * Matches are done against the entire normalized path - a substring match is not sufficient
+    ///
+    /// If a folder is excluded, then the contents of the folder will not be inspected,
+    /// even if they would otherwise be included by the filters.
+    ///
+    /// For example:
+    ///
+    ///     * --filter '+.*\.txt' --filter '-subfolder'  Syncs all files with the extension .txt, but not inside `subfolder`
+    ///
     #[arg(name="filter", long, allow_hyphen_values(true))]
-    filters: Vec<String>,
+    filter: Vec<String>,
 
     /// Show which files/folders will be copied or deleted, without making any real changes.
     #[arg(long)]
@@ -99,26 +126,25 @@ pub struct BossCliArgs {
 
     /// Override the TCP port for the remote rjrssync to listen on.
     ///
-    /// Overrides the TCP port that any remote copies of rjrssync on hostnames specified in src or dest
-    /// will listen on, used for network communication between the local and remote copies.
-    /// If not specified, a free port will be chosen.
+    /// For remote targets, rjrssync connects to a remote copy of itself using a TCP conenction.
+    /// If not specified, a free TCP port is chosen automatically.
     #[arg(long)]
     remote_port: Option<u16>,
 
     /// Behaviour for deploying rjrssync to remote targets.
     ///
     /// If a remote target doesn't have rjrssync, or the version it has is incompatible with this version,
-    /// then a new version will need to be deployed. This option configures this.
-    /// This uploads a binary to a folder on the remote target, so we check with the user first.
+    /// then a new version will need to be deployed.
     /// The default is 'prompt'.
+    // This uploads a binary to a folder on the remote target, so we check with the user first.
     // (the default isn't defined here, because it's defined in SyncSpec::default() and if we duplicate it
     //  here then we'll have no way of knowing if the user provided it on the cmd prompt as an override or not)
     #[arg(long)]
     deploy: Option<DeployBehaviour>,
 
-    /// Specifies behaviour when a file exists on both source and destination sides, but the
-    /// destination file has a newer modified timestamp. This might indicate that data is about
-    /// to be unintentionally lost.
+    /// Behaviour when a file exists on both source and destination sides, but the destination file has a newer modified timestamp.
+    ///
+    /// This might indicate that data is about to be unintentionally lost.
     /// The default is 'prompt'.
     // (the default isn't defined here, because it's defined in SyncSpec::default() and if we duplicate it
     //  here then we'll have no way of knowing if the user provided it on the cmd prompt as an override or not)
@@ -130,12 +156,14 @@ pub struct BossCliArgs {
     )]
     dest_file_newer: Option<DestFileUpdateBehaviour>,
 
-    /// Specifies behaviour when a file exists on both source and destination sides, but the
-    /// destination file has a older modified timestamp. This might indicate that data is about
-    /// to be unintentionally lost.
+    /// Behaviour when a file exists on both source and destination sides, and the destination file has a older modified timestamp.
+    ///
+    /// This might indicate that data is about to be unintentionally lost.
     /// The default is 'overwrite'.
     // (the default isn't defined here, because it's defined in SyncSpec::default() and if we duplicate it
     //  here then we'll have no way of knowing if the user provided it on the cmd prompt as an override or not)
+    // Although this option might not be very useful most of the time, it completes the set of options needed
+    // for --all-destructive-behaviour to be available (i.e. to prevent anything destructive)
     #[arg(long,
         default_value_if("all_destructive_behaviour", "prompt", "prompt"),
         default_value_if("all_destructive_behaviour", "error", "error"),
@@ -144,7 +172,8 @@ pub struct BossCliArgs {
     )]
     dest_file_older: Option<DestFileUpdateBehaviour>,
 
-    /// Specifies behaviour when a file/folder/symlink on the destination side needs deleting.
+    /// Behaviour when a file/folder/symlink on the destination side needs to be deleted.
+    ///
     /// This might indicate that data is about to be unintentionally lost.
     /// The default is 'delete'.
     // (the default isn't defined here, because it's defined in SyncSpec::default() and if we duplicate it
@@ -157,12 +186,13 @@ pub struct BossCliArgs {
     )]
     dest_entry_needs_deleting: Option<DestEntryNeedsDeletingBehaviour>,
 
-    /// Specifies behaviour when the entire root on the destination side needs deleting.
+    /// Behaviour when the entire root path on the destination needs to be deleted.
+    ///
     /// This might indicate that data is about to be unintentionally lost.
-    /// This is separate to --dest-entry-needs-deleting, because there is some potentially
-    /// surprising behaviour with regards to replacing the destination root that warrants
-    /// special warning.
     /// The default is 'prompt'.
+    // This is separate to --dest-entry-needs-deleting, because there is some potentially
+    // surprising behaviour with regards to replacing the destination root that warrants
+    // special warning.
     // (the default isn't defined here, because it's defined in SyncSpec::default() and if we duplicate it
     //  here then we'll have no way of knowing if the user provided it on the cmd prompt as an override or not)
     #[arg(long,
@@ -173,36 +203,42 @@ pub struct BossCliArgs {
     )]
     dest_root_needs_deleting: Option<DestRootNeedsDeletingBehaviour>,
 
-    /// Specifies behaviour when any destructive action is required.
+    /// Behaviour when any destructive action is required.
+    ///
     /// This might indicate that data is about to be unintentionally lost.
-    /// This is a convenience for setting the following flags all to equivalant values:
+    /// This is a convenience for setting the following flags to equivalant values:
+    ///
     ///   --dest-file-newer
+    ///
     ///   --dest-file-older
+    ///
     ///   --dest-entry-needs-deleting
+    ///
     ///   --dest-root-needs-deleting
-    /// If any of those arguments are set individually, their value will be kept.
+    ///
+    /// If any of these arguments are also set individually, their value will take precedence.
     /// This can be useful for running rjrssync in a "safe" mode (set this to 'prompt' or 'error'),
-    /// or in an unattended "--yes" mode (set this to 'proceed').
+    /// or in an unattended mode (set this to 'proceed').
     #[arg(long)]
     all_destructive_behaviour: Option<AllDestructiveBehaviour>,
 
-    /// Lists the binaries embedded inside this program, ready for deployment to remote targets.
+    /// List the binaries embedded inside this program ready for deployment to remote targets, instead of performing a sync.
     #[arg(long)]
     list_embedded_binaries: bool,
 
-    /// If provided, outputs an auto-complete script for the provided shell.
+    /// Output an auto-complete script for the provided shell, instead of performing a sync.
+    ///
     /// For example, to configure auto-complete for bash:
-    /// ```
+    ///
     ///     rjrssync --generate-auto-complete-script=bash > /usr/share/bash-completion/completions/rjrssync.bash
-    /// ```
+    ///
     /// And for PowerShell:
     ///
-    /// Add the following line to the file "C:\Users\<USER>\Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1"
-    /// (create the file if it doesn't exist):
-    /// ```
+    /// Add the following line to the file "C:\Users\<USER>\Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1" (create the file if it doesn't exist):
+    ///
     ///     rjrssync --generate-auto-complete-script=powershell | Out-String | Invoke-Expression
-    /// ```
-    #[arg(long)]
+    ///
+    #[arg(long, verbatim_doc_comment)]
     generate_auto_complete_script: Option<clap_complete::Shell>,
 
     /// [Internal] Launches as a doer process, rather than a boss process.
@@ -297,8 +333,8 @@ pub enum DestEntryNeedsDeletingBehaviour {
     /// An error will be raised, the sync will stop and the destination file will not be deleted.
     Error,
     /// The destination file will not be deleted and the rest of the sync will continue.
-    /// Note that this choice may lead to errors, as the entry that needed deleting might be preventing
-    /// something else from being placed there.
+    /// Note that this choice may lead to later errors, as the entry that needed deleting might be preventing
+    /// something else from being copied there.
     Skip,
     /// The destination entry will be deleted and the rest of the sync will continue.
     Delete,
@@ -311,8 +347,8 @@ pub enum DestRootNeedsDeletingBehaviour {
     /// An error will be raised, the sync will stop and the destination will not be changed.
     Error,
     /// The destination root will not be deleted and the sync will stop, but no error will be raised.
-    /// The only difference between this and 'error' is that rjrssync will still report success, it just
-    /// won't have actually done anything.
+    /// The only difference between this and 'error' is that rjrssync will still report success, even though
+    /// nothing has been synced.
     Skip,
     /// The destination root will be deleted and the rest of the sync will continue.
     Delete,
@@ -618,8 +654,8 @@ fn resolve_spec(args: &BossCliArgs) -> Result<Spec, String> {
         spec.deploy_behaviour = b;
     }
     for mut sync in &mut spec.syncs {
-        if !args.filters.is_empty() {
-            sync.filters = args.filters.clone();
+        if !args.filter.is_empty() {
+            sync.filters = args.filter.clone();
         }
         if let Some(b) = args.dest_file_newer {
             sync.dest_file_newer_behaviour = b;

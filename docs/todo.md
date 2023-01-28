@@ -101,6 +101,7 @@ Testing
 * Add test for multiple syncs with remote doer (to make sure it stays alive and can be used for multiple syncs) spec file
 * Tests for progress bar (large files, small files, deleting and copying files). Could unit test some of the stuff, especially boss_progress.rs
 * When installing rust on the GitHub job, could use the "minimal" profile to avoid downloading things like clippy, rust-docs etc. which we don't need
+* Tests for --all-destructive-behaviour. Including that the individual settings can be overidden.
 
 
 Misc
