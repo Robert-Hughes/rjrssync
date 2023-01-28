@@ -82,6 +82,8 @@ fn test_remote_launch_impl(remote_platforms: &RemotePlatforms, first_remote_plat
             .arg(&first_remote_platform.user_and_host).arg(&first_remote_platform.rjrssync_path)
             .arg("--dest-root-needs-deleting=skip") // We sync a file to a folder, and then skip when we hit the prompt. This means that no sync is performed, but it checks the connection is good
             .arg(&first_remote_platform.rjrssync_path) // This is a file we know exists!
+            //TODO: if this file has backslashes in, it gets messed up and we end up copying to T:\Temprjrssync-tests, which is wrong, and also means we don't skip the sync like intended!.
+            //TODO: repro with cargo test -- test_remote_launch_linux --nocapture, and notice the file it creates in T:\
             .arg(format!("{}:{}", second_remote_platform.user_and_host, second_remote_platform.test_folder))
             .arg("--deploy=force")
         );
