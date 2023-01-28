@@ -24,6 +24,7 @@ Interface
 * Long prompt messages (multi-line) duplicate themselves once answered.
 * Could warn or similar when filters will lead to an error, like trying to delete a folder that isn't empty (because the filters hid the files inside)
 * --force-redeploy is a bit confusing, because it still prompts you to deploy, even though you "forced" it. However I think we rely on this behaviour for tests of the --needs-deploy prompts? Perhaps --force-redeploy should imply --needs-deploy deploy, and then the tests can override --needs-deploy, so all is fine?
+* Maybe should just be --force-deploy, not re-deploy?
 * The "Connecting" spinner gets "lost" if we are deploying. it would be good to re-show this after deploy when we are trying to connect again (after Deploy successful!, there is a delay when nothing seems to be happening!)
 * If --force-redeploy is set, we shouldn't do two attempts at deployment if the first attempt fails?
 * When prompting and given the choice to remember for "all occurences", we could show the number of occurences, e.g. "All occurences (17)".

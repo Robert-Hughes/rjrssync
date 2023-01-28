@@ -25,18 +25,15 @@ use crate::boss_sync::*;
 /// Also see README.md on GitHub for more documentation: https://github.com/Robert-Hughes/rjrssync/blob/main/README.md
 #[derive(clap::Parser)]
 pub struct BossCliArgs {
-    /// The source path, which will be synced to the destination path.
-    /// Optionally contains a username and hostname for specifying remote paths.
-    /// Format: [[username@]hostname:]path
+    /// The source path. Can be a file, folder or symlink, local or remote. Format: [[username@]hostname:]path
     #[arg(required_unless_present_any=["spec", "generate_auto_complete_script", "list_embedded_binaries"], conflicts_with="spec")]
-    pub src: Option<RemotePathDesc>,
-    /// The destination path, which will be synced from the source path.
-    /// Optionally contains a username and hostname for specifying remote paths.
-    /// Format: [[username@]hostname:]path
+    src: Option<RemotePathDesc>,
+    /// The destination path. Can be a file, folder or symlink, local or remote. Format: [[username@]hostname:]path
     #[arg(required_unless_present_any=["spec", "generate_auto_complete_script", "list_embedded_binaries"], conflicts_with="spec")]
-    pub dest: Option<RemotePathDesc>,
+    dest: Option<RemotePathDesc>,
 
-    /// Instead of specifying SRC and DEST, this can be used to perform a sync defined by a config file.
+    /// Instead of providing SRC and DEST, a YAML file can be used to define the sync.
+    ///
     /// The spec file is a YAML file with the following structure:
     ///
     /// ```
@@ -63,13 +60,10 @@ pub struct BossCliArgs {
     /// In general, if parameters are provided in the both the spec file and then also as a command-line arg,
     /// the command-line arg will 'override' the value set in the spec file.
     #[arg(long)]
-    pub spec: Option<String>,
+    spec: Option<String>,
 
-    /// If set, forces redeployment of rjrssync to any remote targets, even if they already have an
-    /// up-to-date copy.
-    #[arg(long)]
-    pub force_redeploy: bool,
-    /// A list of filters that can be used to ignore some entries (files/folders) when performing the sync.
+    /// Ignore or include matching entries.
+    ///
     /// Each filter is a regex, prepended with either a '+' or '-' character, to indicate if this filter
     /// should include or exclude matching entries.
     /// If the first filter provided is an include (+), then only those entries matching this filter will be included.
@@ -84,16 +78,38 @@ pub struct BossCliArgs {
     /// The source/dest root is never checked against the filter - this is always considered as included.
     /// The regex must match the entire normalized path for it to have an effect, not just a substring.
     #[arg(name="filter", long, allow_hyphen_values(true))]
-    pub filters: Vec<String>,
+    filters: Vec<String>,
 
-    /// Overrides the TCP port that any remote copy(s) of rjrssync on hostnames specified in src or dest
+    /// Show which files/folders will be copied or deleted, without making any real changes.
+    #[arg(long)]
+    dry_run: bool,
+
+    /// Show additional statistics about the files and folders copied.
+    //
+    // This is a separate flag to --verbose, because that is more for debugging, but this is useful for normal users
+    #[arg(long)]
+    stats: bool,
+
+    /// Hide all output except warnings, errors and prompts.
+    #[arg(short, long, group="verbosity")]
+    quiet: bool,
+    /// Show additional output, useful for debugging.
+    #[arg(short, long, group="verbosity")]
+    verbose: bool,
+
+    /// Override the TCP port for the remote rjrssync to listen on.
+    ///
+    /// Overrides the TCP port that any remote copies of rjrssync on hostnames specified in src or dest
     /// will listen on, used for network communication between the local and remote copies.
     /// If not specified, a free port will be chosen.
     #[arg(long)]
-    pub remote_port: Option<u16>,
+    remote_port: Option<u16>,
 
+    /// Deploy rjrssync to remote targets even if they already have an up-to-date version.
+    ///
+    /// Without this, rjrssync will only be deployed if necessary.
     #[arg(long)]
-    pub dry_run: bool,
+    force_redeploy: bool,
 
     /// Specifies behaviour when rjrssync needs to be deployed to a remote target.
     /// This uploads a binary to a folder on the remote target, so we check with the user first.
@@ -101,7 +117,7 @@ pub struct BossCliArgs {
     // (the default isn't defined here, because it's defined in SyncSpec::default() and if we duplicate it
     //  here then we'll have no way of knowing if the user provided it on the cmd prompt as an override or not)
     #[arg(long)]
-    pub needs_deploy: Option<NeedsDeployBehaviour>,
+    needs_deploy: Option<NeedsDeployBehaviour>,
 
     /// Specifies behaviour when a file exists on both source and destination sides, but the
     /// destination file has a newer modified timestamp. This might indicate that data is about
@@ -115,7 +131,7 @@ pub struct BossCliArgs {
         default_value_if("all_destructive_behaviour", "skip", "skip"),
         default_value_if("all_destructive_behaviour", "proceed", "overwrite"),
     )]
-    pub dest_file_newer: Option<DestFileUpdateBehaviour>,
+    dest_file_newer: Option<DestFileUpdateBehaviour>,
 
     /// Specifies behaviour when a file exists on both source and destination sides, but the
     /// destination file has a older modified timestamp. This might indicate that data is about
@@ -129,7 +145,7 @@ pub struct BossCliArgs {
         default_value_if("all_destructive_behaviour", "skip", "skip"),
         default_value_if("all_destructive_behaviour", "proceed", "overwrite"),
     )]
-    pub dest_file_older: Option<DestFileUpdateBehaviour>,
+    dest_file_older: Option<DestFileUpdateBehaviour>,
 
     /// Specifies behaviour when a file/folder/symlink on the destination side needs deleting.
     /// This might indicate that data is about to be unintentionally lost.
@@ -142,7 +158,7 @@ pub struct BossCliArgs {
         default_value_if("all_destructive_behaviour", "skip", "skip"),
         default_value_if("all_destructive_behaviour", "proceed", "delete"),
     )]
-    pub dest_entry_needs_deleting: Option<DestEntryNeedsDeletingBehaviour>,
+    dest_entry_needs_deleting: Option<DestEntryNeedsDeletingBehaviour>,
 
     /// Specifies behaviour when the entire root on the destination side needs deleting.
     /// This might indicate that data is about to be unintentionally lost.
@@ -158,7 +174,7 @@ pub struct BossCliArgs {
         default_value_if("all_destructive_behaviour", "skip", "skip"),
         default_value_if("all_destructive_behaviour", "proceed", "delete"),
     )]
-    pub dest_root_needs_deleting: Option<DestRootNeedsDeletingBehaviour>,
+    dest_root_needs_deleting: Option<DestRootNeedsDeletingBehaviour>,
 
     /// Specifies behaviour when any destructive action is required.
     /// This might indicate that data is about to be unintentionally lost.
@@ -171,17 +187,7 @@ pub struct BossCliArgs {
     /// This can be useful for running rjrssync in a "safe" mode (set this to 'prompt' or 'error'),
     /// or in an unattended "--yes" mode (set this to 'proceed').
     #[arg(long)]
-    pub all_destructive_behaviour: Option<AllDestructiveBehaviour>,
-
-    /// Outputs some additional statistics about the data copied.
-    #[arg(long)]
-    pub stats: bool, // This is a separate flag to --verbose, because that is more for debugging, but this is useful for normal users
-    /// Hides all output except warnings and errors.
-    #[arg(short, long, group="verbosity")]
-    pub quiet: bool,
-    /// Shows additional output.
-    #[arg(short, long, group="verbosity")]
-    pub verbose: bool,
+    all_destructive_behaviour: Option<AllDestructiveBehaviour>,
 
     /// Lists the binaries embedded inside this program, ready for deployment to remote targets.
     #[arg(long)]
@@ -204,8 +210,8 @@ pub struct BossCliArgs {
 
     /// [Internal] Launches as a doer process, rather than a boss process.
     /// This shouldn't be needed for regular operation.
-    #[arg(long)]
-    pub doer: bool,
+    #[arg(long, hide(true))]
+    doer: bool,
 }
 
 /// Describes a local or remote path, parsed from the `src` or `dest` command-line arguments.
