@@ -105,19 +105,16 @@ pub struct BossCliArgs {
     #[arg(long)]
     remote_port: Option<u16>,
 
-    /// Deploy rjrssync to remote targets even if they already have an up-to-date version.
+    /// Behaviour for deploying rjrssync to remote targets.
     ///
-    /// Without this, rjrssync will only be deployed if necessary.
-    #[arg(long)]
-    force_redeploy: bool,
-
-    /// Specifies behaviour when rjrssync needs to be deployed to a remote target.
+    /// If a remote target doesn't have rjrssync, or the version it has is incompatible with this version,
+    /// then a new version will need to be deployed. This option configures this.
     /// This uploads a binary to a folder on the remote target, so we check with the user first.
     /// The default is 'prompt'.
     // (the default isn't defined here, because it's defined in SyncSpec::default() and if we duplicate it
     //  here then we'll have no way of knowing if the user provided it on the cmd prompt as an override or not)
     #[arg(long)]
-    needs_deploy: Option<NeedsDeployBehaviour>,
+    deploy: Option<DeployBehaviour>,
 
     /// Specifies behaviour when a file exists on both source and destination sides, but the
     /// destination file has a newer modified timestamp. This might indicate that data is about
@@ -269,13 +266,16 @@ impl std::str::FromStr for RemotePathDesc {
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug)]
-pub enum NeedsDeployBehaviour {
-    /// The user will be asked what to do. (In a non-interactive environment, this is equivalent to 'error')
+pub enum DeployBehaviour {
+    /// The user will be asked what to do if a deploy is needed.
+    /// (In a non-interactive environment, this is equivalent to 'error')
     Prompt,
-    /// An error will be raised and the sync will not happen.
+    /// Deploying is not allowed and will instead raise an error if it is required, and the sync will not happen.
     Error,
-    /// rjrssync will be deployed and built onto the target platform.
-    Deploy,
+    /// rjrssync will be deployed as necessary.
+    Ok,
+    /// rjrssync will be deployed regardless if the remote target already has an up-to-date version.
+    Force,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug)]
@@ -340,7 +340,7 @@ struct Spec {
     src_username: String,
     dest_hostname: String,
     dest_username: String,
-    needs_deploy_behaviour: NeedsDeployBehaviour,
+    deploy_behaviour: DeployBehaviour,
     syncs: Vec<SyncSpec>,
 }
 impl Default for Spec {
@@ -350,7 +350,7 @@ impl Default for Spec {
             src_username: String::from(""),
             dest_hostname: String::from(""),
             dest_username: String::from(""),
-            needs_deploy_behaviour: NeedsDeployBehaviour::Prompt,
+            deploy_behaviour: DeployBehaviour::Prompt,
             syncs: vec![],
         }
     }
@@ -446,7 +446,7 @@ fn parse_spec_file(path: &Path) -> Result<Spec, String> {
             Yaml::String(x) if x == "src_username" => result.src_username = parse_string(root_value, "src_username")?,
             Yaml::String(x) if x == "dest_hostname" => result.dest_hostname = parse_string(root_value, "dest_hostname")?,
             Yaml::String(x) if x == "dest_username" => result.dest_username = parse_string(root_value, "dest_username")?,
-            Yaml::String(x) if x == "needs_deploy_behaviour" => result.needs_deploy_behaviour = NeedsDeployBehaviour::from_str(&parse_string(root_value, "needs_deploy_behaviour")?, true)?,
+            Yaml::String(x) if x == "deploy_behaviour" => result.deploy_behaviour = DeployBehaviour::from_str(&parse_string(root_value, "deploy_behaviour")?, true)?,
             Yaml::String(x) if x == "syncs" => {
                 match root_value {
                     Yaml::Array(syncs_yaml) => {
@@ -614,8 +614,8 @@ fn resolve_spec(args: &BossCliArgs) -> Result<Spec, String> {
     }
 
     // Apply additional command-line args, which may override/augment what's in the spec file.
-    if let Some(b) = args.needs_deploy {
-        spec.needs_deploy_behaviour = b;
+    if let Some(b) = args.deploy {
+        spec.deploy_behaviour = b;
     }
     for mut sync in &mut spec.syncs {
         if !args.filters.is_empty() {
@@ -664,8 +664,7 @@ fn execute_spec(spec: Spec, args: &BossCliArgs) -> ExitCode {
         &spec.src_username,
         args.remote_port,
         "src".to_string(),
-        args.force_redeploy,
-        spec.needs_deploy_behaviour,
+        spec.deploy_behaviour,
     ) {
         Some(c) => c,
         None => return ExitCode::from(10),
@@ -675,8 +674,7 @@ fn execute_spec(spec: Spec, args: &BossCliArgs) -> ExitCode {
         &spec.dest_username,
         args.remote_port,
         "dest".to_string(),
-        args.force_redeploy,
-        spec.needs_deploy_behaviour,
+        spec.deploy_behaviour,
     ) {
         Some(c) => c,
         None => return ExitCode::from(11),
@@ -1073,7 +1071,7 @@ mod tests {
             src_username: "user1"
             dest_hostname: "computer2"
             dest_username: "user2"
-            needs_deploy_behaviour: deploy
+            deploy_behaviour: ok
             syncs:
             - src: T:\Source1
               dest: T:\Dest1
@@ -1096,7 +1094,7 @@ mod tests {
             src_username: "user1".to_string(),
             dest_hostname: "computer2".to_string(),
             dest_username: "user2".to_string(),
-            needs_deploy_behaviour: NeedsDeployBehaviour::Deploy,
+            deploy_behaviour: DeployBehaviour::Ok,
             syncs: vec![
                 SyncSpec {
                     src: "T:\\Source1".to_string(),
@@ -1137,7 +1135,7 @@ mod tests {
             src_username: "".to_string(), // Default - not specified in the YAML
             dest_hostname: "".to_string(), // Default - not specified in the YAML
             dest_username: "".to_string(), // Default - not specified in the YAML
-            needs_deploy_behaviour: NeedsDeployBehaviour::Prompt, // Default - not specified in the YAML
+            deploy_behaviour: DeployBehaviour::Prompt, // Default - not specified in the YAML
             syncs: vec![
                 SyncSpec {
                     src: "T:\\Source1".to_string(),
@@ -1260,7 +1258,7 @@ mod tests {
     fn resolve_spec_overrides() {
         let mut spec_file = NamedTempFile::new().unwrap();
         write!(spec_file, r#"
-            needs_deploy_behaviour: error
+            deploy_behaviour: error
             syncs:
             - src: a
               dest: b
@@ -1276,11 +1274,11 @@ mod tests {
             "--spec", spec_file.path().to_str().unwrap(),
             "--filter", "-meow",
             "--dest-file-newer", "error",
-            "--needs-deploy", "deploy",
+            "--deploy", "ok",
         ]).unwrap();
         let spec = resolve_spec(&args).unwrap();
         assert_eq!(spec, Spec {
-            needs_deploy_behaviour: NeedsDeployBehaviour::Deploy, // Overriden by command-line args
+            deploy_behaviour: DeployBehaviour::Ok, // Overriden by command-line args
             syncs: vec![
                 SyncSpec {
                     src: "a".to_string(),

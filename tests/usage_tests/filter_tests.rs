@@ -237,14 +237,13 @@ fn test_filter_normalized_paths() {
             ("$REMOTE_LINUX_TEMP/dest", &dest_folder),
         ],
         args: vec![
-            "--needs-deploy".to_string(),
-            "deploy".to_string(), // Skip the confirmation prompt for deploying
+            "--deploy=ok".to_string(),  // Skip the confirmation prompt for deploying
             "$REMOTE_WINDOWS_TEMP/src".to_string(),
             "$REMOTE_LINUX_TEMP/dest".to_string(),
             "--filter".to_string(),
             // Note we use a forward slash - this should match the EXCLUDE subfolder on both Linux and Windows
             // Note that there is no trailing slash on the EXCLUDE folder
-            "-Folder/EXCLUDE".to_string(), 
+            "-Folder/EXCLUDE".to_string(),
         ],
         expected_exit_code: 0,
         expected_output_messages: copied_files(1).into(),

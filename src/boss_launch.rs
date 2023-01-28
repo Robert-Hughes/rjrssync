@@ -27,7 +27,7 @@ pub const REMOTE_TEMP_WINDOWS: &str = r"%TEMP%";
 
 /// Rough maximum amount of memory we allow to be buffered in our cross-thread communication channels
 /// between boss and doer. If this is set too high (or we didn't set a limit at all), then we would
-/// buffer unlimited amounts of data in the case that one side of the transfer is faster than the 
+/// buffer unlimited amounts of data in the case that one side of the transfer is faster than the
 /// other and this would take up too much memory. If set too small, then we won't buffer enough
 /// and this could lead to reduced performance.
 pub const BOSS_DOER_CHANNEL_MEMORY_CAPACITY : usize = 100*1024*1024;
@@ -110,7 +110,7 @@ impl Comms {
             Comms::Remote { ref debug_name, .. } => {
                 let _debug_name = debug_name.clone();
                 // Synchronise the profiling clocks between local and remote profiling.
-                // Do this by sending a special Command which the doer responds to immediately with its local 
+                // Do this by sending a special Command which the doer responds to immediately with its local
                 // profiling timer. We then compare that value with our own profiling clock to work out the offset.
                 let profiling_offset = if cfg!(feature="profiling") {
                     // Do this a couple of times and take the average
@@ -183,8 +183,7 @@ pub fn setup_comms(
     remote_user: &str,
     remote_port_for_comms: Option<u16>,
     debug_name: String,
-    force_redeploy: bool,
-    needs_deploy_behaviour: NeedsDeployBehaviour,
+    deploy_behaviour: DeployBehaviour,
 ) -> Option<Comms> {
     profile_this!(format!("setup_comms {}", debug_name));
     debug!(
@@ -215,13 +214,13 @@ pub fn setup_comms(
     // We first attempt to run a previously-deployed copy of the program on the remote, to save time.
     // If it exists and is a compatible version, we can use that. Otherwise we deploy a new version
     // and try again
-    let mut deploy_reason = match force_redeploy {
-        true => Some("--force-redeploy was set"),
-        false => None
+    let mut deploy_reason = match deploy_behaviour {
+        DeployBehaviour::Force => Some("--deploy=force was set"),
+        _ => None
     };
     for attempt in 0..2 {
         if let Some(r) = deploy_reason {
-            if deploy_to_remote(remote_hostname, remote_user, r, needs_deploy_behaviour).is_ok() {
+            if deploy_to_remote(remote_hostname, remote_user, r, deploy_behaviour).is_ok() {
                 debug!("Successfully deployed, attempting to run again");
             } else {
                 error!("Failed to deploy to remote");
@@ -614,7 +613,7 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str, remote_port_for
                     Err(e) => {
                         error!("Failed to parse port number from line '{}': {e}", line);
                         return SshDoerLaunchResult::CommunicationError;
-                    } 
+                    }
                 };
 
                 // Need to wait for both stdout and stderr to pass the handshake

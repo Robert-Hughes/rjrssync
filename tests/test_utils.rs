@@ -414,6 +414,17 @@ pub fn get_unique_remote_temp_folder(remote_platform: &RemotePlatform) -> String
     folder
 }
 
+pub fn delete_remote_file(file: &str, remote_platform: &RemotePlatform) {
+    if remote_platform.is_windows {
+        // Use run_process_with_live_output to avoid messing up terminal line endings
+        let _ = run_process_with_live_output_impl(std::process::Command::new("ssh").arg(&remote_platform.user_and_host).arg(format!("del {file}")), false, false, true);
+        // This one can fail, if the file doesn't exist
+    } else {
+        let result = run_process_with_live_output_impl(std::process::Command::new("ssh").arg(&remote_platform.user_and_host).arg(format!("rm '{file}'")), false, false, true);
+        assert!(result.exit_status.success());
+    }
+}
+
 pub fn delete_remote_folder(folder: &str, remote_platform: &RemotePlatform) {
     if remote_platform.is_windows {
         // Use run_process_with_live_output to avoid messing up terminal line endings

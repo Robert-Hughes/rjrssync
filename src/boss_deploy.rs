@@ -16,14 +16,14 @@ use crate::*;
 use embedded_binaries::EmbeddedBinaries;
 
 /// Deploys a pre-built binary of rjrssync to the given remote computer, ready to be executed.
-pub fn deploy_to_remote(remote_hostname: &str, remote_user: &str, reason: &str, needs_deploy_behaviour: NeedsDeployBehaviour) -> Result<(), ()> {
+pub fn deploy_to_remote(remote_hostname: &str, remote_user: &str, reason: &str, deploy_behaviour: DeployBehaviour) -> Result<(), ()> {
     profile_this!();
 
     // We're about to (potentially) some output from scp/ssh, so this log message may as well be the same severity,
     // so the user knows what's happening. Same goes for the few other info! logs in this function.
     // It would be nice to have a progress bar/spinner here, but that might cause problems
     // with potential ssh output/prompts.
-    info!("Deploying onto '{}'", &remote_hostname); 
+    info!("Deploying onto '{}'", &remote_hostname);
 
     let user_prefix = if remote_user.is_empty() {
         "".to_string()
@@ -83,7 +83,7 @@ pub fn deploy_to_remote(remote_hostname: &str, remote_user: &str, reason: &str, 
             return Err(());
         }
     };
-      
+
     let (remote_temp, remote_rjrssync_folder) = if is_windows {
         (REMOTE_TEMP_WINDOWS, format!("{REMOTE_TEMP_WINDOWS}\\rjrssync"))
     } else {
@@ -91,31 +91,32 @@ pub fn deploy_to_remote(remote_hostname: &str, remote_user: &str, reason: &str, 
     };
 
     // Confirm that the user is happy for us to deploy the binary to the target
-    // (we're copying something onto the device that wasn't explicitly requested, 
+    // (we're copying something onto the device that wasn't explicitly requested,
     // so the user should probably be aware).
     let msg = format!("rjrssync needs to be deployed onto remote target {remote_hostname} because {reason}. \
         A pre-built {} binary will be uploaded into the folder '{remote_rjrssync_folder}'",
         HumanBytes(binary_size));
-    let resolved_behaviour = match needs_deploy_behaviour {
-        NeedsDeployBehaviour::Prompt => {
+    let resolved_behaviour = match deploy_behaviour {
+        DeployBehaviour::Prompt => {
             let prompt_result = resolve_prompt(format!("{msg}. What do?"),
-                None, 
+                None,
                 &[
-                    ("Deploy", NeedsDeployBehaviour::Deploy),
-                ], false, NeedsDeployBehaviour::Error);
+                    ("Deploy", DeployBehaviour::Ok),
+                ], false, DeployBehaviour::Error);
             prompt_result.immediate_behaviour
         },
+        DeployBehaviour::Force => DeployBehaviour::Ok,
         x => x,
     };
     match resolved_behaviour {
-        NeedsDeployBehaviour::Prompt => panic!("Should have been alredy resolved!"),
-        NeedsDeployBehaviour::Error => { 
-            error!("{msg}. Will not deploy. See --needs-deploy.");
+        DeployBehaviour::Prompt | DeployBehaviour::Force => panic!("Should have been alredy resolved!"),
+        DeployBehaviour::Error => {
+            error!("{msg}. Will not deploy. See --deploy.");
             return Err(());
         }
-        NeedsDeployBehaviour::Deploy => (), // Continue with deployment
+        DeployBehaviour::Ok => (), // Continue with deployment
     };
- 
+
     // Deploy to remote target using scp
     // Note we need to deal with the case where the the remote folder doesn't exist, and the case where it does, so
     // we copy into /tmp (which should always exist), rather than directly to /tmp/rjrssync which may or may not
@@ -156,7 +157,7 @@ pub fn deploy_to_remote(remote_hostname: &str, remote_user: &str, reason: &str, 
                 error!("Error setting executable bit. Exit status from ssh: {}", s.exit_status);
                 return Err(());
             }
-        };    
+        };
     }
 
     info!("Deploy successful!");
@@ -190,7 +191,7 @@ impl Display for OutputReaderStreamType {
 // We capture and then forward stdout and stderr, so the user can see what's happening and if there are any errors.
 // Simply letting the child process inherit out stdout/stderr seems to cause problems with line endings getting messed
 // up and losing output, and unwanted clearing of the screen.
-// This is especially important if using --force-redeploy on a broken remote, as you don't see any errors from the initial
+// This is especially important if using --deploy=force on a broken remote, as you don't see any errors from the initial
 // attempt to connect either
 fn run_process_with_live_output<I, S>(program: &str, args: I) -> Result<ProcessOutput, String>
 where
@@ -300,12 +301,12 @@ where S : std::io::Read {
 }
 
 /// Attempts to create an rjrssync binary that can be deployed to a target platform.
-/// 
+///
 /// This is quite confusing because of the recursive resource embedding.
 /// We need to 'break the chain' to avoid a binary that contains itself (and thus is impossible).
 ///
 /// Within the running executable, we embed a set of binaries for each supported
-/// target platform (e.g. Windows x86 and Linux x86). These binaries are "lite" binaries as 
+/// target platform (e.g. Windows x86 and Linux x86). These binaries are "lite" binaries as
 /// they do not have any embedded binaries themselves - just the rjrssync code. This is as opposed
 /// to our currently executing binary, which is a "big" binary as it contains embedded binaries
 /// for the target platforms. A "big" binary therefore contains a set of "lite" binaries.
@@ -317,12 +318,12 @@ where S : std::io::Read {
 /// inside the lite binary for the target platform.
 ///
 /// For any platform p, Big_p = Lite_p + Embed(Lite_0, Lite_1, ..., Lite_n)
-/// 
+///
 /// If the target platform is the same as the current one though, we can skip most of this and simply
 /// copy ourselves directly - no need to recreate what we already have. This means that even
 /// a lite binary can be deployed to remote targets as long as they are the same platform.
 fn create_binary_for_target(os_test_output: &str, output_binary_filename: &Path) -> Result<u64, String> {
-    // The embedded binaries might have different target triples depending on how it was build, 
+    // The embedded binaries might have different target triples depending on how it was build,
     // e.g. -gnu vs -msvc suffixes, so we need to be somewhat flexible here.
     let compatible_target_triples = if os_test_output.contains("Windows") && os_test_output.contains("AMD64") {
         vec!["x86_64-pc-windows-msvc", "x86_64-pc-windows-gnu"]
@@ -340,7 +341,7 @@ fn create_binary_for_target(os_test_output: &str, output_binary_filename: &Path)
     if compatible_target_triples.contains(&env!("TARGET")) {
         debug!("Target platform is compatible with native platform - copying current executable");
         let current_exe = std::env::current_exe().map_err(|e| format!("Unable to get path to current exe: {e}"))?;
-        let size = std::fs::copy(&current_exe, output_binary_filename).map_err(|e| 
+        let size = std::fs::copy(&current_exe, output_binary_filename).map_err(|e|
             format!("Unable to copy current exe {} to {}: {e}", current_exe.display(), output_binary_filename.display()))?;
         return Ok(size)
     }
@@ -349,14 +350,14 @@ fn create_binary_for_target(os_test_output: &str, output_binary_filename: &Path)
     // with the target platform.
     let (embedded_binaries, embedded_binaries_data) = get_embedded_binaries()?;
     let target_platform_binary = match embedded_binaries.binaries.into_iter().find(
-        |b| compatible_target_triples.contains(&b.target_triple.as_str())) 
+        |b| compatible_target_triples.contains(&b.target_triple.as_str()))
     {
         Some(b) => b,
         None => return Err(format!(
             "No embedded binary for any compatible target triple ({:?}). Run --list-embedded-binaries to check what is available.",
             compatible_target_triples)),
     };
-   
+
     // Create new executable for the target platform, by upgrading the chosen lite binary
     // to a big binary.
     debug!("Found embedded binary ({}), extracting and upgrading it to a big binary", target_platform_binary.target_triple);
@@ -377,7 +378,7 @@ pub fn get_embedded_binaries() -> Result<(EmbeddedBinaries, Vec<u8>), String> {
     Ok((embedded_binaries, embedded_binaries_data))
 }
 
-// For creating the initial big binary from Cargo, which needs to include all the embedded lite 
+// For creating the initial big binary from Cargo, which needs to include all the embedded lite
 // binaries.
 #[cfg(feature="progenitor")]
 include!(concat!(env!("OUT_DIR"), "/embedded_binaries.rs"));
@@ -387,8 +388,8 @@ fn get_embedded_binaries_data() -> Result<Vec<u8>, String> {
     // To make sure that progenitor builds actually include the embedded binaries data and it isn't optimised
     // out, make a proper reference to the data.
     // The reference we add here hopefully shouldn't cause any performance issues.
-    // As an alternative, I managed to work around this on MSVC by putting it in a section called ".rsrc1", 
-    // but couldn't figure anything similar out for Linux. 
+    // As an alternative, I managed to work around this on MSVC by putting it in a section called ".rsrc1",
+    // but couldn't figure anything similar out for Linux.
     #[cfg(feature="progenitor")]
     unsafe { std::ptr::read_volatile(&EMBEDDED_BINARIES_DATA[0]); }
 
@@ -398,14 +399,14 @@ fn get_embedded_binaries_data() -> Result<Vec<u8>, String> {
     let embedded_binaries_data = exe_utils::extract_section_from_pe(exe_data, embedded_binaries::SECTION_NAME)?;
     #[cfg(unix)]
     let embedded_binaries_data = exe_utils::extract_section_from_elf(exe_data, embedded_binaries::SECTION_NAME)?;
-    
+
     Ok(embedded_binaries_data)
 }
 
 /// Takes a lite binary for a target, and augments it with the given embedded_binaries_data, turning
 /// it into a big binary.
-fn create_big_binary(output_binary_filename: &Path, target_triple: &str, 
-    target_platform_binary: Vec<u8>, embedded_binaries_data: Vec<u8>) -> Result<u64, String> 
+fn create_big_binary(output_binary_filename: &Path, target_triple: &str,
+    target_platform_binary: Vec<u8>, embedded_binaries_data: Vec<u8>) -> Result<u64, String>
 {
     let new_binary = match target_triple {
         x if x.contains("windows") => exe_utils::add_section_to_pe(target_platform_binary, embedded_binaries::SECTION_NAME, embedded_binaries_data)?,

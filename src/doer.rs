@@ -119,7 +119,7 @@ impl Comms {
 
     /// Blocks until a command is received. If the channel is closed (i.e. the boss has disconnected),
     /// then returns Err. Note that normally the boss should send us a Shutdown command rather than
-    /// just disconnecting, but in the case of errors, this may not happen so we want to deal with this 
+    /// just disconnecting, but in the case of errors, this may not happen so we want to deal with this
     /// cleanly too.
     pub fn receive_command(&mut self) -> Result<Command, String> {
         trace!("Waiting for command from {}", &self);
@@ -147,7 +147,7 @@ pub fn doer_main() -> ExitCode {
     // We need to do this on both stdout and stderr, because both those streams need to be synchronised on the receiving end.
     // Note that this needs to be done even before parsing cmd line args, because the cmd line args interface might change
     // (e.g. adding a new required parameter), then we wouldn't be able to launch the doer, and users
-    // will be forced to do a --force-redeploy which isn't very nice.
+    // will be forced to do a --deploy=force which isn't very nice.
     let msg = format!("{}{}", HANDSHAKE_STARTED_MSG, VERSION);
     println!("{}", msg);
     eprintln!("{}", msg);
@@ -275,7 +275,7 @@ pub fn doer_main() -> ExitCode {
     if args.dump_memory_usage {
         info!("Doer peak memory usage: {}", profiling::get_peak_memory_usage());
     }
-   
+
     debug!("doer process finished successfully!");
     ExitCode::SUCCESS
 }
@@ -293,7 +293,7 @@ pub fn doer_thread_running_on_boss(receiver: Receiver<Command>, sender: Sender<R
         Err(e) => {
             error!("doer thread finished with error: {:?}", e);
             Err(format!("doer thread finished with error: {:?}", e))
-        } 
+        }
     }
 }
 
@@ -544,7 +544,7 @@ fn apply_filters(path: &RootRelativePath, filters: &Filters) -> FilterResult {
 
     // Check for matches against all the filters using the RegexSet. This is more efficient than
     // testing each regex individually. This does however miss out on a potential optimisation where
-    // we can avoid checking against an include filter if the current state is already include (and the 
+    // we can avoid checking against an include filter if the current state is already include (and the
     // same for exclude), but hopefully using RegexSet is still faster (not been benchmarked).
     let matches = path.regex_set_matches(&filters.regex_set);
 
@@ -725,7 +725,7 @@ mod tests {
     #[test]
     fn test_apply_filters_root() {
         // Filters specify to exclude everything
-        let filters = Filters { 
+        let filters = Filters {
             regex_set: RegexSet::new(&["^.*$"]).unwrap(),
             kinds: vec![FilterKind::Exclude]
         };
@@ -736,7 +736,7 @@ mod tests {
 
     #[test]
     fn test_apply_filters_no_filters() {
-        let filters = Filters { 
+        let filters = Filters {
             regex_set: RegexSet::empty(),
             kinds: vec![]
         };
@@ -746,7 +746,7 @@ mod tests {
 
     #[test]
     fn test_apply_filters_single_include() {
-        let filters = Filters { 
+        let filters = Filters {
             regex_set: RegexSet::new(&["^yes$"]).unwrap(),
             kinds: vec![FilterKind::Include]
         };
@@ -756,7 +756,7 @@ mod tests {
 
     #[test]
     fn test_apply_filters_single_exclude() {
-        let filters = Filters { 
+        let filters = Filters {
             regex_set: RegexSet::new(&["^no$"]).unwrap(),
             kinds: vec![FilterKind::Exclude]
         };
@@ -766,7 +766,7 @@ mod tests {
 
     #[test]
     fn test_apply_filters_complex() {
-        let filters = Filters { 
+        let filters = Filters {
             regex_set: RegexSet::new(&[
                 "^.*$",
                 "^build/.*$",

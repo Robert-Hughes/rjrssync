@@ -3,7 +3,7 @@ use std::time::SystemTime;
 use regex::Regex;
 
 use map_macro::map;
-use crate::{test_framework::{run, TestDesc, NumActions, copied_files}, folder, test_utils::{RemotePlatforms, run_process_with_live_output, RemotePlatform}};
+use crate::{test_framework::{run, TestDesc, NumActions, copied_files}, folder, test_utils::{RemotePlatforms, run_process_with_live_output, RemotePlatform, self}};
 use crate::filesystem_node::*;
 
 /// Tests that rjrssync can be launched on a remote platform, and communication is estabilished.
@@ -11,16 +11,14 @@ use crate::filesystem_node::*;
 /// the binary augmentation, ssh/scp commands, TCP connection etc. works.
 fn test_remote_launch_impl(remote_platforms: &RemotePlatforms, first_remote_platform: &RemotePlatform) {
     let deploy_msg = "Deploying onto";
-    // First run with --force-redeploy, to check that the remote deploying works,
+    // First run with --deploy=force, to check that the remote deploying works,
     // even when the remote already has rjrssync set up.
     run(TestDesc {
         setup_filesystem_nodes: vec![
             ("$TEMP/src", &file("blah"))
         ],
         args: vec![
-            "--force-redeploy".to_string(),
-            "--needs-deploy".to_string(),
-            "deploy".to_string(), // Skip the confirmation prompt for deploying
+            "--deploy=force".to_string(),
             "--dest-root-needs-deleting".to_string(),
             "skip".to_string(), // We sync a file to a folder, and then skip when we hit the prompt. This means that no sync is performed, but it checks the connection is good
             "$TEMP/src".to_string(),
@@ -33,7 +31,7 @@ fn test_remote_launch_impl(remote_platforms: &RemotePlatforms, first_remote_plat
         ..Default::default()
     });
 
-    // Then run without --force-redeploy, and it should use the existing copy
+    // Then run without --deploy=force, and it should use the existing copy
     run(TestDesc {
         setup_filesystem_nodes: vec![
             ("$TEMP/src", &file("blah"))
@@ -88,9 +86,7 @@ fn test_remote_launch_impl(remote_platforms: &RemotePlatforms, first_remote_plat
             .arg("skip") // We sync a file to a folder, and then skip when we hit the prompt. This means that no sync is performed, but it checks the connection is good
             .arg(&first_remote_platform.rjrssync_path) // This is a file we know exists!
             .arg(format!("{}:{}", second_remote_platform.user_and_host, second_remote_platform.test_folder))
-            .arg("--force-redeploy")
-            .arg("--needs-deploy")
-            .arg("deploy") // Skip the confirmation prompt for deploying
+            .arg("--deploy=force")
         );
 
         assert_eq!(output.exit_status.code(), Some(0));
@@ -155,8 +151,7 @@ fn test_cross_platform() {
                 args: vec![
                     src_path.to_string(),
                     dest_path.to_string(),
-                    "--needs-deploy".to_string(),
-                    "deploy".to_string(), // Skip the confirmation prompt for deploying
+                    "--deploy=ok".to_string(),  // Skip the confirmation prompt for deploying
                 ],
                 expected_exit_code: 0,
                 expected_output_messages: NumActions {
@@ -177,13 +172,19 @@ fn test_cross_platform() {
     }
 }
 
-/// Deploy is needed due to --force-redeploy. The expected behaviour is controlled by a command-line argument, which in this case
+/// Deploy is needed due to missing on remote target.
+/// The expected behaviour is controlled by a command-line argument, which in this case
 /// we set to "prompt", and choose "cancel" on the prompt, so the sync should be stopped.
 #[test]
 fn needs_deploy_prompt_cancel() {
+    // Delete rjrssync on the remote, so that a deploy is required
+    let remote_platforms = RemotePlatforms::lock();
+    test_utils::delete_remote_file(&remote_platforms.windows.rjrssync_path, &remote_platforms.windows);
+
     let src = file_with_modified("this will replace the dest!", SystemTime::UNIX_EPOCH);
     let dest = file_with_modified("replace me!", SystemTime::UNIX_EPOCH);
     run(TestDesc {
+        remote_platforms: Some(&remote_platforms),
         setup_filesystem_nodes: vec![
             ("$TEMP/src", &src),
             ("$REMOTE_WINDOWS_TEMP/dest", &dest),
@@ -191,9 +192,7 @@ fn needs_deploy_prompt_cancel() {
         args: vec![
             "$TEMP/src".to_string(),
             "$REMOTE_WINDOWS_TEMP/dest".to_string(),
-            "--force-redeploy".to_string(),
-            "--needs-deploy".to_string(),
-            "prompt".to_string(),
+            "--deploy=prompt".to_string(),
         ],
         prompt_responses: vec![
             String::from("1:.*:Cancel sync"),
@@ -212,21 +211,25 @@ fn needs_deploy_prompt_cancel() {
     });
 }
 
-/// Deploy is needed due to --force-redeploy. The expected behaviour is controlled by a command-line argument, which in this case
+/// Deploy is needed due to missing on remote target.
+/// The expected behaviour is controlled by a command-line argument, which in this case
 /// we set to "prompt", and choose "deploy" on the prompt, so the sync should go ahead after deployment
 #[test]
 fn needs_deploy_prompt_deploy() {
+    // Delete rjrssync on the remote, so that a deploy is required
+    let remote_platforms = RemotePlatforms::lock();
+    test_utils::delete_remote_file(&remote_platforms.windows.rjrssync_path, &remote_platforms.windows);
+
     let src = file_with_modified("this will replace the dest!", SystemTime::UNIX_EPOCH);
     run(TestDesc {
+        remote_platforms: Some(&remote_platforms),
         setup_filesystem_nodes: vec![
             ("$TEMP/src", &src),
         ],
         args: vec![
             "$TEMP/src".to_string(),
             "$REMOTE_WINDOWS_TEMP/dest".to_string(),
-            "--force-redeploy".to_string(),
-            "--needs-deploy".to_string(),
-            "prompt".to_string(),
+            "--deploy=prompt".to_string(),
         ],
         prompt_responses: vec![
             String::from("1:.*:Deploy"),
@@ -244,21 +247,25 @@ fn needs_deploy_prompt_deploy() {
     });
 }
 
-/// Deploy is needed due to --force-redeploy. The expected behaviour is controlled by a command-line argument, which in this case
+/// Deploy is needed due to missing on remote target.
+/// The expected behaviour is controlled by a command-line argument, which in this case
 /// we set to produce an error.
 #[test]
 fn needs_deploy_error() {
+    // Delete rjrssync on the remote, so that a deploy is required
+    let remote_platforms = RemotePlatforms::lock();
+    test_utils::delete_remote_file(&remote_platforms.windows.rjrssync_path, &remote_platforms.windows);
+
     let src = file_with_modified("this will replace the dest!", SystemTime::UNIX_EPOCH);
     run(TestDesc {
+        remote_platforms: Some(&remote_platforms),
         setup_filesystem_nodes: vec![
             ("$TEMP/src", &src),
         ],
         args: vec![
             "$TEMP/src".to_string(),
             "$REMOTE_WINDOWS_TEMP/dest".to_string(),
-            "--force-redeploy".to_string(),
-            "--needs-deploy".to_string(),
-            "error".to_string(),
+            "--deploy=error".to_string(),
         ],
         expected_exit_code: 11,
         expected_output_messages: vec![
@@ -272,21 +279,25 @@ fn needs_deploy_error() {
     });
 }
 
-/// Deploy is needed due to --force-redeploy. The expected behaviour is controlled by a command-line argument, which in this case
-/// we set to deploy, so the deploy should go ahead and the sync should succeed
+/// Deploy is needed due to missing on remote target.
+/// The expected behaviour is controlled by a command-line argument, which in this case
+/// we set to ok, so the deploy should go ahead and the sync should succeed
 #[test]
-fn needs_deploy_deploy() {
+fn needs_deploy_ok() {
+    // Delete rjrssync on the remote, so that a deploy is required
+    let remote_platforms = RemotePlatforms::lock();
+    test_utils::delete_remote_file(&remote_platforms.windows.rjrssync_path, &remote_platforms.windows);
+
     let src = file_with_modified("this will replace the dest!", SystemTime::UNIX_EPOCH);
     run(TestDesc {
+        remote_platforms: Some(&remote_platforms),
         setup_filesystem_nodes: vec![
             ("$TEMP/src", &src),
         ],
         args: vec![
             "$TEMP/src".to_string(),
             "$REMOTE_WINDOWS_TEMP/dest".to_string(),
-            "--force-redeploy".to_string(),
-            "--needs-deploy".to_string(),
-            "deploy".to_string(),
+            "--deploy=ok".to_string(),
         ],
         expected_exit_code: 0,
         expected_output_messages: [&[

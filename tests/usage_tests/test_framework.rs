@@ -32,7 +32,24 @@ pub struct TestDesc<'a> {
     /// along with the expected number of occurences (use zero to indicate that a message should _not_ appear).
     pub expected_output_messages: Vec<(usize, Regex)>,
     /// The filesystem at the given paths are expected to be as described (including None, for non-existent)
-    pub expected_filesystem_nodes: Vec<(&'a str, Option<&'a FilesystemNode>)>
+    pub expected_filesystem_nodes: Vec<(&'a str, Option<&'a FilesystemNode>)>,
+    /// If provided, this is used to access remote platforms if they are needed for the test.
+    /// Otherwise we will call RemotePlatforms::lock(), which might cause problems if that lock is already
+    /// held by the calling code. This allows the calling code to lock the remote platforms, do some setup,
+    /// then call this test, all within the same lock.
+    pub remote_platforms: Option<&'a RemotePlatforms>,
+}
+
+fn get_remote_platforms<'a>(existing_lock: Option<&'a RemotePlatforms>, remote_platforms_lock: &'a mut Option<std::sync::MutexGuard<'static, RemotePlatforms>>)
+    -> &'a RemotePlatforms
+{
+    if let Some(r) = existing_lock {
+        return r;
+    }
+    if remote_platforms_lock.is_none() {
+        *remote_platforms_lock = Some(RemotePlatforms::lock());
+    }
+    return remote_platforms_lock.as_ref().unwrap();
 }
 
 /// Checks that running rjrssync with the setup described by the TestDesc behaves as described by the TestDesc.
@@ -49,7 +66,7 @@ pub fn run(desc: TestDesc) {
 
     // Lazy-initialize as we might not need these, and we want to be able to work when remote platforms
     // aren't available
-    let mut remote_platforms = None;
+    let mut remote_platforms_lock = None;
     let mut remote_windows_temp_path = None;
     let mut remote_linux_temp_path = None;
 
@@ -60,20 +77,14 @@ pub fn run(desc: TestDesc) {
         // need to have remote platforms available (e.g. on GitHub Actions).
         // Use a new remote temporary folder for each test (rather than re-using the root one)
         if p.contains("$REMOTE_WINDOWS_TEMP") {
-            if remote_platforms.is_none() {
-                remote_platforms = Some(RemotePlatforms::lock());
-            }
-            let platform = &remote_platforms.as_ref().unwrap().windows;
+            let platform = &get_remote_platforms(desc.remote_platforms, &mut remote_platforms_lock).windows;
             if remote_windows_temp_path.is_none() {
                 remote_windows_temp_path = Some(get_unique_remote_temp_folder(platform));
             }
             p = p.replace("$REMOTE_WINDOWS_TEMP", &format!("{}:{}", platform.user_and_host, remote_windows_temp_path.as_ref().unwrap()));
         }
         if p.contains("$REMOTE_LINUX_TEMP") {
-            if remote_platforms.is_none() {
-                remote_platforms = Some(RemotePlatforms::lock());
-            }
-            let platform = &remote_platforms.as_ref().unwrap().linux;
+            let platform = &get_remote_platforms(desc.remote_platforms, &mut remote_platforms_lock).linux;
             if remote_linux_temp_path.is_none() {
                 remote_linux_temp_path = Some(get_unique_remote_temp_folder(platform));
             }

@@ -371,8 +371,7 @@ fn test_symlink_target_slashes() {
             args: vec![
                 "$TEMP/src".to_string(),
                 format!("{}:{}", remote_platform.user_and_host, remote_dest),
-                "--needs-deploy".to_string(),
-                "deploy".to_string(), // Skip the confirmation prompt for deploying
+                "--deploy=ok".to_string(),  // Skip the confirmation prompt for deploying
             ],
             expected_exit_code: 0,
             expected_output_messages: copied_files_folders_and_symlinks(1, 0, 2).into(),
@@ -417,8 +416,7 @@ fn test_unknown_symlink_unix_to_windows() {
         args: vec![
             "$TEMP/src".to_string(),
             String::from("$REMOTE_WINDOWS_TEMP/dest"),
-            "--needs-deploy".to_string(),
-            "deploy".to_string(), // Skip the confirmation prompt for deploying
+            "--deploy=ok".to_string(),  // Skip the confirmation prompt for deploying
         ],
         expected_exit_code: 12,
         expected_output_messages: vec! [
