@@ -11,11 +11,10 @@ use crate::encrypted_comms;
 use crate::profiling::ProcessProfilingData;
 use crate::root_relative_path::RootRelativePath;
 
-// We include the profiling config in the version number, as profiling and non-profiling builds are not compatible
+// Bump the package version (in Cargo.toml) if the boss<>doer interface changes.
+// We include the profiling config in the version string here, as profiling and non-profiling builds are not compatible
 // (because a non-profiling doer won't record any events).
-//TODO: use package version?
-//TODO: have a --version, and/or include this in the --help text. Maybe clap does this automatically - yes, it can?
-pub const VERSION: &str = concatcp!("127", if cfg!(feature="profiling") { "+profiling"} else { "" });
+pub const VERSION: &str = concatcp!(env!("CARGO_PKG_VERSION"), if cfg!(feature="profiling") { "+profiling"} else { "" });
 
 // Message printed by a doer copy of the program to indicate that it has loaded and is ready
 // to receive data over its stdin. Once the boss receives this, it knows that ssh has connected

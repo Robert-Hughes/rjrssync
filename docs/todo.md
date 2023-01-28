@@ -35,6 +35,7 @@ Remote launching
 * When building embedded binaries, if the target platform cross-compiler isn't installed, then the build will produce a LOT of errors which is very noisy and slow. Maybe instead we should do our own quick check up front?
 * Deploying a big binary to "less powerful"/slower targets may be bad because it will take ages to copy the big binary there, and the benefits of having a fully-functional rjrssync.exe on there may be minimal. Perhaps we do want the option(?) of deploying only a lite binary? That might make a lot of this work redundant, as we would no longer need to generate new big binaries on-demand, so wouldn't need to do all this section stuff. Perhaps instead we focus on making the binary smaller, which would be good anyway? One option could be to compress the embedded lite binaries.
 * When the doer is listening on network port, if the boss never connects (e.g. due to firewall) it seems that even when you close the boss, the doer is left behind and doesn't close, possibly because it's just sat waiting for network connection that never comes (cos of firewall). Maybe we should have a timeout on the doer, if the boss doesn't connect within some short time, it should exit? Or if the stdin drops (i.e. ssh disappears)?
+* The windows mingw build seems to be very slow as a remote doer when receiving large files
 
 Syncing logic
 -------------

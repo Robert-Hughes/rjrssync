@@ -1,6 +1,6 @@
 [package]
 name = "rjrssync"
-version = "0.1.1"
+version = "0.2.0"
 description = "Fast rsync-like tool for incrementally copying files. Runs natively on both Windows and Linux and uses network for communication."
 edition = "2021"
 repository = "https://github.com/Robert-Hughes/rjrssync"
@@ -57,22 +57,22 @@ json = { version = "0.12.4"}
 
 [features]
 profiling=["dep:json"]
-# If enabled (which it is by default), build a binary which contains "lite" binaries for 
+# If enabled (which it is by default), build a binary which contains "lite" binaries for
 # other platforms, to enable easy deployment. If disabled, build a "lite" binary that doesn't
 # contain any embedded binaries. Note that a lite binary can be subsequently "augmented"
 # to become a "big binary", which is what happens when we create new big binaries for deploy,
 # but we need a special build to create the "first" big binary, which is the progenitor.
 # A progenitor is always big, but big is not necessarily a progenitor.
-progenitor=[] 
+progenitor=[]
 # By default, build a progenitor (a binary that includes copies of binaries for other platforms),
 # so that it can be easily deployed to other platforms.
-# Also the guidance on Cargo features is to make them "additive", i.e. to add functionality not 
+# Also the guidance on Cargo features is to make them "additive", i.e. to add functionality not
 # have a feature which removes functionality.
 # If you want to build a lite binary (e.g. for faster iterating in development),
 # then you have to pass --no-default-features to cargo to disable this feature.
-default=["progenitor"] 
+default=["progenitor"]
 
-# Note this is a profiling _profile_ and is orthogonal to the profiling _feature_, and is for 
+# Note this is a profiling _profile_ and is orthogonal to the profiling _feature_, and is for
 # including symbols in a release build so that an external profiling tool can be used.
 [profile.profiling]
 inherits = "release"
@@ -82,7 +82,7 @@ debug = 1
 name = "rjrssync"
 bench = false # Prevent from being run as a benchmark when running "cargo bench"
 
-# Note that these other executables are not in a [[bin]] section, so they don't get 
+# Note that these other executables are not in a [[bin]] section, so they don't get
 # installed (etc.) by default - only the main rjrssync executable should get installed,
 # as these are just for testing/development.
 

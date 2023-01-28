@@ -24,6 +24,7 @@ use crate::boss_sync::*;
 ///
 /// Also see README.md on GitHub for more documentation: https://github.com/Robert-Hughes/rjrssync/blob/main/README.md
 #[derive(clap::Parser)]
+#[command(version)]
 pub struct BossCliArgs {
     /// The source path. Must be an existing file, folder or symlink, local or remote. Format: [[username@]hostname:]path
     ///
