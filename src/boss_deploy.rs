@@ -328,9 +328,9 @@ fn create_binary_for_target(os_test_output: &str, output_binary_filename: &Path)
     let compatible_target_triples = if os_test_output.contains("Windows") && os_test_output.contains("AMD64") {
         vec!["x86_64-pc-windows-msvc", "x86_64-pc-windows-gnu"]
     } else if os_test_output.contains("Linux") && os_test_output.contains("x86_64") {
-        vec!["x86_64-unknown-linux-musl"]
+        vec!["x86_64-unknown-linux-musl", "x86_64-unknown-linux-gnu"]
     } else if os_test_output.contains("Linux") && os_test_output.contains("aarch64") {
-        vec!["aarch64-unknown-linux-musl"]
+        vec!["aarch64-unknown-linux-musl", "x86_64-unknown-linux-gnu"]
     } else {
         return Err(format!("Unknown target platform: {os_test_output}"));
     };
