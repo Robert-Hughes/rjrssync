@@ -4,16 +4,19 @@ TODO:
 Current
 -------
 
-Fix perf regression
+Fix perf regressions (see below)
 Upload new version to crates.io
 * Document that ssh is used for connecting and launching, and that the sync is performed over a different network port, and that it is encrypted. Some of this added to readme already, but needs more. This should possibly be moved/copied to the --help so is available there too? Mention firewall issues?
 * The "Connecting" spinner gets "lost" if we are deploying. it would be good to re-show this after deploy when we are trying to connect again (after Deploy successful!, there is a delay when nothing seems to be happening!)
-* The windows mingw build seems to be very slow as a remote doer when receiving large files
+* The windows mingw build seems to be very slow as a remote doer when receiving large files? Maybe was accidentally using a debug build. Check this.
 * (Possibly related to above) Perf regression around 22nd Jan for large files (https://robert-hughes.github.io/rjrssync/), probably related to binary deployment, maybe the embedded builds are worse than native builds? Maybe -gnu is slower than -msvc for Windows, and -musl is slower and -gnu for Linux?
 * Both these issues i think are cos debug builds were deployed and these are being used on the remote side.
 Because we deploy the current binary if the remote platform is the same, and we run tests in debug, then the remote binaries will have been left with debug versions and then when we run benchmarks it just uses these rather than replacing them. Maybe we want a warning/error if mixing debug and release binaries? Similar to how we do for profiling? Debug & release may also be incompatible network protocols (serde)?
-* Looks like perf got worse (or at least more variable) around Jan 15, esp. on wsl: Linux -> Remote Linux job and maybe a few others
-
+* Could it be static crt linking?
+* Could it be the MUSL build? Looks like it's only cases that involve remote linux that regressed?
+* Looks like perf got worse (or at least more variable) around Jan 15, esp. on wsl: Linux -> Remote Linux job and maybe a few others. Might be due to "Update progress partway through large files" commit?
+* Copying large file (local Windows to remote Linux, musl) doesn't seem to be updating the progress bar as it goes - just one big jump? Seems fine with -gnu version on remote doer, just musl is poop? Actually the musl version built from Linux seems OK, it's just the musl version built from Windows? This could be related to perf differences?
+* When running locally, can't see a difference between -gnu and -musl performance. But maybe GitHub executors have different CPU vs IO perf, so has different limiting factor?
 
 Interface
 ----------
@@ -29,6 +32,7 @@ Interface
 * Long prompt messages (multi-line) duplicate themselves once answered.
 * Could warn or similar when filters will lead to an error, like trying to delete a folder that isn't empty (because the filters hid the files inside)
 * When prompting and given the choice to remember for "all occurences", we could show the number of occurences, e.g. "All occurences (17)".
+* Option for force copying, even if it thinks it's up-to-date? Would this be just for files, or for folders etc. too?
 
 Remote launching
 ----------------
@@ -39,7 +43,6 @@ Remote launching
 * Sometimes see "ssh stderr: mesg: ttyname failed: Inappropriate ioctl for device" when deploying to remote (I think on 'F**A' platforms). Can we hide this using "-T" for example?
 * The prompt messages don't account for --dry-run, so it will look like things are actually going to be deleted, when they're not
 * Embed Windows on Arm (aarch64-pc-windows-msvc) binary, and detect it when checking a remote OS
-* Embedded binaries pass through other arguments, like profiling
 * When building embedded binaries, if the target platform cross-compiler isn't installed, then the build will produce a LOT of errors which is very noisy and slow. Maybe instead we should do our own quick check up front?
 * Deploying a big binary to "less powerful"/slower targets may be bad because it will take ages to copy the big binary there, and the benefits of having a fully-functional rjrssync.exe on there may be minimal. Perhaps we do want the option(?) of deploying only a lite binary? That might make a lot of this work redundant, as we would no longer need to generate new big binaries on-demand, so wouldn't need to do all this section stuff. Perhaps instead we focus on making the binary smaller, which would be good anyway? One option could be to compress the embedded lite binaries.
 * When the doer is listening on network port, if the boss never connects (e.g. due to firewall) it seems that even when you close the boss, the doer is left behind and doesn't close, possibly because it's just sat waiting for network connection that never comes (cos of firewall). Maybe we should have a timeout on the doer, if the boss doesn't connect within some short time, it should exit? Or if the stdin drops (i.e. ssh disappears)?
@@ -95,6 +98,7 @@ Testing
 * Tests for when filesystem operations fail, e.g. failing to read/write a file
 * Improve display of benchmark graph
    - add memory (local and remote) to the page somehow
+   - Add moving average or similar to show trend, perhaps match it to a series of step functions?
 * Make a note somewhere that because we're using WSL 1 on GHA, the "linux" filesystem performance won't be as good and might have "windows" characteristics (as the kernel is still windows)
 * Keep looking for a way to get two github runners to talk to each other, so we can have one windows and one linux rather than having to use WSL which brings with it a bunch of problems. Maybe we can open a TCP tunnel between two runners, some kind of NAT traversal handoff thing that doesn't involve all the traffic going through a third party, just the setup bits somehow?
    - https://en.wikipedia.org/wiki/NAT_traversal
