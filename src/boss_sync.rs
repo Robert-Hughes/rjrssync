@@ -903,7 +903,7 @@ fn copy_file(
         let mut chunk_offset: u64 = 0;
         loop {
             // Add progress markers during copies of large files, so we can see the progress (in bytes)
-            ctx.send_progress_marker_limited(progress)?;
+         //   ctx.send_progress_marker_limited(progress)?;
 
             let (data, more_to_follow) = match ctx.src_comms.receive_response()? {
                 Response::FileContent { data, more_to_follow } => (data, more_to_follow),
