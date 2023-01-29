@@ -97,6 +97,12 @@ fn main() {
             cargo_cmd.arg("--release");
         }
 
+        // Match the profiling-ness of the outer build. Profiling on the boss requires profiling
+        // on the doer too, so we need to be able to deploy profiling-enabled doers.
+        if env::var("CARGO_FEATURE_PROFILING") == Ok("1".to_string()) {
+            cargo_cmd.arg("--features=profiling");
+        }
+
         // Prevent passing through environment variables that cargo has set for this build script.
         // This leads to problems because the build script that the nested cargo will call would
         // then see these env vars which were not meant for it.
