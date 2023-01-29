@@ -17,7 +17,10 @@ lazy_static! {
 
 thread_local! {
     // Each thread will have it's own vec of profiling entries to avoid weird race conditions
-    static PROFILING_DATA: RefCell<ThreadRecorder> = RefCell::new(ThreadRecorder { entries: Vec::with_capacity(1_000_000) });
+    static PROFILING_DATA: RefCell<ThreadRecorder> = RefCell::new(
+        ThreadRecorder {
+            thread_name: std::thread::current().name().expect("Thread has no name").to_string(),
+            entries: Vec::with_capacity(1_000_000) });
 }
 
 const LOCAL_PROCESS_NAME: &str = "<Local>";
@@ -38,14 +41,14 @@ macro_rules! profile_this {
 
 #[derive(Default)]
 struct ThreadRecorder {
+    thread_name: String, // Querying this in drop() crashes (badly) on MUSL builds, so store it on creation here instead
     entries: Vec<ProfilingEntry>,
 }
 impl Drop for ThreadRecorder {
     fn drop(&mut self) {
-        let thread_name = std::thread::current().name().expect("Thread has no name").to_string();
-        trace!("Moving thread profiling data to global for thread '{}'", thread_name);
+        trace!("Moving thread profiling data to global for thread '{}'", self.thread_name);
         GLOBAL_PROFILING_DATA.lock().expect("Locking error").processes.entry(LOCAL_PROCESS_NAME.to_string())
-            .or_default().threads.insert(thread_name, ThreadProfilingData {
+            .or_default().threads.insert(self.thread_name.clone(), ThreadProfilingData {
                 entries: std::mem::take(&mut self.entries)
             });
     }
@@ -218,7 +221,7 @@ impl GlobalProfilingData {
             };
             json_entries.push(entry);
         }
-        
+
         // Manual string formatting is a lot quicker than using serde_json or similar.
         // We do need to handle escaping some values though
         write!(file, "[").expect("Failed to write profiling data");
