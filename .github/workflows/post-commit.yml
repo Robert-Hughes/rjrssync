@@ -60,7 +60,7 @@ jobs:
         key: native-${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
     - name: Build
-      # --no-default-features means we don't need to build all the embedded binaries.
+      # --no-default-features means we don't need to build all the embedded binaries (so that it builds a lot faster).
       # They aren't needed for these local-only tests, but will still be tested in the
       # remote-platforms job below.
       run: cargo build --verbose --all-targets --no-default-features

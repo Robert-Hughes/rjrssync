@@ -22,7 +22,6 @@ Interface
 * Long prompt messages (multi-line) duplicate themselves once answered.
 * Could warn or similar when filters will lead to an error, like trying to delete a folder that isn't empty (because the filters hid the files inside)
 * The "Connecting" spinner gets "lost" if we are deploying. it would be good to re-show this after deploy when we are trying to connect again (after Deploy successful!, there is a delay when nothing seems to be happening!)
-* If --force-redeploy is set, we shouldn't do two attempts at deployment if the first attempt fails?
 * When prompting and given the choice to remember for "all occurences", we could show the number of occurences, e.g. "All occurences (17)".
 
 Remote launching
@@ -42,6 +41,7 @@ Remote launching
 * (Possibly related to above) Perf regression around 22nd Jan for large files (https://robert-hughes.github.io/rjrssync/), probably related to binary deployment, maybe the embedded builds are worse than native builds? Maybe -gnu is slower than -msvc for Windows, and -musl is slower and -gnu for Linux?
 * Both these issues i think are cos debug builds were deployed and these are being used on the remote side.
 Because we deploy the current binary if the remote platform is the same, and we run tests in debug, then the remote binaries will have been left with debug versions and then when we run benchmarks it just uses these rather than replacing them. Maybe we want a warning/error if mixing debug and release binaries? Similar to how we do for profiling? Debug & release may also be incompatible network protocols (serde)?
+* Tidy up error reporting in boss_launch.rs
 
 Syncing logic
 -------------

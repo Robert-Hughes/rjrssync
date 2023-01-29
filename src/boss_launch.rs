@@ -214,89 +214,101 @@ pub fn setup_comms(
     // We first attempt to run a previously-deployed copy of the program on the remote, to save time.
     // If it exists and is a compatible version, we can use that. Otherwise we deploy a new version
     // and try again
-    let mut deploy_reason = match deploy_behaviour {
-        DeployBehaviour::Force => Some("--deploy=force was set"),
-        _ => None
+    let attempt_deploy = if deploy_behaviour == DeployBehaviour::Force {
+        Some(format!("--deploy=force was set"))
+    }
+    else {
+        match launch_doer_via_ssh(remote_hostname, remote_user, remote_port_for_comms) {
+            SshDoerLaunchResult::FailedToRunSsh => {
+                None // No point trying again. launch_doer_via_ssh will have logged the error already.
+            }
+            SshDoerLaunchResult::NotPresentOnRemote => {
+                Some(format!("rjrssync is not present on the remote target")) // Attempt to deploy
+            }
+            SshDoerLaunchResult::HandshakeIncompatibleVersion { expected, actual } => {
+                Some(format!("the rjrssync version present on the remote target ({actual}) is not compatible with this version ({expected})")) // Will attempt to deploy
+            }
+            SshDoerLaunchResult::ExitedUnexpectedly | SshDoerLaunchResult::CommunicationError => {
+                None // No point trying again. launch_doer_via_ssh will have logged the error already.
+            }
+            SshDoerLaunchResult::Success { ssh_process, stdin, stdout, stderr, secret_key, actual_port } =>
+                return connect_to_remote_doer(remote_hostname, debug_name, ssh_process, stdin, stdout, stderr, secret_key, actual_port),
+        }
     };
-    for attempt in 0..2 {
-        if let Some(r) = deploy_reason {
-            if deploy_to_remote(remote_hostname, remote_user, r, deploy_behaviour).is_ok() {
-                debug!("Successfully deployed, attempting to run again");
-            } else {
-                error!("Failed to deploy to remote");
+
+    let deploy_reason = attempt_deploy?; // Stop here if decided not to deploy (error that we don't think deploying will help with)
+
+    // New version is needed
+    if deploy_to_remote(remote_hostname, remote_user, &deploy_reason, deploy_behaviour).is_ok() {
+        debug!("Successfully deployed, attempting to run again");
+    } else {
+        error!("Failed to deploy to remote");
+        return None;
+    }
+
+    // Check again
+    match launch_doer_via_ssh(remote_hostname, remote_user, remote_port_for_comms) {
+        SshDoerLaunchResult::FailedToRunSsh |
+        SshDoerLaunchResult::NotPresentOnRemote |
+        SshDoerLaunchResult::HandshakeIncompatibleVersion { .. } |
+        SshDoerLaunchResult::ExitedUnexpectedly |
+        SshDoerLaunchResult::CommunicationError => {
+            // Failed to launch even after deployment. launch_doer_via_ssh will have logged the error already.
+            error!("Failed to launch, even after deployment");
+            return None;
+        }
+        SshDoerLaunchResult::Success { ssh_process, stdin, stdout, stderr, secret_key, actual_port } =>
+            return connect_to_remote_doer(remote_hostname, debug_name, ssh_process, stdin, stdout, stderr, secret_key, actual_port),
+    };
+}
+
+fn connect_to_remote_doer(
+    remote_hostname: &str,
+    debug_name: String,
+    ssh_process: std::process::Child,
+    stdin: LineWriter<ChildStdin>,
+    stdout: BufReader<ChildStdout>,
+    stderr: BufReader<ChildStderr>,
+    secret_key: Key<Aes128Gcm>,
+    actual_port: u16
+) -> Option<Comms> {
+    // Start a background thread to print out log messages from the remote doer,
+    // which it can send over its stderr.
+    let debug_name_clone = debug_name.clone();
+    let stderr_reading_thread = std::thread::spawn(move || remote_doer_logging_thread(stderr, debug_name_clone));
+
+    // Connect to the network port that the doer should be listening on
+    let addr = (remote_hostname, actual_port);
+    debug!("Connecting to doer over network at {:?}", addr);
+    let tcp_connection = {
+        profile_this!("Connecting");
+        match TcpStream::connect(addr) {
+            Ok(t) => {
+                debug!("Connected! {:?}", t);
+                t
+            }
+            Err(e) => {
+                error!("Failed to connect to network port: {}", e);
                 return None;
             }
         }
+    };
 
-        match launch_doer_via_ssh(remote_hostname, remote_user, remote_port_for_comms) {
-            SshDoerLaunchResult::FailedToRunSsh => {
-                return None; // No point trying again. launch_doer_via_ssh will have logged the error already.
-            }
-            SshDoerLaunchResult::NotPresentOnRemote if attempt == 0 => {
-                deploy_reason = Some("rjrssync is not present on the remote target"); // Will attempt to deploy on next loop iteration
-            }
-            SshDoerLaunchResult::HandshakeIncompatibleVersion if attempt == 0 => {
-                deploy_reason = Some("the rjrssync version present on the remote target is not compatible"); // Will attempt to deploy on next loop iteration
-            }
-            SshDoerLaunchResult::NotPresentOnRemote
-            | SshDoerLaunchResult::HandshakeIncompatibleVersion => {
-                // If this happens on the second attempt then something is wrong
-                error!("Failed to launch remote doer even after new deployment.");
-                return None;
-            }
-            SshDoerLaunchResult::ExitedUnexpectedly | SshDoerLaunchResult::CommunicationError => {
-                // No point trying again. launch_doer_via_ssh will have logged the error already.
-                return None;
-            }
-            SshDoerLaunchResult::Success {
-                ssh_process,
-                stdin,
-                stdout,
-                stderr,
-                secret_key,
-                actual_port,
-            } => {
-                // Start a background thread to print out log messages from the remote doer,
-                // which it can send over its stderr.
-                let debug_name_clone = debug_name.clone();
-                let stderr_reading_thread = std::thread::spawn(move || remote_doer_logging_thread(stderr, debug_name_clone));
-
-                // Connect to the network port that the doer should be listening on
-                let addr = (remote_hostname, actual_port);
-                debug!("Connecting to doer over network at {:?}", addr);
-                let tcp_connection = {
-                    profile_this!("Connecting");
-                    match TcpStream::connect(addr) {
-                        Ok(t) => {
-                            debug!("Connected! {:?}", t);
-                            t
-                        }
-                        Err(e) => {
-                            error!("Failed to connect to network port: {}", e);
-                            return None;
-                        }
-                    }
-                };
-
-                let debug_comms_name = "Remote ".to_string() + &debug_name;
-                return Some(Comms::Remote {
-                    debug_name: debug_comms_name.clone(),
-                    ssh_process,
-                    stdin,
-                    stdout,
-                    stderr_reading_thread,
-                    encrypted_comms: AsyncEncryptedComms::new(
-                        tcp_connection,
-                        secret_key,
-                        0, // Nonce counters must be different, so sender and receiver don't reuse
-                        1,
-                        ("boss", &debug_comms_name)
-                    )
-                });
-            }
-        };
-    }
-    panic!("Unreachable code");
+    let debug_comms_name = "Remote ".to_string() + &debug_name;
+    return Some(Comms::Remote {
+        debug_name: debug_comms_name.clone(),
+        ssh_process,
+        stdin,
+        stdout,
+        stderr_reading_thread,
+        encrypted_comms: AsyncEncryptedComms::new(
+            tcp_connection,
+            secret_key,
+            0, // Nonce counters must be different, so sender and receiver don't reuse
+            1,
+            ("boss", &debug_comms_name)
+        )
+    });
 }
 
 fn remote_doer_logging_thread(mut stderr: BufReader<ChildStderr>, debug_name: String) {
@@ -338,7 +350,10 @@ enum SshDoerLaunchResult {
     CommunicationError,
     /// rjrssync launched successfully on the remote computer, but it reported a version number that
     /// isn't compatible with our version.
-    HandshakeIncompatibleVersion,
+    HandshakeIncompatibleVersion {
+        expected: String,
+        actual: String,
+    },
     /// rjrssync launched successfully on the remote computer, is a compatible version, and is now
     /// listening for an incoming network connection on the actual_port. It has been provided
     /// with a secret shared key for encryption, which is stored here too.
@@ -583,7 +598,8 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str, remote_port_for
                         remote_version, VERSION
                     );
                     // Note the stdin of the ssh will be dropped and this will tidy everything up nicely
-                    return SshDoerLaunchResult::HandshakeIncompatibleVersion;
+                    return SshDoerLaunchResult::HandshakeIncompatibleVersion {
+                        expected: VERSION.to_string(), actual: remote_version.to_string() };
                 }
 
                 // Generate and send a secret key, so that we can authenticate/encrypt the network connection
