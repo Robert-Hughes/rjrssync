@@ -77,15 +77,17 @@ fn test_remote_launch_impl(remote_platforms: &RemotePlatforms, first_remote_plat
             continue; // Windows ssh seems to have a bug(?) where if we run rjrssync through ssh, it then can't ssh to something else
         }
 
+        // We sync a file to a folder, and then skip when we hit the prompt. This means that no sync is performed, but it checks the connection is good
+        let remote_command = format!("{} --dest-root-needs-deleting=skip {} {}:{} --deploy=force",
+            first_remote_platform.rjrssync_path,
+            first_remote_platform.rjrssync_path, // This is a file we know exists!
+            second_remote_platform.user_and_host, second_remote_platform.test_folder,
+        );
+        // ssh (or possibly bash) will escape backslashes, messing up our paths
+        let remote_command = remote_command.replace(r"\", r"\\");
         let output = run_process_with_live_output(
             std::process::Command::new("ssh")
-            .arg(&first_remote_platform.user_and_host).arg(&first_remote_platform.rjrssync_path)
-            .arg("--dest-root-needs-deleting=skip") // We sync a file to a folder, and then skip when we hit the prompt. This means that no sync is performed, but it checks the connection is good
-            .arg(&first_remote_platform.rjrssync_path) // This is a file we know exists!
-            //TODO: if this file has backslashes in, it gets messed up and we end up copying to T:\Temprjrssync-tests, which is wrong, and also means we don't skip the sync like intended!.
-            //TODO: repro with cargo test -- test_remote_launch_linux --nocapture, and notice the file it creates in T:\
-            .arg(format!("{}:{}", second_remote_platform.user_and_host, second_remote_platform.test_folder))
-            .arg("--deploy=force")
+            .arg(&first_remote_platform.user_and_host).arg(remote_command)
         );
 
         assert_eq!(output.exit_status.code(), Some(0));

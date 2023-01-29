@@ -6,6 +6,14 @@ Current
 
 Fix perf regression
 Upload new version to crates.io
+* Document that ssh is used for connecting and launching, and that the sync is performed over a different network port, and that it is encrypted. Some of this added to readme already, but needs more. This should possibly be moved/copied to the --help so is available there too? Mention firewall issues?
+* The "Connecting" spinner gets "lost" if we are deploying. it would be good to re-show this after deploy when we are trying to connect again (after Deploy successful!, there is a delay when nothing seems to be happening!)
+* The windows mingw build seems to be very slow as a remote doer when receiving large files
+* (Possibly related to above) Perf regression around 22nd Jan for large files (https://robert-hughes.github.io/rjrssync/), probably related to binary deployment, maybe the embedded builds are worse than native builds? Maybe -gnu is slower than -msvc for Windows, and -musl is slower and -gnu for Linux?
+* Both these issues i think are cos debug builds were deployed and these are being used on the remote side.
+Because we deploy the current binary if the remote platform is the same, and we run tests in debug, then the remote binaries will have been left with debug versions and then when we run benchmarks it just uses these rather than replacing them. Maybe we want a warning/error if mixing debug and release binaries? Similar to how we do for profiling? Debug & release may also be incompatible network protocols (serde)?
+* Looks like perf got worse (or at least more variable) around Jan 15, esp. on wsl: Linux -> Remote Linux job and maybe a few others
+
 
 Interface
 ----------
@@ -14,14 +22,12 @@ Interface
 * Perhaps could have hard/soft includes/excludes - soft would keep evaluating other filters which may change the decision, hard would stop evaluating and keep that as the final decision.
 * Ctrl-C doesn't seem to work very well at stopping rjrssync when it's running
 * Documentation - Add reference somewhere to the trailing slash and symlink behaviour section of notes.md?
-* Document that ssh is used for connecting and launching, and that the sync is performed over a different network port, and that it is encrypted. Some of this added to readme already, but needs more. This should possibly be moved/copied to the --help so is available there too? Mention firewall issues?
 * In the spec file, could allow some settings to be set at both per-sync level, and at the top level (which would then apply to all syncs, but allowing overrides per-sync as well)
 * Decide if info! (and other) log messages should be on stdout or stderr
 * When showing multiple prompts, could remember the selection from previous time the same prompt was shown and use that as the default for the next one?
 * Maybe could make "Connecting" spinner actually spin, until the first message from ssh?
 * Long prompt messages (multi-line) duplicate themselves once answered.
 * Could warn or similar when filters will lead to an error, like trying to delete a folder that isn't empty (because the filters hid the files inside)
-* The "Connecting" spinner gets "lost" if we are deploying. it would be good to re-show this after deploy when we are trying to connect again (after Deploy successful!, there is a delay when nothing seems to be happening!)
 * When prompting and given the choice to remember for "all occurences", we could show the number of occurences, e.g. "All occurences (17)".
 
 Remote launching
@@ -37,10 +43,6 @@ Remote launching
 * When building embedded binaries, if the target platform cross-compiler isn't installed, then the build will produce a LOT of errors which is very noisy and slow. Maybe instead we should do our own quick check up front?
 * Deploying a big binary to "less powerful"/slower targets may be bad because it will take ages to copy the big binary there, and the benefits of having a fully-functional rjrssync.exe on there may be minimal. Perhaps we do want the option(?) of deploying only a lite binary? That might make a lot of this work redundant, as we would no longer need to generate new big binaries on-demand, so wouldn't need to do all this section stuff. Perhaps instead we focus on making the binary smaller, which would be good anyway? One option could be to compress the embedded lite binaries.
 * When the doer is listening on network port, if the boss never connects (e.g. due to firewall) it seems that even when you close the boss, the doer is left behind and doesn't close, possibly because it's just sat waiting for network connection that never comes (cos of firewall). Maybe we should have a timeout on the doer, if the boss doesn't connect within some short time, it should exit? Or if the stdin drops (i.e. ssh disappears)?
-* The windows mingw build seems to be very slow as a remote doer when receiving large files
-* (Possibly related to above) Perf regression around 22nd Jan for large files (https://robert-hughes.github.io/rjrssync/), probably related to binary deployment, maybe the embedded builds are worse than native builds? Maybe -gnu is slower than -msvc for Windows, and -musl is slower and -gnu for Linux?
-* Both these issues i think are cos debug builds were deployed and these are being used on the remote side.
-Because we deploy the current binary if the remote platform is the same, and we run tests in debug, then the remote binaries will have been left with debug versions and then when we run benchmarks it just uses these rather than replacing them. Maybe we want a warning/error if mixing debug and release binaries? Similar to how we do for profiling? Debug & release may also be incompatible network protocols (serde)?
 * Tidy up error reporting in boss_launch.rs
 
 Syncing logic
@@ -85,7 +87,6 @@ Performance
 * Investigate different values of BOSS_DOER_CHANNEL_MEMORY_CAPACITY using profiling
    - could this be set based on e.g. 10% of the system memory?
 * Looks like we're worse than competitors on wsl: Linux -> Linux for "everything copied"
-* Looks like perf got worse (or at least more variable) around Jan 15, esp. on wsl: Linux -> Remote Linux job and maybe a few others
 
 Testing
 -------
