@@ -29,7 +29,11 @@ fn get_embedded_binary_target_triples() -> Vec<&'static str> {
 
     // x64 Linux
     // Use musl rather than gnu as it's statically linked, so makes the resulting binary more portable
-    result.push("x86_64-unknown-linux-musl");
+    if std::env::var("TARGET").unwrap().contains("msvc") {
+        result.push("x86_64-unknown-linux-musl");
+    } else {
+        result.push("x86_64-unknown-linux-gnu");
+    }
 
     // aarch64 Linux
     // Use musl rather than gnu as it's statically linked, so makes the resulting binary more portable
