@@ -12,9 +12,14 @@ use crate::profiling::ProcessProfilingData;
 use crate::root_relative_path::RootRelativePath;
 
 // Bump the package version (in Cargo.toml) if the boss<>doer interface changes.
+// We include the debug/release flag mainly to avoid confusing performance issues
+// when running a release boss but then the remote target has a (previously deployed) debug
+// build, which slows down the sync.
 // We include the profiling config in the version string here, as profiling and non-profiling builds are not compatible
 // (because a non-profiling doer won't record any events).
-pub const VERSION: &str = concatcp!(env!("CARGO_PKG_VERSION"), if cfg!(feature="profiling") { "+profiling"} else { "" });
+pub const VERSION: &str = concatcp!(env!("CARGO_PKG_VERSION"),
+                                    if cfg!(debug_assertions) { "+debug"} else { "" },
+                                    if cfg!(feature="profiling") { "+profiling"} else { "" });
 
 // Message printed by a doer copy of the program to indicate that it has loaded and is ready
 // to receive data over its stdin. Once the boss receives this, it knows that ssh has connected

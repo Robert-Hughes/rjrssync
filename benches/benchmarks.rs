@@ -402,6 +402,20 @@ fn run_benchmarks_for_target(args: &CliArgs, src_target: &Target, dest_target: &
 
     if args.programs.contains(&String::from("rjrssync")) {
         let rjrssync_path = env!("CARGO_BIN_EXE_rjrssync");
+
+        // Make sure that the copy of rjrssync on any remote targets is up-to-date, to avoid
+        // the first sync being slower due to uploading a new binary.
+        for target in [src_target, dest_target] {
+            if let Target::Remote { platform, .. } = target {
+                // Sync a non-existent file, just to make it deploy the doer
+                let result = test_utils::run_process_with_live_output(
+                    Command::new(rjrssync_path).arg("--deploy=force")
+                        .arg("something-that-doesnt-exist")
+                        .arg(platform.user_and_host.clone() + ":something-that-doesnt-exist"));
+                assert!(result.stderr.contains("Deploy successful"));
+            }
+        }
+
         results.push(("rjrssync", run_benchmarks_using_program(args, rjrssync_path, &["$SRC", "$DEST"], src_target.clone(), dest_target.clone())));
     }
 
