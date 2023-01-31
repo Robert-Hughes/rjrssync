@@ -6,7 +6,10 @@ use indicatif::{ProgressBar, HumanCount, HumanBytes, ProgressStyle, WeakProgress
 use crate::{boss_doer_interface::{EntryDetails, ProgressPhase, ProgressMarker}, root_relative_path::RootRelativePath, boss_sync::Actions};
 
 /// FPS of progress bar update.
-const BAR_UPDATE_RATE : f32 = 20.0;
+// This has a surprisingly significant effect on performance, seen especially when
+// copying a large file. We had a regression on the perf results around 15th Jan when this
+// value was increased (commit "Update progress partway through large files").
+const BAR_UPDATE_RATE : f32 = 5.0;
 /// The file size below which we assume that overhead is dominant, so the work is constant.
 const MIN_FILE_SIZE : u64 = 1024*1024;
 /// The minimum amount of work between progress markers.
