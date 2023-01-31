@@ -407,12 +407,24 @@ fn run_benchmarks_for_target(args: &CliArgs, src_target: &Target, dest_target: &
         // the first sync being slower due to uploading a new binary.
         for target in [src_target, dest_target] {
             if let Target::Remote { platform, .. } = target {
-                // Sync a non-existent file, just to make it deploy the doer
-                let result = test_utils::run_process_with_live_output(
-                    Command::new(rjrssync_path).arg("--deploy=force")
-                        .arg("something-that-doesnt-exist")
-                        .arg(platform.user_and_host.clone() + ":something-that-doesnt-exist"));
-                assert!(result.stderr.contains("Deploy successful"));
+                // Temporary perf regression workaround - don't overwrite the linux remote binary
+                // with the one embedded in Windows, because the -musl version embedded in the windows build seems to be slower, so instead
+                // leave the one that's already there, which (because of the order we run tests on GitHub), should
+                // be the -gnu one built on Linux
+                let skip = if cfg!(windows) && !platform.is_windows {
+                    println!("SKIPPING BINARY DEPLOY FROM WINDOWS TO LINUX TO WORKAROUND PERF REGRESSION");
+                    true
+                } else {
+                    false
+                };
+                if !skip {
+                    // Sync a non-existent file, just to make it deploy the doer
+                    let result = test_utils::run_process_with_live_output(
+                        Command::new(rjrssync_path).arg("--deploy=force")
+                            .arg("something-that-doesnt-exist")
+                            .arg(platform.user_and_host.clone() + ":something-that-doesnt-exist"));
+                    assert!(result.stderr.contains("Deploy successful"));
+                }
             }
         }
 
