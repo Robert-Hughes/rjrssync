@@ -17,6 +17,7 @@ Because we deploy the current binary if the remote platform is the same, and we 
 * Looks like perf got worse (or at least more variable) around Jan 15, esp. on wsl: Linux -> Remote Linux job and maybe a few others. Might be due to "Update progress partway through large files" commit?
 * Copying large file (local Windows to remote Linux, musl) doesn't seem to be updating the progress bar as it goes - just one big jump? Seems fine with -gnu version on remote doer, just musl is poop? Actually the musl version built from Linux seems OK, it's just the musl version built from Windows? This could be related to perf differences?
 * When running locally, can't see a difference between -gnu and -musl performance. But maybe GitHub executors have different CPU vs IO perf, so has different limiting factor?
+* The "Add -gnu variants to compatible target triples, to help with debugging" commit actually changes performance because it now means that the Linux progenitor will deploy *itself* (-gnu) for Linux remote targets, whereas before it would always have deployed its embedded (-musl) version. (This wasn't intentional!)
 
 Interface
 ----------
