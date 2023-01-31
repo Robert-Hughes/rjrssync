@@ -309,7 +309,7 @@ jobs:
       # in the Linux /var/tmp/rjrssync is a release one, which we then use for the Windows benchmarks (see
       # comment in benchmarks.rs about perf regression)
       shell: wsl-bash {0}
-      run: cd ~/rjrssync && cargo test -vv -- "remote"
+      run: cd ~/rjrssync && cargo test -vv --release -- "remote"
 
     - name: Run benchmarks on Windows
       shell: pwsh

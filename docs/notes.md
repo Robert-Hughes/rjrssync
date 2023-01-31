@@ -373,8 +373,8 @@ But it does mean that users would need to set up all the rustup cross-compilatio
 
 On Windows, we could embed the lite binaries as proper "resources" (using .rc file etc.), but this isn't a thing on Linux, so we choose to use the same approach for both and so don't use this Windows feature. Instead we append the embedded binaries as sections in the final binary (.exe/.elf) (both platforms have the concept of sections in their executable formats). Because we'll need to manipulate the binaries anyway at runtime when building a new big binary, we're gonna need to mess around with the sections anyway, and making them work as resources is more work.
 
-Documentation
-=============
+Documentation (README.md, --help, etc.)
+=======================================
 
 The output of --help is quite long and verbose, and yet is still missing a lot of information. This might not be the best place to put a lot of detailed documentation, and instead be used as more of a short reference guide? We could have a short and a long version of --help, which clap does support. Alternatively we could put more information in the README.md, as this is easier to read (e.g. in a browser, not a terminal window). However the README isn't part of the built program, and therefore a user might not have access to it. We can probably assume that they have internet access though, and they probably got the program via GitHub or crates.io (which both show the README), so we link to the README in the --help. This link isn't great though because the version on GitHub won't necessarily be the same as the version the user has a binary of.
 
