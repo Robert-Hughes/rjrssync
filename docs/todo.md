@@ -91,6 +91,7 @@ Performance
 * Investigate different values of BOSS_DOER_CHANNEL_MEMORY_CAPACITY using profiling
    - could this be set based on e.g. 10% of the system memory?
 * Looks like we're worse than competitors on wsl: Linux -> Linux for "everything copied"
+* Looks like we're worse than competitors on windows: Windows -> Windows for "large file"
 * "Connecting" phase seems to be taking longer, especially on work PC
 
 Testing
