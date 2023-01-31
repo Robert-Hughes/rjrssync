@@ -305,6 +305,9 @@ jobs:
       # via /mnt/... (so that it's faster and more faithful to a 'proper' linux setup)
       # Specify double-verbose to get output of the build.rs (building embedded binaries),
       # as this takes a while and otherwise it appears the build has hung.
+      # As a temp workaround for performance regressions, run tests in release, so that the binary left over
+      # in the Linux /var/tmp/rjrssync is a release one, which we then use for the Windows benchmarks (see
+      # comment in benchmarks.rs about perf regression)
       shell: wsl-bash {0}
       run: cd ~/rjrssync && cargo test -vv -- "remote"
 

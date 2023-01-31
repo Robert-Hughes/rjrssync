@@ -6,11 +6,10 @@ Current
 
 Fix perf regressions (see below)
 Upload new version to crates.io
-* Document that ssh is used for connecting and launching, and that the sync is performed over a different network port, and that it is encrypted. Some of this added to readme already, but needs more. This should possibly be moved/copied to the --help so is available there too? Mention firewall issues?
-* The "Connecting" spinner gets "lost" if we are deploying. it would be good to re-show this after deploy when we are trying to connect again (after Deploy successful!, there is a delay when nothing seems to be happening!)
+
 * The windows mingw build seems to be very slow as a remote doer when receiving large files? Maybe was accidentally using a debug build. Check this.
 * (Possibly related to above) Perf regression around 22nd Jan for large files (https://robert-hughes.github.io/rjrssync/), probably related to binary deployment, maybe the embedded builds are worse than native builds? Maybe -gnu is slower than -msvc for Windows, and -musl is slower and -gnu for Linux?
-* Both these issues i think are cos debug builds were deployed and these are being used on the remote side.
+* Both these issues i think are cos debug builds were deployed and these are being used on the remote side?
 Because we deploy the current binary if the remote platform is the same, and we run tests in debug, then the remote binaries will have been left with debug versions and then when we run benchmarks it just uses these rather than replacing them. Maybe we want a warning/error if mixing debug and release binaries? Similar to how we do for profiling? Debug & release may also be incompatible network protocols (serde)?
 * Could it be static crt linking?
 * Could it be the MUSL build? Looks like it's only cases that involve remote linux that regressed?
@@ -18,7 +17,7 @@ Because we deploy the current binary if the remote platform is the same, and we 
 * Copying large file (local Windows to remote Linux, musl) doesn't seem to be updating the progress bar as it goes - just one big jump? Seems fine with -gnu version on remote doer, just musl is poop? Actually the musl version built from Linux seems OK, it's just the musl version built from Windows? This could be related to perf differences?
 * When running locally, can't see a difference between -gnu and -musl performance. But maybe GitHub executors have different CPU vs IO perf, so has different limiting factor?
 * The "Add -gnu variants to compatible target triples, to help with debugging" commit actually changes performance because it now means that the Linux progenitor will deploy *itself* (-gnu) for Linux remote targets, whereas before it would always have deployed its embedded (-musl) version. (This wasn't intentional!)
-* Added temp hack to benchmarks.rs to always use the -gnu build on Linux, to test if this fixes the regression(s)
+* Added temp hack to benchmarks.rs and the github yml (build tests in release) to always use the -gnu build on Linux, to test if this fixes the regression(s)
 
 Interface
 ----------
@@ -35,6 +34,9 @@ Interface
 * Could warn or similar when filters will lead to an error, like trying to delete a folder that isn't empty (because the filters hid the files inside)
 * When prompting and given the choice to remember for "all occurences", we could show the number of occurences, e.g. "All occurences (17)".
 * Option for force copying, even if it thinks it's up-to-date? Would this be just for files, or for folders etc. too?
+* Document that ssh is used for connecting and launching, and that the sync is performed over a different network port, and that it is encrypted. Some of this added to readme already, but needs more. This should possibly be moved/copied to the --help so is available there too? Mention firewall issues?
+* The "Connecting" spinner gets "lost" if we are deploying. it would be good to re-show this after deploy when we are trying to connect again (after Deploy successful!, there is a delay when nothing seems to be happening!)
+
 
 Remote launching
 ----------------
