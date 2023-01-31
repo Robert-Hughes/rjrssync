@@ -11,6 +11,8 @@ Upload new version to crates.io
  - Managed to repro a small slowdown locally on that commit, particuarly due to the progress bar refresh rate timer.
  - Trying a fix where we reduce the update rate
 
+* Possible perf regression around Jan 22 on windows: Windows -> Windows large file, where the upper end of the range got worse. This seems to have been balanced by a _reduction_ in the upper end of the range for "everything copied", at the same. This was the same time as the embedded binaries patch, but as it's all local this shouldn't affect anything. Unless the binary size affects this?
+
 * The windows mingw build seems to be very slow as a remote doer when receiving large files? Maybe was accidentally using a debug build. Check this.
 * (Possibly related to above) Perf regression around 22nd Jan for large files (https://robert-hughes.github.io/rjrssync/), probably related to binary deployment, maybe the embedded builds are worse than native builds? Maybe -gnu is slower than -msvc for Windows, and -musl is slower and -gnu for Linux?
 * Both these issues i think are cos debug builds were deployed and these are being used on the remote side?
