@@ -9,7 +9,8 @@ Upload new version to crates.io
 
 * Looks like perf got worse (or at least more variable) around Jan 15, esp. on wsl: Linux -> Remote Linux job and maybe a few others. Might be due to "Update progress partway through large files" commit?
  - Managed to repro a small slowdown locally on that commit, particuarly due to the progress bar refresh rate timer.
- - Trying a fix where we reduce the update rate
+ - Trying a fix where we reduce the update rate. Might have helped.
+ - Trying to temporarily disable large file progress updates to see if that helps
 
 * Possible perf regression around Jan 22 on windows: Windows -> Windows large file, where the upper end of the range got worse. This seems to have been balanced by a _reduction_ in the upper end of the range for "everything copied", at the same. This was the same time as the embedded binaries patch, but as it's all local this shouldn't affect anything. Unless the binary size affects this?
 
@@ -22,7 +23,7 @@ Because we deploy the current binary if the remote platform is the same, and we 
 * Copying large file (local Windows to remote Linux, musl) doesn't seem to be updating the progress bar as it goes - just one big jump? Seems fine with -gnu version on remote doer, just musl is poop? Actually the musl version built from Linux seems OK, it's just the musl version built from Windows? This could be related to perf differences?
 * When running locally, can't see a difference between -gnu and -musl performance. But maybe GitHub executors have different CPU vs IO perf, so has different limiting factor?
 * The "Add -gnu variants to compatible target triples, to help with debugging" commit actually changes performance because it now means that the Linux progenitor will deploy *itself* (-gnu) for Linux remote targets, whereas before it would always have deployed its embedded (-musl) version. (This wasn't intentional!)
-* Added temp hack to benchmarks.rs and the github yml (build tests in release) to always use the -gnu build on Linux, to test if this fixes the regression(s)
+* Added temp hack to benchmarks.rs and the github yml (build tests in release) to always use the -gnu build on Linux, to test if this fixes the regression(s). Might have helped.
 
 Interface
 ----------
