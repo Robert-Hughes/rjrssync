@@ -12,6 +12,8 @@ Upload new version to crates.io
  - Trying a fix where we reduce the update rate. Might have helped.
  - Trying to temporarily disable large file progress updates to see if that helps - seems to have helped
  - Trying to re-enable it but with a larger granularity, seemed to be OK locally
+    - looks like might still be bad on GitHub. possibly because it's only got 2 cores? And we're syncing to the local system, so the progress updates cause more thread switching?
+    - Perhaps disable progress bar updates (and the associated messages etc.) when no tty, like on GitHub? And/or with a --no-progress option? Can document on that option that it can make perf better, esp. on low core systems.
 
 * Possible perf regression around Jan 22 on windows: Windows -> Windows large file, where the upper end of the range got worse. This seems to have been balanced by a _reduction_ in the upper end of the range for "everything copied", at the same. This was the same time as the embedded binaries patch, but as it's all local this shouldn't affect anything. Unless the binary size affects this?
 
@@ -115,6 +117,7 @@ Testing
 * Improve display of benchmark graph
    - add memory (local and remote) to the page somehow
    - Add moving average or similar to show trend, perhaps match it to a series of step functions?
+   - add proper link(s) to the -order version
 * Make a note somewhere that because we're using WSL 1 on GHA, the "linux" filesystem performance won't be as good and might have "windows" characteristics (as the kernel is still windows)
 * Keep looking for a way to get two github runners to talk to each other, so we can have one windows and one linux rather than having to use WSL which brings with it a bunch of problems. Maybe we can open a TCP tunnel between two runners, some kind of NAT traversal handoff thing that doesn't involve all the traffic going through a third party, just the setup bits somehow?
    - https://en.wikipedia.org/wiki/NAT_traversal
