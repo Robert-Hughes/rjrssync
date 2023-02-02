@@ -102,6 +102,7 @@ Performance
 * Looks like we're worse than competitors on wsl: Linux -> Linux for "everything copied"
 * Looks like we're worse than competitors on windows: Windows -> Windows for "large file"
 * "Connecting" phase seems to be taking longer, especially on work PC. Only happens sometimes.  Could be because of mingw build? (vs. msvc build we were using before)
+  - Maybe anti-virus scanning, because of embedded binary stuff?
 
 
 Testing
