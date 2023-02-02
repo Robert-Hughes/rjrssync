@@ -10,7 +10,8 @@ Upload new version to crates.io
 * Looks like perf got worse (or at least more variable) around Jan 15, esp. on wsl: Linux -> Remote Linux job and maybe a few others. Might be due to "Update progress partway through large files" commit?
  - Managed to repro a small slowdown locally on that commit, particuarly due to the progress bar refresh rate timer.
  - Trying a fix where we reduce the update rate. Might have helped.
- - Trying to temporarily disable large file progress updates to see if that helps
+ - Trying to temporarily disable large file progress updates to see if that helps - seems to have helped
+ - Trying to re-enable it but with a larger granularity, seemed to be OK locally
 
 * Possible perf regression around Jan 22 on windows: Windows -> Windows large file, where the upper end of the range got worse. This seems to have been balanced by a _reduction_ in the upper end of the range for "everything copied", at the same. This was the same time as the embedded binaries patch, but as it's all local this shouldn't affect anything. Unless the binary size affects this?
 
@@ -42,6 +43,7 @@ Interface
 * Option for force copying, even if it thinks it's up-to-date? Would this be just for files, or for folders etc. too?
 * Document that ssh is used for connecting and launching, and that the sync is performed over a different network port, and that it is encrypted. Some of this added to readme already, but needs more. This should possibly be moved/copied to the --help so is available there too? Mention firewall issues?
 * The "Connecting" spinner gets "lost" if we are deploying. it would be good to re-show this after deploy when we are trying to connect again (after Deploy successful!, there is a delay when nothing seems to be happening!)
+* The progress bar update granularity (MARKER_THRESHOLD) should probably vary depending on the transfer speed? e.g. if it's 10MB that could be very quick or very long, depending on the connection etc.
 
 
 Remote launching
