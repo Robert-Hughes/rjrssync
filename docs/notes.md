@@ -80,6 +80,8 @@ Disabling PAM on sshd_config seems to speed up ssh login https://serverfault.com
 
 Disabling progress bar --no-progress can help, esp. on GitHub actions (low CPU count)
 
+Different build toolchains (e.g. -gnu vs -musl) can make a difference to performance.
+
 Tree representation
 ===================
 

@@ -31,7 +31,7 @@ pub struct AsyncEncryptedComms<S: Serialize, R: for<'a> Deserialize<'a>> {
 }
 impl<S: Serialize + Send + 'static + Debug, R: for<'a> Deserialize<'a> + Serialize + Send + 'static + Debug + IsFinalMessage> AsyncEncryptedComms<S, R> {
     pub fn new(tcp_connection: TcpStream, secret_key: Key<Aes128Gcm>, sending_nonce_lsb: u64, receiving_nonce_lsb: u64,
-        debug_local_remote_name: (&str, &str)) -> AsyncEncryptedComms<S, R> 
+        debug_local_remote_name: (&str, &str)) -> AsyncEncryptedComms<S, R>
     {
         let mut tcp_connection_clone1 = tcp_connection.try_clone().expect("Failed to clone TCP stream");
         let mut tcp_connection_clone2 = tcp_connection.try_clone().expect("Failed to clone TCP stream");
@@ -47,23 +47,23 @@ impl<S: Serialize + Send + 'static + Debug, R: for<'a> Deserialize<'a> + Seriali
                     let s = match thread_receiver.recv() {
                         Ok(s) => s,
                         Err(_) => {
-                            // The sender on the main thread has been dropped, which means that there are no more messages to send, 
+                            // The sender on the main thread has been dropped, which means that there are no more messages to send,
                             // so we finish this background thread successfully (this is the expected clean shutdown process)
                             trace!("Sending thread '{sending_thread_name}' shutting down due to closed channel");
                             // Return stuff needed to send one more message from the main thread (needed for profiling)
-                            return Ok((cipher, sending_nonce_counter, sending_nonce_lsb)); 
+                            return Ok((cipher, sending_nonce_counter, sending_nonce_lsb));
                         }
                     };
                     if let Err(e) = send(s, &mut tcp_connection_clone1, &cipher, &mut sending_nonce_counter, sending_nonce_lsb) {
                         // There was an error sending a message, which shouldn't happen in normal operation.
-                        // Stop this background thread, which will close the receiving side of the 
+                        // Stop this background thread, which will close the receiving side of the
                         // channel. The main thread will detect this as a closed channel.
                         // Note we don't log this as an error, as we leave this up to the main thread to report when this thread
                         // gets joined, otherwise we might report the error at an inappropriate time, e.g. if the sync is cancelled due
                         // to an error and the connection drops, we don't want to report the connection dropping as well as the original error.
                         trace!("Sending thread '{sending_thread_name}' shutting down due to error sending on TCP: {e}");
                         return Err(e);
-                    }                    
+                    }
                 }
             }).expect("Failed to spawn thread");
 
@@ -79,7 +79,7 @@ impl<S: Serialize + Send + 'static + Debug, R: for<'a> Deserialize<'a> + Seriali
                         Ok(r) => r,
                         Err(e) => {
                             // There was an error receiving a message, which shouldn't happen in normal operation.
-                            // Log an error, and stop this background thread, which will close the sending side of the 
+                            // Log an error, and stop this background thread, which will close the sending side of the
                             // channel. The main thread will detect this as a closed channel.
                             // Note we don't log this as an error, as we leave this up to the main thread to report when this thread
                             // gets joined, otherwise we might report the error at an inappropriate time, e.g. if the sync is cancelled due
@@ -121,7 +121,7 @@ impl<S: Serialize + Send + 'static + Debug, R: for<'a> Deserialize<'a> + Seriali
         trace!("Waiting for sending thread");
         join_with_err_log(self.sending_thread);
 
-        // The receiving thread should already have been stopped once it saw the final message   
+        // The receiving thread should already have been stopped once it saw the final message
         trace!("Waiting for receiving thread");
         join_with_err_log(self.receiving_thread);
     }
@@ -143,7 +143,7 @@ impl<S: Serialize + Send + 'static + Debug, R: for<'a> Deserialize<'a> + Seriali
         trace!("Waiting for sending thread");
         let sending_thread_result = join_with_err_log(self.sending_thread);
 
-        // The receiving thread should already have been stopped once it saw the final message   
+        // The receiving thread should already have been stopped once it saw the final message
         trace!("Waiting for receiving thread");
         join_with_err_log(self.receiving_thread);
 
@@ -222,7 +222,7 @@ fn receive<T>(tcp_connection: &mut TcpStream, cipher: &Aes128Gcm,
 {
     profile_this!();
 
-    let encrypted_data = {
+    let mut encrypted_data = {
         profile_this!("Tcp Read");
 
         let mut len_buf = [0_u8; 8];
@@ -243,7 +243,8 @@ fn receive<T>(tcp_connection: &mut TcpStream, cipher: &Aes128Gcm,
 
     let unencrypted_data = {
         profile_this!("Decrypt");
-        cipher.decrypt(nonce, encrypted_data.as_ref()).map_err(|e| "Error decrypting: ".to_string() + &e.to_string())?
+        cipher.decrypt_in_place(nonce, &[], &mut encrypted_data).map_err(|e| "Error decrypting: ".to_string() + &e.to_string())?;
+        encrypted_data
     };
 
     let response = {
