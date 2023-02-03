@@ -428,7 +428,10 @@ fn run_benchmarks_for_target(args: &CliArgs, src_target: &Target, dest_target: &
             }
         }
 
-        results.push(("rjrssync", run_benchmarks_using_program(args, rjrssync_path, &["$SRC", "$DEST"], src_target.clone(), dest_target.clone())));
+        // Add --no-progress to get maximum performance, especially on GitHub actions where this seems to
+        // make a larger difference.
+        results.push(("rjrssync", run_benchmarks_using_program(args, rjrssync_path,
+            &["$SRC", "$DEST", "--no-progress"], src_target.clone(), dest_target.clone())));
     }
 
     // rsync is Linux -> Linux only, and doesn't support both src and dest being remote.

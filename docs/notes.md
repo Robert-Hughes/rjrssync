@@ -78,6 +78,7 @@ WSL -> WSL: 900-1000MB/s
 
 Disabling PAM on sshd_config seems to speed up ssh login https://serverfault.com/questions/792486/ssh-connection-takes-forever-to-initiate-stuck-at-pledge-network
 
+Disabling progress bar --no-progress can help, esp. on GitHub actions (low CPU count)
 
 Tree representation
 ===================

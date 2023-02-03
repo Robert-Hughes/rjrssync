@@ -69,7 +69,7 @@ Syncing logic
 * Progress bar
   - hide progress bar for --dry-run? Confirm behaviour of all the progress code, as I think some is being skipped for dry run and some isn't (inconsistent)
   - hide progress bar for --quiet?
-  - hide progress bar for --no-progress?
+  - hide progress bar for --no-progress? This should be automatic when it's an "unattended" terminal?
   - show bytes or entries per seconds in the text as it goes?
 * What happens if src and dest both point to the same place?
    - Either directly, or via symlink(s)?

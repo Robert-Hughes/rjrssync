@@ -112,6 +112,12 @@ pub struct BossCliArgs {
     #[arg(long)]
     dry_run: bool,
 
+    /// Hide the progress bar.
+    ///
+    /// In some cases this can increase performance, especially on systems with a lower number of CPU cores.
+    #[arg(long)]
+    no_progress: bool,
+
     /// Show additional statistics about the files and folders copied.
     //
     // This is a separate flag to --verbose, because that is more for debugging, but this is useful for normal users
@@ -726,7 +732,7 @@ fn execute_spec(spec: Spec, args: &BossCliArgs) -> ExitCode {
             info!("{} => {}:", sync_spec.src, sync_spec.dest);
         }
 
-        let sync_result = sync(&sync_spec, args.dry_run, args.stats, &mut src_comms, &mut dest_comms);
+        let sync_result = sync(&sync_spec, args.dry_run, !args.no_progress, args.stats, &mut src_comms, &mut dest_comms);
 
         match sync_result {
             Ok(()) => (),

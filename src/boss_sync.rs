@@ -129,6 +129,7 @@ struct SyncContext<'a> {
     dest_file_older_behaviour: DestFileUpdateBehaviour,
     dest_entry_needs_deleting_behaviour: DestEntryNeedsDeletingBehaviour,
     dest_root_needs_deleting_behaviour: DestRootNeedsDeletingBehaviour,
+    show_progress: bool,
     show_stats: bool,
     src_root: String,
     dest_root: String,
@@ -173,6 +174,7 @@ impl<'a> SyncContext<'a> {
 pub fn sync(
     sync_spec: &SyncSpec,
     dry_run: bool,
+    show_progress: bool,
     show_stats: bool,
     src_comms: &mut Comms,
     dest_comms: &mut Comms,
@@ -190,6 +192,7 @@ pub fn sync(
         filters,
         stats: Stats::default(),
         dry_run,
+        show_progress,
         show_stats,
         dest_file_newer_behaviour: sync_spec.dest_file_newer_behaviour,
         dest_file_older_behaviour: sync_spec.dest_file_older_behaviour,
@@ -279,8 +282,10 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), String> {
     // Confirm that the user is happy to take these actions
     confirm_actions(&mut ctx, &mut actions)?;
 
-    // Start the proper progress bar
-    let mut progress = Progress::new(&actions);
+    // Start the proper progress bar. We still need this even for --no-progress, because we use
+    // some of the features for tracking the timings for --stats, for example. We just put it into
+    // a simpler 'mode'.
+    let mut progress = Progress::new(&actions, ctx.show_progress);
 
     // Delete dest entries that don't exist on the source. This needs to be done first in case there
     // are entries with the same name but incompatible (e.g. files vs folders).
@@ -903,8 +908,7 @@ fn copy_file(
         let mut chunk_offset: u64 = 0;
         loop {
             // Add progress markers during copies of large files, so we can see the progress (in bytes)
-            //TODO: temporarily disabled large file progress updates to fix perf regression
-            //ctx.send_progress_marker_limited(progress)?;
+            ctx.send_progress_marker_limited(progress)?;
 
             let (data, more_to_follow) = match ctx.src_comms.receive_response()? {
                 Response::FileContent { data, more_to_follow } => (data, more_to_follow),

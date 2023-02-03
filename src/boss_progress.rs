@@ -15,9 +15,8 @@ const MIN_FILE_SIZE : u64 = 1024*1024;
 /// The minimum amount of work between progress markers.
 // This has a surprisingly significant effect on performance, seen especially when
 // copying a large file. We had a regression on the perf results around 15th Jan when
-// we started sending updates partway through large files (commit "Update progress partway through large files"),
-// so are keeping this value quite large to avoid slowdown.
-const MARKER_THRESHOLD: u64 = 1024*1024 * 10;
+// we started sending updates partway through large files (commit "Update progress partway through large files").
+const MARKER_THRESHOLD: u64 = 1024*1024;
 /// The amount of work for deletes.
 const DELETE_WORK: u64 = 1024*1024;
 
@@ -142,6 +141,8 @@ struct BarState {
 /// totals a lot more frequency and so made a background thread which updates it periodically.
 /// Things might not be so bad now, but the background thread is still there (perhaps unnecessarily).
 pub struct Progress {
+    /// Keeps the progress bar updated with details. Otherwise it's just a simple message.
+    detailed: bool,
     /// The UI element from the `indicatif` crate that handles drawing the progress bar.
     bar: ProgressBar,
 
@@ -171,7 +172,7 @@ pub struct Progress {
     to_delete_paths: Vec<RootRelativePath>,
 }
 impl Progress {
-    pub fn new(actions: &Actions) -> Self {
+    pub fn new(actions: &Actions, detailed: bool) -> Self {
         // Sum up the total amount of work that needs doing, and store a copy of the
         // paths so that we can display these on the progress bar as we go
         let mut to_delete_paths = vec![];
@@ -191,19 +192,28 @@ impl Progress {
         // for the user. Instead we show the percentage, and include a custom message where we print more details
         // Note the use of "wide_msg" vs "msg", which prevents the message from wrapping to the next line
         // when the filename is long, which causes problems.
-        let bar = ProgressBar::new(total.work).with_style(
-            ProgressStyle::with_template("{percent}% {bar:40.green/black} {wide_msg}").unwrap());
+        let bar = if detailed {
+                ProgressBar::new(total.work).with_style(
+                    ProgressStyle::with_template("{percent}% {bar:40.green/black} {wide_msg}").unwrap())
+            } else {
+                let b = ProgressBar::new_spinner().with_message("Syncing...");
+                b.tick(); // This seems to be necessary to get "Syncing..." to display at all
+                b
+            };
 
          // We control the update rate ourselves with our background thread, so disable(reduce) the built-in limiting
         bar.set_draw_target(ProgressDrawTarget::stderr_with_hz(60));
         let new_bar_state = Arc::new(AtomicCell::new(None));
 
-        let bar2 = bar.downgrade(); // Weak reference for the background thread
-        let new_bar_state2 = new_bar_state.clone();
-        thread::Builder::new().name("Progress bar".to_string()).spawn(
-            move || Self::background_updater(bar2, new_bar_state2)).expect("Failed to spawn thread");
+        if detailed {
+            let bar2 = bar.downgrade(); // Weak reference for the background thread
+            let new_bar_state2 = new_bar_state.clone();
+            thread::Builder::new().name("Progress bar".to_string()).spawn(
+                move || Self::background_updater(bar2, new_bar_state2)).expect("Failed to spawn thread");
+        }
 
         Progress {
+            detailed,
             bar,
             total,
             sent: ProgressValues::default(),
@@ -221,6 +231,9 @@ impl Progress {
     /// This might return None if the last update was sent too recently, to avoid too much overhead
     /// from the progress markers.
     pub fn get_progress_marker_limited(&mut self) -> Option<ProgressMarker> {
+        if !self.detailed {
+            return None;
+        }
         // Don't send progress markers too often, to avoid overhead
         if self.sent.work - self.last_progress_marker < MARKER_THRESHOLD {
             return None
@@ -316,6 +329,10 @@ impl Progress {
     // Doesn't directly update the bar, because we might do this too quickly and cause too much overhead
     // (see comment on background_updater).
     fn update_bar_limited(&mut self) {
+        if !self.detailed {
+            return;
+        }
+
         // Note that we don't format the message string here, because this function will be called a lot
         // and that would be too slow. Instead we format it on the background thread, once we're about to use it.
 
