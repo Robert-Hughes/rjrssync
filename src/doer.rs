@@ -676,7 +676,8 @@ fn handle_get_file_contents(comms: &mut Comms, full_path: &Path) -> Result<(), S
                     next_buf = vec![0; 32];
                 } else {
                     // There might be lots more data, so gradually increase the chunk size up to a practical limit
-                    chunk_size = std::cmp::min(chunk_size * 2, 1024*1024*4);  // 4 MB, chosen pretty arbitirarily
+                    // 4 MB, chosen pretty arbitirarily. If this changes, will also need to update the fixed size pre-allocated buffers in encrypted_comms.rs!
+                    chunk_size = std::cmp::min(chunk_size * 2, 1024*1024*4);
 
                     next_buf = vec![0; chunk_size];
                 }

@@ -4,23 +4,13 @@ TODO:
 Current
 -------
 
+* "Connecting" phase seems to be taking longer, especially on work PC. Only happens sometimes.  Could be because of mingw build? (vs. msvc build we were using before)
+  - Maybe anti-virus scanning, because of embedded binary stuff?
+
 Fix perf regressions (see below)
 Upload new version to crates.io
 
-* Looks like perf got worse (or at least more variable) around Jan 15, esp. on wsl: Linux -> Remote Linux job and maybe a few others. Might be due to "Update progress partway through large files" commit?
- - Managed to repro a small slowdown locally on that commit, particuarly due to the progress bar refresh rate timer.
- - Trying a fix where we reduce the update rate. Might have helped.
- - Trying to temporarily disable large file progress updates to see if that helps - seems to have helped
- - Trying to re-enable it but with a larger granularity, seemed to be OK locally
-    - looks like might still be bad on GitHub. possibly because it's only got 2 cores? And we're syncing to the local system, so the progress updates cause more thread switching?
-    - Perhaps disable progress bar updates (and the associated messages etc.) when no tty, like on GitHub? And/or with a --no-progress option? Can document on that option that it can make perf better, esp. on low core systems.
-
-* Possible perf regression around Jan 22 on windows: Windows -> Windows large file, where the upper end of the range got worse. This seems to have been balanced by a _reduction_ in the upper end of the range for "everything copied", at the same. This was the same time as the embedded binaries patch, but as it's all local this shouldn't affect anything. Unless the binary size affects this?
-
-* The windows mingw build seems to be very slow as a remote doer when receiving large files? Maybe was accidentally using a debug build. Check this.
-* (Possibly related to above) Perf regression around 22nd Jan for large files (https://robert-hughes.github.io/rjrssync/), probably related to binary deployment, maybe the embedded builds are worse than native builds? Maybe -gnu is slower than -msvc for Windows, and -musl is slower and -gnu for Linux?
-* Both these issues i think are cos debug builds were deployed and these are being used on the remote side?
-Because we deploy the current binary if the remote platform is the same, and we run tests in debug, then the remote binaries will have been left with debug versions and then when we run benchmarks it just uses these rather than replacing them. Maybe we want a warning/error if mixing debug and release binaries? Similar to how we do for profiling? Debug & release may also be incompatible network protocols (serde)?
+* Perf regression around 22nd Jan for large files (https://robert-hughes.github.io/rjrssync/), probably related to binary deployment, maybe the embedded builds are worse than native builds? Maybe -gnu is slower than -msvc for Windows, and -musl is slower and -gnu for Linux?
 * Could it be static crt linking?
 * Could it be the MUSL build? Looks like it's only cases that involve remote linux that regressed?
 * Copying large file (local Windows to remote Linux, musl) doesn't seem to be updating the progress bar as it goes - just one big jump? Seems fine with -gnu version on remote doer, just musl is poop? Actually the musl version built from Linux seems OK, it's just the musl version built from Windows? This could be related to perf differences?
@@ -107,8 +97,6 @@ Performance
    - could this be set based on e.g. 10% of the system memory?
 * Looks like we're worse than competitors on wsl: Linux -> Linux for "everything copied"
 * Looks like we're worse than competitors on windows: Windows -> Windows for "large file"
-* "Connecting" phase seems to be taking longer, especially on work PC. Only happens sometimes.  Could be because of mingw build? (vs. msvc build we were using before)
-  - Maybe anti-virus scanning, because of embedded binary stuff?
 
 
 Testing
@@ -145,3 +133,7 @@ ERROR | rjrssync::boss_frontend: Sync error: Unexpected response from dest GetEn
 * Upload to cargo binstall (or similar) so that users don't need to build from source (especially if we're bundling embedded binaries, the initial build time will be looong!)
 * Look at cargo dependency graph, to see if we can remove some dependencies
 * Add Josh as crates.io package owner (needs to make an account first)
+* Syncing something that doesn't exist to a remote, leads to dodgy looking errors:
+ERROR: Sync error: src path 'something-that-doesnt-exist' doesn't exist!
+ERROR: 2023-02-04T16:55:12.108217500Z Thread 'remote boss -> doer' failed with error: Error reading len: failed to fill whole buffer
+ERROR: 2023-02-04T16:55:12.108269300Z Error sending final message: Error sending length: Connection reset by peer (os error 104)
