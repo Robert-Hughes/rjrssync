@@ -220,14 +220,18 @@ fn receive<T>(tcp_connection: &mut TcpStream, cipher: &Aes128Gcm,
     receiving_nonce_counter: &mut u64, nonce_lsb: u64) -> Result<T, String>
     where T : for<'a> Deserialize<'a>
 {
-    profile_this!();
+    // Note we don't profile this entire function, for the same reason as below (see profile_this!("Tcp Read"))
 
     let mut encrypted_data = {
-        profile_this!("Tcp Read");
-
         let mut len_buf = [0_u8; 8];
         tcp_connection.read_exact(&mut len_buf).map_err(|e| "Error reading len: ".to_string() + &e.to_string())?;
         let encrypted_len = usize::from_le_bytes(len_buf);
+
+        // Note we only profile this after reading the length, as most of the time will likely be spent reading the length
+        // because it will be waiting for a new message. This means the profiling trace will be filled with with bar,
+        // which isn't very useful. Instead we start profiling when we read the actual message contents which will be much
+        // larger and more interesting
+        profile_this!("Tcp Read");
 
         let mut encrypted_data = vec![0_u8; encrypted_len];
         tcp_connection.read_exact(&mut encrypted_data).map_err(|e| "Error reading encrypted data: ".to_string() + &e.to_string())?;
