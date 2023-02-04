@@ -7,8 +7,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::{profile_this, memory_bound_channel::{Sender, Receiver, self}, BOSS_DOER_CHANNEL_MEMORY_CAPACITY};
 
-//TODO: tidy up the crappy SliceBuffer stuff
-
 pub trait IsFinalMessage {
     fn is_final_message(&self) -> bool;
 }
@@ -186,17 +184,19 @@ fn join_with_err_log<T, E: Display>(t: JoinHandle<Result<T, E>>) -> Option<T> {
 }
 
 fn send<T>(x: T, tcp_connection: &mut TcpStream, cipher: &Aes128Gcm,
-    sending_nonce_counter: &mut u64, nonce_lsb: u64, mut buffer: &mut [u8]) -> Result<(), String>
+    sending_nonce_counter: &mut u64, nonce_lsb: u64, buffer: &mut [u8]) -> Result<(), String>
     where T : Serialize,
 {
     profile_this!();
 
+    // Serialize the message into the re-usable buffer, leaving 8 bytes at the start for the length to
+    // be filled in later.
     let unencrypted_len = {
         profile_this!("Serialize");
-        let l = buffer.len();
-        let mut s = SliceBuffer { slice : &mut buffer, new_len: l, write_offset: 8 };
+        let mut s = &mut buffer[8..];
+        let l = s.len();
         bincode::serialize_into(&mut s, &x).map_err(|e| "Error serializing command: ".to_string() + &e.to_string())?;
-        s.write_offset - 8
+        l - s.len()
     };
 
     // Nonces for boss -> doer should always be even, and odd for vice versa. They can't be reused between them.
@@ -205,16 +205,20 @@ fn send<T>(x: T, tcp_connection: &mut TcpStream, cipher: &Aes128Gcm,
     nonce_bytes[0..8].copy_from_slice(&sending_nonce_counter.to_le_bytes());
     let nonce = Nonce::<Aes128Gcm>::from_slice(&nonce_bytes);
     sending_nonce_counter.checked_add(2).unwrap(); // Increment by two so that it never overlaps with the nonce used by the doer
+
+    // Encrypt the message in-place. This will expand it slightly, because the encrypted message is always slightly larger than the original.
     let encrypted_len = {
         profile_this!("Encrypt");
-        let mut s = SliceBuffer { slice : &mut buffer[8..], new_len: unencrypted_len, write_offset: 0 };
+        let mut s = SliceBuffer { slice : &mut buffer[8..], len: unencrypted_len };
         cipher.encrypt_in_place(nonce, &[], &mut s).unwrap();
-        s.new_len
+        s.len
     };
+    // Fill in the 8 bytes at the start of the buffer with the length of the now-encrypted message
     buffer[0..8].copy_from_slice(&encrypted_len.to_le_bytes());
 
     {
         profile_this!("Tcp Write");
+        // Send the length header plus the encrypted message
         tcp_connection.write_all(&buffer[0..8+encrypted_len]).map_err(|e| "Error sending length: ".to_string() + &e.to_string())?;
 
         // Flush to make sure that we don't deadlock (other side waiting for data that never comes)
@@ -230,6 +234,7 @@ fn receive<T>(tcp_connection: &mut TcpStream, cipher: &Aes128Gcm,
 {
     // Note we don't profile this entire function, for the same reason as below (see profile_this!("Tcp Read"))
 
+    // Read the 8-byte length field
     let mut len_buf = [0_u8; 8];
     tcp_connection.read_exact(&mut len_buf).map_err(|e| "Error reading len: ".to_string() + &e.to_string())?;
     let encrypted_len = usize::from_le_bytes(len_buf);
@@ -237,12 +242,14 @@ fn receive<T>(tcp_connection: &mut TcpStream, cipher: &Aes128Gcm,
     // Note we only profile this after reading the length, as most of the time will likely be spent reading the length
     // because it will be waiting for a new message. This means the profiling trace will be filled with with bar,
     // which isn't very useful. Instead we start profiling when we read the actual message contents which will be much
-    // larger and more interesting
+    // larger and more interesting.
     let mut encrypted_data = {
         profile_this!("Tcp Read");
-        let buffer = &mut buffer[0..encrypted_len];
-        tcp_connection.read_exact(buffer).map_err(|e| "Error reading encrypted data: ".to_string() + &e.to_string())?;
-        buffer
+
+        // Read the encrypted message, which we now know the size of, into the start of the re-usable buffer
+        let b = &mut buffer[0..encrypted_len];
+        tcp_connection.read_exact(b).map_err(|e| "Error reading encrypted data: ".to_string() + &e.to_string())?;
+        b
     };
 
     // Nonces for doer -> boss should always be odd, and even for vice versa. They can't be reused between them.
@@ -252,14 +259,16 @@ fn receive<T>(tcp_connection: &mut TcpStream, cipher: &Aes128Gcm,
     let nonce = Nonce::<Aes128Gcm>::from_slice(&nonce_bytes);
     receiving_nonce_counter.checked_add(2).unwrap(); // Increment by two so that it never overlaps with the nonce used by the boss
 
+    // Decrypt the data in-place. This will shorten it, as the encrypted message is always slightly longer than the plaintext
     let unencrypted_data = {
         profile_this!("Decrypt");
-        let mut s = SliceBuffer { slice: &mut encrypted_data, new_len: encrypted_len, write_offset: 0 };
+        let mut s = SliceBuffer { slice: &mut encrypted_data, len: encrypted_len };
         cipher.decrypt_in_place(nonce, &[], &mut s).map_err(|e| "Error decrypting: ".to_string() + &e.to_string())?;
-        let t = s.new_len;
-        &encrypted_data[0..t]
+        let unencrypted_len = s.len;
+        &encrypted_data[0..unencrypted_len]
     };
 
+    // Deserialize the unencrypted data into the strongly-typed struct
     let response = {
         profile_this!("Deserialize");
         bincode::deserialize(&unencrypted_data).map_err(|e| "Error deserializing: ".to_string() + &e.to_string())?
@@ -268,57 +277,49 @@ fn receive<T>(tcp_connection: &mut TcpStream, cipher: &Aes128Gcm,
     Ok(response)
 }
 
+/// Simple wrapper around a mutable slice of bytes, so that we can pass it to the encryption
+/// functions in the aead crate.
 struct SliceBuffer<'a> {
+    /// The "backing memory".
     slice: &'a mut [u8],
-    new_len: usize,
-    write_offset: usize,
+    /// The length of the buffer, which may be less than the length of the full backing memory `slice`.
+    /// The trait implementation methods may shrink this buffer, or expand it into the remaining memory
+    /// in the slice.
+    len: usize,
 }
 
 impl<'a ,'b> aead::Buffer for SliceBuffer<'a> {
     fn len(&self) -> usize {
-        self.new_len
+        self.len
     }
 
     fn is_empty(&self) -> bool {
-        self.new_len == 0
+        self.len == 0
     }
 
+    /// Copies the given slice onto the end of this buffer.
+    /// This means we take up more of the slice, which we assume is big enough (will panic if not).
     fn extend_from_slice(&mut self, other: &[u8]) -> aead::Result<()> {
-    //    println!("extend_from_slice to {}", _other.len());
-        self.slice[self.new_len..self.new_len+other.len()].copy_from_slice(other);
-        self.new_len += other.len();
+        self.slice[self.len..self.len+other.len()].copy_from_slice(other);
+        self.len += other.len();
         aead::Result::Ok(())
     }
 
-    fn truncate<'c>(&mut self, len: usize) {
-       // self = &mut selfslice[0..len];
-       // println!("Truncate to {}", len);
-     //  panic!()
-        self.new_len = len;
+    /// Shortens the buffer to the given size.
+    /// This means we take up less of the slice.
+    fn truncate(&mut self, len: usize) {
+        self.len = len;
     }
 }
 
 impl<'a> AsRef<[u8]> for SliceBuffer<'a> {
     fn as_ref(&self) -> &[u8] {
-        &self.slice[0..self.new_len]
+        &self.slice[0..self.len]
     }
 }
 
 impl<'a> AsMut<[u8]> for SliceBuffer<'a> {
     fn as_mut(&mut self) -> &mut [u8] {
-        &mut self.slice[0..self.new_len]
-    }
-}
-
-//TODO: does this need to be in the same thing, it could probably be split out?
-impl<'a> Write for &mut SliceBuffer<'a> {
-    fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
-        self.slice[self.write_offset..self.write_offset+data.len()].copy_from_slice(data);
-        self.write_offset += data.len();
-        Ok(data.len())
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
+        &mut self.slice[0..self.len]
     }
 }
