@@ -28,6 +28,7 @@ Because we deploy the current binary if the remote platform is the same, and we 
 * The "Add -gnu variants to compatible target triples, to help with debugging" commit actually changes performance because it now means that the Linux progenitor will deploy *itself* (-gnu) for Linux remote targets, whereas before it would always have deployed its embedded (-musl) version. (This wasn't intentional!)
 * Added temp hack to benchmarks.rs and the github yml (build tests in release) to always use the -gnu build on Linux, to test if this fixes the regression(s). Might have helped.
 * Removing a big allocation from receive() seemed to fix the dodgy progress bar updates on -musl remote builds. Seems like allocations on musl might be the issue, can reduce these to help perf too? Perhaps for encrypted_comms we can allocate one buffer up front and re-use that for every send/receive call, rather than re-allocating each time?
+Plan is to remove some allocations, and then do a test pull request with using -gnu (remove the benchmark hack), to check if this looks OK before merging to main.
 
 Interface
 ----------
@@ -115,6 +116,7 @@ Testing
 
 * Test for --stats (maybe just all the command-line options...)
 * Tests for when filesystem operations fail, e.g. failing to read/write a file
+* Generating the benchmark graphs takes 8 mins! (On GitHub)
 * Improve display of benchmark graph
    - add memory (local and remote) to the page somehow
    - Add moving average or similar to show trend, perhaps match it to a series of step functions?
