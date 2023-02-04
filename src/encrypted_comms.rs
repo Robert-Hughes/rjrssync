@@ -194,8 +194,8 @@ fn send<T>(x: T, tcp_connection: &mut TcpStream, cipher: &Aes128Gcm,
 
     // Nonces for boss -> doer should always be even, and odd for vice versa. They can't be reused between them.
     assert!(*sending_nonce_counter % 2 == nonce_lsb);
-    let mut nonce_bytes = sending_nonce_counter.to_le_bytes().to_vec();
-    nonce_bytes.resize(12, 0); // pad it
+    let mut nonce_bytes = [0u8; 12];
+    nonce_bytes[0..8].copy_from_slice(&sending_nonce_counter.to_le_bytes());
     let nonce = Nonce::<Aes128Gcm>::from_slice(&nonce_bytes);
     sending_nonce_counter.checked_add(2).unwrap(); // Increment by two so that it never overlaps with the nonce used by the doer
     {
@@ -240,8 +240,8 @@ fn receive<T>(tcp_connection: &mut TcpStream, cipher: &Aes128Gcm,
 
     // Nonces for doer -> boss should always be odd, and even for vice versa. They can't be reused between them.
     assert!(*receiving_nonce_counter % 2 == nonce_lsb);
-    let mut nonce_bytes = receiving_nonce_counter.to_le_bytes().to_vec();
-    nonce_bytes.resize(12, 0); // pad it
+    let mut nonce_bytes = [0u8; 12];
+    nonce_bytes[0..8].copy_from_slice(&receiving_nonce_counter.to_le_bytes());
     let nonce = Nonce::<Aes128Gcm>::from_slice(&nonce_bytes);
     receiving_nonce_counter.checked_add(2).unwrap(); // Increment by two so that it never overlaps with the nonce used by the boss
 
