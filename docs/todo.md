@@ -20,6 +20,8 @@ Upload new version to crates.io
 * Removing a big allocation from receive() seemed to fix the dodgy progress bar updates on -musl remote builds. Seems like allocations on musl might be the issue, can reduce these to help perf too? Perhaps for encrypted_comms we can allocate one buffer up front and re-use that for every send/receive call, rather than re-allocating each time?
 Plan is to remove some allocations, and then do a test pull request with using -gnu (remove the benchmark hack), to check if this looks OK before merging to main.
 
+* Any other workarounds to remove? (check commit history)
+
 Interface
 ----------
 
@@ -137,3 +139,4 @@ ERROR | rjrssync::boss_frontend: Sync error: Unexpected response from dest GetEn
 ERROR: Sync error: src path 'something-that-doesnt-exist' doesn't exist!
 ERROR: 2023-02-04T16:55:12.108217500Z Thread 'remote boss -> doer' failed with error: Error reading len: failed to fill whole buffer
 ERROR: 2023-02-04T16:55:12.108269300Z Error sending final message: Error sending length: Connection reset by peer (os error 104)
+* Link to perf figures from the README, to "prove" our perf advantages!
