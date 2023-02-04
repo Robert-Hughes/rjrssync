@@ -412,8 +412,9 @@ fn run_benchmarks_for_target(args: &CliArgs, src_target: &Target, dest_target: &
                 // leave the one that's already there, which (because of the order we run tests on GitHub), should
                 // be the -gnu one built on Linux
                 let skip = if cfg!(windows) && !platform.is_windows {
-                    println!("SKIPPING BINARY DEPLOY FROM WINDOWS TO LINUX TO WORKAROUND PERF REGRESSION");
-                    true
+                   // println!("SKIPPING BINARY DEPLOY FROM WINDOWS TO LINUX TO WORKAROUND PERF REGRESSION");
+                   // true
+                   false
                 } else {
                     false
                 };
