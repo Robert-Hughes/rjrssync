@@ -82,6 +82,8 @@ Disabling progress bar --no-progress can help, esp. on GitHub actions (low CPU c
 
 Different build toolchains (e.g. -gnu vs -musl) can make a difference to performance.
 
+Removing a big allocation from receive() seemed to fix the dodgy progress bar updates on -musl remote builds. Seems like (big?) allocations on musl might be slow, can reduce these to help perf.
+
 Tree representation
 ===================
 

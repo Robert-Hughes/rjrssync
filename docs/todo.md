@@ -6,21 +6,10 @@ Current
 
 * "Connecting" phase seems to be taking longer, especially on work PC. Only happens sometimes.  Could be because of mingw build? (vs. msvc build we were using before)
   - Maybe anti-virus scanning, because of embedded binary stuff?
+  - Could it be static crt linking?
+  - Or the mingw build?
 
-Fix perf regressions (see below)
-Upload new version to crates.io
-
-* Perf regression around 22nd Jan for large files (https://robert-hughes.github.io/rjrssync/), probably related to binary deployment, maybe the embedded builds are worse than native builds? Maybe -gnu is slower than -msvc for Windows, and -musl is slower and -gnu for Linux?
-* Could it be static crt linking?
-* Could it be the MUSL build? Looks like it's only cases that involve remote linux that regressed?
-* Copying large file (local Windows to remote Linux, musl) doesn't seem to be updating the progress bar as it goes - just one big jump? Seems fine with -gnu version on remote doer, just musl is poop? Actually the musl version built from Linux seems OK, it's just the musl version built from Windows? This could be related to perf differences?
-* When running locally, can't see a difference between -gnu and -musl performance. But maybe GitHub executors have different CPU vs IO perf, so has different limiting factor?
-* The "Add -gnu variants to compatible target triples, to help with debugging" commit actually changes performance because it now means that the Linux progenitor will deploy *itself* (-gnu) for Linux remote targets, whereas before it would always have deployed its embedded (-musl) version. (This wasn't intentional!)
-* Added temp hack to benchmarks.rs and the github yml (build tests in release) to always use the -gnu build on Linux, to test if this fixes the regression(s). Might have helped.
-* Removing a big allocation from receive() seemed to fix the dodgy progress bar updates on -musl remote builds. Seems like allocations on musl might be the issue, can reduce these to help perf too? Perhaps for encrypted_comms we can allocate one buffer up front and re-use that for every send/receive call, rather than re-allocating each time?
-Plan is to remove some allocations, and then do a test pull request with using -gnu (remove the benchmark hack), to check if this looks OK before merging to main.
-
-* Any other workarounds to remove? (check commit history)
+* Upload new version to crates.io
 
 Interface
 ----------
