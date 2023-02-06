@@ -8,6 +8,7 @@ Current
   - Maybe anti-virus scanning, because of embedded binary stuff?
   - Could it be static crt linking?
   - Or the mingw build?
+  - Looks like it's being flagged up by windows defender, can see messages in Event Viewer. Possibly it was always scanning it, but because the binary size is so much bigger now it has a noticeable effect.
 
 * Upload new version to crates.io
 
