@@ -12,6 +12,11 @@ Current
 
 * Upload new version to crates.io
 
+* The "Connecting" spinner gets "lost" if we are deploying. it would be good to re-show this after deploy when we are trying to connect again (after Deploy successful!, there is a delay when nothing seems to be happening!)
+  - What about if error messages show up during deploy/connect. make sure these are displayed properly with the spinner
+  - should the deploy message (Uploading... and other messages printed there) be using the progress bar instead?
+
+
 Interface
 ----------
 
@@ -28,7 +33,6 @@ Interface
 * When prompting and given the choice to remember for "all occurences", we could show the number of occurences, e.g. "All occurences (17)".
 * Option for force copying, even if it thinks it's up-to-date? Would this be just for files, or for folders etc. too?
 * Document that ssh is used for connecting and launching, and that the sync is performed over a different network port, and that it is encrypted. Some of this added to readme already, but needs more. This should possibly be moved/copied to the --help so is available there too? Mention firewall issues?
-* The "Connecting" spinner gets "lost" if we are deploying. it would be good to re-show this after deploy when we are trying to connect again (after Deploy successful!, there is a delay when nothing seems to be happening!)
 * The progress bar update granularity (MARKER_THRESHOLD) should probably vary depending on the transfer speed? e.g. if it's 10MB that could be very quick or very long, depending on the connection etc.
 
 
@@ -45,6 +49,7 @@ Remote launching
 * Deploying a big binary to "less powerful"/slower targets may be bad because it will take ages to copy the big binary there, and the benefits of having a fully-functional rjrssync.exe on there may be minimal. Perhaps we do want the option(?) of deploying only a lite binary? That might make a lot of this work redundant, as we would no longer need to generate new big binaries on-demand, so wouldn't need to do all this section stuff. Perhaps instead we focus on making the binary smaller, which would be good anyway? One option could be to compress the embedded lite binaries.
 * When the doer is listening on network port, if the boss never connects (e.g. due to firewall) it seems that even when you close the boss, the doer is left behind and doesn't close, possibly because it's just sat waiting for network connection that never comes (cos of firewall). Maybe we should have a timeout on the doer, if the boss doesn't connect within some short time, it should exit? Or if the stdin drops (i.e. ssh disappears)?
 * Tidy up error reporting in boss_launch.rs
+* Add separate crate features for each embedded binary, so can specify just one to reduce build time. Default can be all of them like it is now. Can have these features depend on the existing progenitor feature.
 
 Syncing logic
 -------------
@@ -61,6 +66,7 @@ Syncing logic
 * CreateDestAncestors doesn't honour any of the behaviour flags to make it non-destructive?
 * When splitting large files, the optimum chunk size might vary, we could adjust this dynamically. Right now I just picked an arbitrary value which could possibly be improved a lot! Also the same buffer size this is used for both the filesystem read() buffer size, _and_ the size of data we send to the boss, _and_ the size of data written on the other doer. The same size might not be optimal for all of these!
 * We could check the modified timestamp of symlinks, and use this to (potentially) raise an error/prompt if the dest one is newer. Currently we always overwrite as we never check the timestamp.
+* Now that we refactored the decision of what needs doing before we start doing it, it means that the --dry-run could maybe be implemented more simply by stopping after that decision stage, rather than passing it through everything
 
 Performance
 ------------

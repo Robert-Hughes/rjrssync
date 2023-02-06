@@ -1,6 +1,7 @@
 use aes_gcm::aead::{OsRng};
 use aes_gcm::{Aes128Gcm, KeyInit, Key};
 use base64::Engine;
+use indicatif::ProgressBar;
 use log::{debug, error, info, log, trace};
 use std::io::LineWriter;
 use std::net::{TcpStream};
@@ -184,6 +185,7 @@ pub fn setup_comms(
     remote_port_for_comms: Option<u16>,
     debug_name: String,
     deploy_behaviour: DeployBehaviour,
+    progress_bar: &ProgressBar,
 ) -> Option<Comms> {
     profile_this!(format!("setup_comms {}", debug_name));
     debug!(
@@ -218,7 +220,7 @@ pub fn setup_comms(
         Some(format!("--deploy=force was set"))
     }
     else {
-        match launch_doer_via_ssh(remote_hostname, remote_user, remote_port_for_comms) {
+        match launch_doer_via_ssh(remote_hostname, remote_user, remote_port_for_comms, progress_bar) {
             SshDoerLaunchResult::FailedToRunSsh => {
                 None // No point trying again. launch_doer_via_ssh will have logged the error already.
             }
@@ -239,7 +241,7 @@ pub fn setup_comms(
     let deploy_reason = attempt_deploy?; // Stop here if decided not to deploy (error that we don't think deploying will help with)
 
     // New version is needed
-    if deploy_to_remote(remote_hostname, remote_user, &deploy_reason, deploy_behaviour).is_ok() {
+    if deploy_to_remote(remote_hostname, remote_user, &deploy_reason, deploy_behaviour, progress_bar).is_ok() {
         debug!("Successfully deployed, attempting to run again");
     } else {
         error!("Failed to deploy to remote");
@@ -247,7 +249,7 @@ pub fn setup_comms(
     }
 
     // Check again
-    match launch_doer_via_ssh(remote_hostname, remote_user, remote_port_for_comms) {
+    match launch_doer_via_ssh(remote_hostname, remote_user, remote_port_for_comms, progress_bar) {
         SshDoerLaunchResult::FailedToRunSsh |
         SshDoerLaunchResult::NotPresentOnRemote |
         SshDoerLaunchResult::HandshakeIncompatibleVersion { .. } |
@@ -468,8 +470,16 @@ fn output_reader_thread_main(
 /// listening for an incoming network connection on the requested port. It is also provided
 /// with a randomly generated secret shared key for encryption, which is returned to the caller
 /// for setting up encrypted communication over the network connection.
-fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str, remote_port_for_comms: Option<u16>) -> SshDoerLaunchResult {
+fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str,
+    remote_port_for_comms: Option<u16>, progress_bar: &ProgressBar,
+) -> SshDoerLaunchResult
+{
     profile_this!();
+
+    // It's important to set this message each time we enter this function,
+    // as we might have just finished deploying and need to overwrite that message with this one.
+    progress_bar.set_message("Connecting...");
+
     let user_prefix = if remote_user.is_empty() {
         "".to_string()
     } else {

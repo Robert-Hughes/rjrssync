@@ -1,4 +1,4 @@
-use indicatif::HumanBytes;
+use indicatif::{HumanBytes, ProgressBar};
 use log::{debug, error, info};
 use std::ffi::OsStr;
 use std::path::{Path};
@@ -16,14 +16,17 @@ use crate::*;
 use embedded_binaries::EmbeddedBinaries;
 
 /// Deploys a pre-built binary of rjrssync to the given remote computer, ready to be executed.
-pub fn deploy_to_remote(remote_hostname: &str, remote_user: &str, reason: &str, deploy_behaviour: DeployBehaviour) -> Result<(), ()> {
+pub fn deploy_to_remote(remote_hostname: &str, remote_user: &str, reason: &str,
+    deploy_behaviour: DeployBehaviour, progress_bar: &ProgressBar)
+-> Result<(), ()>
+{
     profile_this!();
 
     // We're about to (potentially) some output from scp/ssh, so this log message may as well be the same severity,
-    // so the user knows what's happening. Same goes for the few other info! logs in this function.
-    // It would be nice to have a progress bar/spinner here, but that might cause problems
-    // with potential ssh output/prompts.
-    info!("Deploying onto '{}'", &remote_hostname);
+    // so the user knows what's happening. We log a message as well as changing the progress bar message,
+    // so that any messages from ssh that follow can be easily attributed to the deployment.
+    info!("Deploying onto '{}'...", &remote_hostname);
+    progress_bar.set_message("Deploying...");
 
     let user_prefix = if remote_user.is_empty() {
         "".to_string()
@@ -99,7 +102,7 @@ pub fn deploy_to_remote(remote_hostname: &str, remote_user: &str, reason: &str, 
     let resolved_behaviour = match deploy_behaviour {
         DeployBehaviour::Prompt => {
             let prompt_result = resolve_prompt(format!("{msg}. What do?"),
-                None,
+                Some(progress_bar),
                 &[
                     ("Deploy", DeployBehaviour::Ok),
                 ], false, DeployBehaviour::Error);
@@ -122,7 +125,6 @@ pub fn deploy_to_remote(remote_hostname: &str, remote_user: &str, reason: &str, 
     // we copy into /tmp (which should always exist), rather than directly to /tmp/rjrssync which may or may not
     let source_spec = staging_dir;
     let remote_spec = format!("{user_prefix}{remote_hostname}:{remote_temp}");
-    info!("Uploading...");
     debug!("Copying {} to {}", source_spec.display(), remote_spec);
     match run_process_with_live_output("scp", &[OsStr::new("-r"), source_spec.as_os_str(), OsStr::new(&remote_spec)]) {
         Err(e) => {
@@ -160,6 +162,7 @@ pub fn deploy_to_remote(remote_hostname: &str, remote_user: &str, reason: &str, 
         };
     }
 
+    // Log message here to delineate any ssh messages printed above
     info!("Deploy successful!");
 
     Ok(())

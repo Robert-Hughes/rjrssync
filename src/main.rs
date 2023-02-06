@@ -16,6 +16,7 @@ mod encrypted_comms;
 mod memory_bound_channel;
 mod profiling;
 mod parallel_walk_dir;
+mod logger_and_progress;
 
 use boss_frontend::*;
 use boss_launch::*;

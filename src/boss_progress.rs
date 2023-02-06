@@ -1,7 +1,7 @@
 use std::{ops::{AddAssign, SubAssign}, time::{Instant, Duration}, thread, sync::{Arc}};
 
 use crossbeam::atomic::AtomicCell;
-use indicatif::{ProgressBar, HumanCount, HumanBytes, ProgressStyle, WeakProgressBar, ProgressDrawTarget};
+use indicatif::{ProgressBar, HumanCount, HumanBytes, ProgressStyle, WeakProgressBar};
 
 use crate::{boss_doer_interface::{EntryDetails, ProgressPhase, ProgressMarker}, root_relative_path::RootRelativePath, boss_sync::Actions};
 
@@ -140,11 +140,12 @@ struct BarState {
 /// especially for very fast syncs where nothing has changed. In the past we were updating the
 /// totals a lot more frequency and so made a background thread which updates it periodically.
 /// Things might not be so bad now, but the background thread is still there (perhaps unnecessarily).
-pub struct Progress {
+pub struct Progress<'a> {
     /// Keeps the progress bar updated with details. Otherwise it's just a simple message.
     detailed: bool,
     /// The UI element from the `indicatif` crate that handles drawing the progress bar.
-    bar: ProgressBar,
+    /// It's a reference to the single global ProgressBar.
+    bar: &'a ProgressBar,
 
     /// The total amount of work that the dest doer needs to complete, set on creation.
     total: ProgressValues,
@@ -171,8 +172,8 @@ pub struct Progress {
     to_copy_paths: Vec<RootRelativePath>,
     to_delete_paths: Vec<RootRelativePath>,
 }
-impl Progress {
-    pub fn new(actions: &Actions, detailed: bool) -> Self {
+impl<'a> Progress<'a> {
+    pub fn new(actions: &Actions, progress_bar: &'a ProgressBar, detailed: bool) -> Self {
         // Sum up the total amount of work that needs doing, and store a copy of the
         // paths so that we can display these on the progress bar as we go
         let mut to_delete_paths = vec![];
@@ -192,21 +193,20 @@ impl Progress {
         // for the user. Instead we show the percentage, and include a custom message where we print more details
         // Note the use of "wide_msg" vs "msg", which prevents the message from wrapping to the next line
         // when the filename is long, which causes problems.
-        let bar = if detailed {
-                ProgressBar::new(total.work).with_style(
-                    ProgressStyle::with_template("{percent}% {bar:40.green/black} {wide_msg}").unwrap())
-            } else {
-                let b = ProgressBar::new_spinner().with_message("Syncing...");
-                b.tick(); // This seems to be necessary to get "Syncing..." to display at all
-                b
-            };
+        progress_bar.reset();
+        if detailed {
+            progress_bar.set_length(total.work);
+            progress_bar.set_style(ProgressStyle::with_template("{percent}% {bar:40.green/black} {wide_msg}").unwrap());
+        } else {
+            progress_bar.set_style(ProgressStyle::default_spinner());
+            progress_bar.set_message("Syncing...");
+            progress_bar.enable_steady_tick(Duration::from_millis(100));
+        };
 
-         // We control the update rate ourselves with our background thread, so disable(reduce) the built-in limiting
-        bar.set_draw_target(ProgressDrawTarget::stderr_with_hz(60));
         let new_bar_state = Arc::new(AtomicCell::new(None));
 
         if detailed {
-            let bar2 = bar.downgrade(); // Weak reference for the background thread
+            let bar2 = progress_bar.downgrade(); // Weak reference for the background thread
             let new_bar_state2 = new_bar_state.clone();
             thread::Builder::new().name("Progress bar".to_string()).spawn(
                 move || Self::background_updater(bar2, new_bar_state2)).expect("Failed to spawn thread");
@@ -214,7 +214,7 @@ impl Progress {
 
         Progress {
             detailed,
-            bar,
+            bar: progress_bar,
             total,
             sent: ProgressValues::default(),
             completed: ProgressValues::default(),

@@ -2,7 +2,7 @@ use std::{
     cmp::Ordering, time::{Instant, SystemTime, Duration},
 };
 
-use indicatif::{HumanCount, HumanBytes, ProgressBar};
+use indicatif::{HumanCount, HumanBytes, ProgressBar, ProgressStyle};
 use log::{debug, info, trace};
 use regex::{RegexSet};
 
@@ -129,6 +129,7 @@ struct SyncContext<'a> {
     dest_file_older_behaviour: DestFileUpdateBehaviour,
     dest_entry_needs_deleting_behaviour: DestEntryNeedsDeletingBehaviour,
     dest_root_needs_deleting_behaviour: DestRootNeedsDeletingBehaviour,
+    progress_bar: &'a ProgressBar,
     show_progress: bool,
     show_stats: bool,
     src_root: String,
@@ -174,6 +175,7 @@ impl<'a> SyncContext<'a> {
 pub fn sync(
     sync_spec: &SyncSpec,
     dry_run: bool,
+    progress_bar: &ProgressBar,
     show_progress: bool,
     show_stats: bool,
     src_comms: &mut Comms,
@@ -192,6 +194,7 @@ pub fn sync(
         filters,
         stats: Stats::default(),
         dry_run,
+        progress_bar,
         show_progress,
         show_stats,
         dest_file_newer_behaviour: sync_spec.dest_file_newer_behaviour,
@@ -241,8 +244,9 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), String> {
 
     // We don't have a good way of estimating how long the querying phase will take,
     // so we just show a spinner.
-    let progress_bar = ProgressBar::new_spinner().with_message("Querying...");
-    progress_bar.enable_steady_tick(Duration::from_millis(100));
+    ctx.progress_bar.set_style(ProgressStyle::default_spinner());
+    ctx.progress_bar.set_message("Querying...");
+    ctx.progress_bar.enable_steady_tick(Duration::from_millis(100));
 
     // First get details of the root file/folder etc. of each side, as this might affect the sync
     // before we start it (e.g. errors, or changing the dest root)
@@ -253,7 +257,7 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), String> {
     // (otherwise it would be the last prompt, as we delete in reverse order)
     if let Some(d) = &dest_root_details {
         if needs_delete(&src_root_details, d, dest_platform_differentiates_symlinks) {
-            if !check_dest_root_delete_ok(&mut ctx, &progress_bar, &src_root_details, d)? {
+            if !check_dest_root_delete_ok(&mut ctx, &src_root_details, d)? {
                 // Don't raise an error if we've been told to skip, but we can't continue as it will fail, so skip the entire sync
                 return Ok(());
             }
@@ -274,7 +278,7 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), String> {
 
     // Stop the progress bar before we (potentially) prompt the user, so the progress bar
     // redrawing doesn't interfere with the prompts
-    progress_bar.finish_and_clear();
+    ctx.progress_bar.finish_and_clear();
 
     let query_elapsed_secs = sync_start.elapsed().as_secs_f32();
     show_post_query_stats(&ctx, query_elapsed_secs);
@@ -285,7 +289,7 @@ fn sync_impl(mut ctx: SyncContext) -> Result<(), String> {
     // Start the proper progress bar. We still need this even for --no-progress, because we use
     // some of the features for tracking the timings for --stats, for example. We just put it into
     // a simpler 'mode'.
-    let mut progress = Progress::new(&actions, ctx.show_progress);
+    let mut progress = Progress::new(&actions, ctx.progress_bar, ctx.show_progress);
 
     // Delete dest entries that don't exist on the source. This needs to be done first in case there
     // are entries with the same name but incompatible (e.g. files vs folders).
@@ -391,7 +395,7 @@ fn get_root_details(ctx: &mut SyncContext) -> Result<(EntryDetails, Option<Entry
     Ok((src_root_details, dest_root_details, dest_platform_differentiates_symlinks))
 }
 
-fn check_dest_root_delete_ok(ctx: &mut SyncContext, progress_bar: &ProgressBar,
+fn check_dest_root_delete_ok(ctx: &mut SyncContext,
     src_root_details: &EntryDetails, dest_root_details: &EntryDetails) -> Result<bool, String>
 {
     let msg = format!(
@@ -401,7 +405,7 @@ fn check_dest_root_delete_ok(ctx: &mut SyncContext, progress_bar: &ProgressBar,
     let resolved_behaviour = match ctx.dest_root_needs_deleting_behaviour {
         DestRootNeedsDeletingBehaviour::Prompt => {
             let prompt_result = resolve_prompt(format!("{msg}. What do?"),
-                Some(progress_bar),
+                Some(ctx.progress_bar),
                 &[
                     ("Skip", DestRootNeedsDeletingBehaviour::Skip),
                     ("Delete", DestRootNeedsDeletingBehaviour::Delete),

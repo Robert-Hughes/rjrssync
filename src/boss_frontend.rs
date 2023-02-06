@@ -5,7 +5,7 @@ use std::sync::Mutex;
 
 use clap::{Parser, ValueEnum, CommandFactory};
 use env_logger::{Env, fmt::Color};
-use indicatif::{ProgressBar, HumanBytes};
+use indicatif::{ProgressBar, HumanBytes, ProgressDrawTarget, ProgressStyle};
 use log::info;
 use log::{debug, error};
 use regex::Regex;
@@ -13,6 +13,7 @@ use yaml_rust::{YamlLoader, Yaml};
 use lazy_static::{lazy_static};
 
 use crate::profiling::{dump_all_profiling, start_timer, stop_timer, self};
+use crate::logger_and_progress::LoggerAndProgress;
 use crate::{boss_launch::*, profile_this, function_name, boss_deploy};
 use crate::boss_sync::*;
 
@@ -515,75 +516,94 @@ pub fn boss_main() -> ExitCode {
         BossCliArgs::parse()
     };
 
+    // Configure logging, based on the user's --quiet/--verbose flag.
+    // If the RUST_LOG env var is set though then this overrides everything, as this is useful for developers
+    let logging_timer = profiling::start_timer("Configuring logging");
+    let args_level = match (args.quiet, args.verbose) {
+        (true, false) => "warn",
+        (false, true) => "debug",
+        (false, false) => "info",
+        (true, true) => panic!("Shouldn't be allowed by cmd args parser"),
+    };
+    let mut builder = env_logger::Builder::from_env(Env::default().default_filter_or(args_level));
+    builder.format(|buf, record| {
+        // Strip "rjrssync::" prefix, as this doesn't add anything
+        let target = record.target().replace("rjrssync::", "");
+        let target_style = if target.contains("boss") {
+            buf.style().set_color(Color::Rgb(255, 64, 255)).clone()
+        } else if target.contains("remote") {
+            buf.style().set_color(Color::Yellow).clone()
+        } else if target.contains("doer") {
+            buf.style().set_color(Color::Cyan).clone()
+        } else {
+            buf.style()
+        };
+
+        let level_style = buf.default_level_style(record.level());
+
+        match record.level() {
+            log::Level::Info => {
+                // Info messages are intended for the average user, so format them plainly
+                writeln!(
+                    buf,
+                    "{}",
+                    record.args()
+                )
+            }
+            log::Level::Warn | log::Level::Error => {
+                // Warn/error messages are also for a regular user, but deserve a prefix indicating
+                // that they are an error/warning
+                writeln!(
+                    buf,
+                    "{}: {}",
+                    level_style.value(record.level()),
+                    record.args()
+                )
+            }
+            log::Level::Debug | log::Level::Trace => {
+                // Debug/trace messages are for developers or power-users, so have more detail
+                writeln!(
+                    buf,
+                    "{} {:5} | {}: {}",
+                    buf.timestamp_nanos(),
+                    level_style.value(record.level()),
+                    target_style.value(target),
+                    record.args()
+                )
+            }
+        }
+    });
+    let logger = builder.build();
+
+    log::set_max_level(logger.filter());
+
+    // Wrap the env_logger::Logger in our own wrapper, which handles ProgressBar hiding.
+    // Use Box::leak to turn it into a 'static reference, which is required for the log API
+    let log_wrapper = Box::new(LoggerAndProgress::new(logger));
+    let log_wrapper = Box::leak(log_wrapper);
+    log::set_logger(log_wrapper).expect("Failed to init logging");
+
+    profiling::stop_timer(logging_timer);
+    profiling::stop_timer(timer); // Have to stop this before calling boss_main_impl, as that will dump all the profiling
+
+    let result = boss_main_impl(args, log_wrapper.get_progress_bar());
+
+    // The LoggerAndProgress never gets dropped (due to Box::leak), so we manually clean it up here.
+    log_wrapper.shutdown();
+
+    result
+}
+
+fn boss_main_impl(args: BossCliArgs, progress_bar: &ProgressBar) -> ExitCode {
+    let timer = start_timer(function_name!());
+    debug!("Running as boss");
+
     if let Some(shell) = args.generate_auto_complete_script {
         let mut cmd = BossCliArgs::command();
         let name = cmd.get_name().to_string();
         clap_complete::generate(shell, &mut cmd, name, &mut std::io::stdout());
         return ExitCode::SUCCESS;
     }
-
-    // Configure logging, based on the user's --quiet/--verbose flag.
-    // If the RUST_LOG env var is set though then this overrides everything, as this is useful for developers
-    {
-        profile_this!("Configuring logging");
-        let args_level = match (args.quiet, args.verbose) {
-            (true, false) => "warn",
-            (false, true) => "debug",
-            (false, false) => "info",
-            (true, true) => panic!("Shouldn't be allowed by cmd args parser"),
-        };
-        let mut builder = env_logger::Builder::from_env(Env::default().default_filter_or(args_level));
-        builder.format(|buf, record| {
-            // Strip "rjrssync::" prefix, as this doesn't add anything
-            let target = record.target().replace("rjrssync::", "");
-            let target_style = if target.contains("boss") {
-                buf.style().set_color(Color::Rgb(255, 64, 255)).clone()
-            } else if target.contains("remote") {
-                buf.style().set_color(Color::Yellow).clone()
-            } else if target.contains("doer") {
-                buf.style().set_color(Color::Cyan).clone()
-            } else {
-                buf.style()
-            };
-
-            let level_style = buf.default_level_style(record.level());
-
-            match record.level() {
-                log::Level::Info => {
-                    // Info messages are intended for the average user, so format them plainly
-                    writeln!(
-                        buf,
-                        "{}",
-                        record.args()
-                    )
-                }
-                log::Level::Warn | log::Level::Error => {
-                    // Warn/error messages are also for a regular user, but deserve a prefix indicating
-                    // that they are an error/warning
-                    writeln!(
-                        buf,
-                        "{}: {}",
-                        level_style.value(record.level()),
-                        record.args()
-                    )
-                }
-                log::Level::Debug | log::Level::Trace => {
-                    // Debug/trace messages are for developers or power-users, so have more detail
-                    writeln!(
-                        buf,
-                        "{} {:5} | {}: {}",
-                        buf.timestamp_nanos(),
-                        level_style.value(record.level()),
-                        target_style.value(target),
-                        record.args()
-                    )
-                }
-            }
-        });
-        builder.init();
-    }
-
-    debug!("Running as boss");
 
     if args.list_embedded_binaries {
         match boss_deploy::get_embedded_binaries() {
@@ -609,7 +629,7 @@ pub fn boss_main() -> ExitCode {
         }
     };
 
-    let exit_code = execute_spec(spec, &args);
+    let exit_code = execute_spec(spec, &args, progress_bar);
 
     stop_timer(timer);
 
@@ -681,7 +701,7 @@ fn resolve_spec(args: &BossCliArgs) -> Result<Spec, String> {
     Ok(spec)
 }
 
-fn execute_spec(spec: Spec, args: &BossCliArgs) -> ExitCode {
+fn execute_spec(spec: Spec, args: &BossCliArgs, progress_bar: &ProgressBar) -> ExitCode {
     // The src and/or dest may be on another computer. We need to run a copy of rjrssync on the remote
     // computer(s) and set up network commmunication.
     // There are therefore up to three copies of our program involved (although some may actually be the same as each other)
@@ -696,10 +716,13 @@ fn execute_spec(spec: Spec, args: &BossCliArgs) -> ExitCode {
     //           in which case we couldn't share a copy. Also might need to make it multithreaded on the other end to handle
     //           doing one command at the same time for each Source and Dest, which might be more complicated.)
 
-    let progress = ProgressBar::new_spinner().with_message("Connecting...");
+    // Configure the progress bar for the first phase (connecting to remote doers).
+    // Functions inside setup_comms will set the message appropriately.
+    progress_bar.set_draw_target(ProgressDrawTarget::stderr());
+    // Note the use of wide_msg to prevent line wrapping issues if terminal too narrow
+    progress_bar.set_style(ProgressStyle::with_template("{wide_msg}").unwrap());
     // Unfortunately we can't use enable_steady_tick to get a nice animation as we connect, because
     // this will clash with potential ssh output/prompts
-    progress.tick();
 
     // Launch doers on remote hosts or threads on local targets and estabilish communication (check version etc.)
     let mut src_comms = match setup_comms(
@@ -708,6 +731,7 @@ fn execute_spec(spec: Spec, args: &BossCliArgs) -> ExitCode {
         args.remote_port,
         "src".to_string(),
         spec.deploy_behaviour,
+        &progress_bar,
     ) {
         Some(c) => c,
         None => return ExitCode::from(10),
@@ -718,12 +742,11 @@ fn execute_spec(spec: Spec, args: &BossCliArgs) -> ExitCode {
         args.remote_port,
         "dest".to_string(),
         spec.deploy_behaviour,
+        &progress_bar,
     ) {
         Some(c) => c,
         None => return ExitCode::from(11),
     };
-
-    progress.finish_and_clear();
 
     // Perform the actual file sync(s)
     for sync_spec in &spec.syncs {
@@ -732,7 +755,8 @@ fn execute_spec(spec: Spec, args: &BossCliArgs) -> ExitCode {
             info!("{} => {}:", sync_spec.src, sync_spec.dest);
         }
 
-        let sync_result = sync(&sync_spec, args.dry_run, !args.no_progress, args.stats, &mut src_comms, &mut dest_comms);
+        let sync_result = sync(&sync_spec, args.dry_run, &progress_bar, !args.no_progress,
+            args.stats, &mut src_comms, &mut dest_comms);
 
         match sync_result {
             Ok(()) => (),
