@@ -5,39 +5,37 @@ use crossbeam::{channel::{Receiver, Sender, SendError}};
 use crate::profiling;
 
 /// Similar to WalkDir from the walk_dir crate, this function gets all the files/folders/etc.
-/// recursively inside a root directory. 
-/// 
+/// recursively inside a root directory.
+///
 /// It runs in parallel across multiple threads to speed it up.
 /// From testing, this makes it about 4x faster than a single-threaded approach.
-/// 
+///
 /// The entries are provided to the caller through a crossbeam Receiver, and iteration is finished
 /// when this receiver gets disconnected.
-/// 
+///
 /// A filter function can be provided to skip some entries, and prevent recursion into unwanted directories.
 pub fn parallel_walk_dir<
-    T: Send + 'static, 
+    T: Send + 'static,
     F: Fn(&std::fs::DirEntry) -> Result<FilterResult<T>, String> + Send + Clone + 'static
-    >(root: &Path, filter_func: F) -> Receiver<Result<Entry<T>, String>> 
+    >(root: &Path, filter_func: F) -> Receiver<Result<Entry<T>, String>>
 {
     // A cross-thread queue of jobs to be executed by the worker threads (a 'job' is simply a directory to enumerate).
     // When encountering a sub-directory, worker threads will add those sub-directories as new jobs to the queue,
     // allowing them to be started in parallel.
     // Note that this channel can't simply be made bounded, because it will lead to deadlocks!
-    let (job_sender, job_receiver) = crossbeam::channel::unbounded::<Job>(); 
+    let (job_sender, job_receiver) = crossbeam::channel::unbounded::<Job>();
     // The job queue initially has just one job - the root directory.
     job_sender.send(Job::Dir(PathBuf::from(root))).expect("Job channel disconnected");
 
     // Counter of the number of jobs that haven't been started, or are in progress.
-    // This is used to detect when we are finished, and is slightly different from the job queue's 
+    // This is used to detect when we are finished, and is slightly different from the job queue's
     // length, as jobs are removed from the queue before they are finished.
     let num_unfinished_jobs = Arc::new(AtomicUsize::new(1));
 
     // The cross-thread queue of results, sent to the caller via their Receiver.
     let (result_sender, result_receiver) = crossbeam::channel::bounded::<Result<Entry<T>, String>>(1000);  // Bounded arbitrarily to prevent too high memory usage
 
-    // The "best" number of threads to use depends on many things, and so isn't easily calculable.
-    // We spawn this number of threads as the maximum, but scale things down dynamically based on
-    // the length of the result queue.
+    // The "best" number of threads to use depends on many things. This is a bit of a heuristic!
     #[cfg(windows)]
     let num_threads = std::cmp::max(1, num_cpus::get() / 2);
     #[cfg(unix)]
@@ -71,7 +69,7 @@ pub struct Entry<T> {
 
 /// Result of checking an entry against a filter.
 /// As well as determinining whether or not the entry should be skipped, this allows
-/// additional data to be provided with the entry, to avoid having to re-calculate 
+/// additional data to be provided with the entry, to avoid having to re-calculate
 /// anything needed for the filtering process.
 pub struct FilterResult<T> {
     pub skip: bool,
@@ -86,12 +84,12 @@ enum Job {
 fn worker_main<T, F: Fn(&std::fs::DirEntry) -> Result<FilterResult<T>, String>>(
     job_sender: Sender<Job>, job_receiver: Receiver<Job>,
     result_sender: Sender<Result<Entry<T>, String>>, num_unfinished_jobs: Arc<AtomicUsize>,
-    num_threads: usize, filter_func: F) 
-    -> 
+    num_threads: usize, filter_func: F)
+    ->
     Result<(), SendError<Result<Entry<T>, String>>>
 {
     // Note that errors from sending to the _result_ channel are ignored and we silently stop this thread,
-    // because this simply indicates that the user has dropped their receiver and so don't care about any 
+    // because this simply indicates that the user has dropped their receiver and so don't care about any
     // more entries. We use the '?' for this to keep it concise.
     // The job channel however should always be alive as this thread holds both a Sender and Receiver to it.
 
@@ -136,7 +134,7 @@ fn worker_main<T, F: Fn(&std::fs::DirEntry) -> Result<FilterResult<T>, String>>(
                         }
                     };
                     profiling::stop_timer(timer);
-                    
+
                     // Before sending the entry as a result, check if it's a directory that we need to recurse into
                     let timer = profiling::start_timer(&format!("send result ({})", result_sender.len()));
                     let file_type = match entry.file_type() {
@@ -169,7 +167,7 @@ fn worker_main<T, F: Fn(&std::fs::DirEntry) -> Result<FilterResult<T>, String>>(
                         job_sender.send(Job::Dir(x)).expect("Job channel disconnected");
                     }
                     profiling::stop_timer(timer);
-                }                        
+                }
             }
             Job::Done => break,
         }
