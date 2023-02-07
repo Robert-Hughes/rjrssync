@@ -12,11 +12,6 @@ Current
 
 * Upload new version to crates.io
 
-* The "Connecting" spinner gets "lost" if we are deploying. it would be good to re-show this after deploy when we are trying to connect again (after Deploy successful!, there is a delay when nothing seems to be happening!)
-  - What about if error messages show up during deploy/connect. make sure these are displayed properly with the spinner
-  - should the deploy message (Uploading... and other messages printed there) be using the progress bar instead?
-
-
 Interface
 ----------
 
@@ -46,10 +41,12 @@ Remote launching
 * The prompt messages don't account for --dry-run, so it will look like things are actually going to be deleted, when they're not
 * Embed Windows on Arm (aarch64-pc-windows-msvc) binary, and detect it when checking a remote OS
 * When building embedded binaries, if the target platform cross-compiler isn't installed, then the build will produce a LOT of errors which is very noisy and slow. Maybe instead we should do our own quick check up front?
-* Deploying a big binary to "less powerful"/slower targets may be bad because it will take ages to copy the big binary there, and the benefits of having a fully-functional rjrssync.exe on there may be minimal. Perhaps we do want the option(?) of deploying only a lite binary? That might make a lot of this work redundant, as we would no longer need to generate new big binaries on-demand, so wouldn't need to do all this section stuff. Perhaps instead we focus on making the binary smaller, which would be good anyway? One option could be to compress the embedded lite binaries.
+* Deploying a big binary to "less powerful"/slower targets may be bad because it will take ages to copy the big binary there, and the benefits of having a fully-functional rjrssync.exe on there may be minimal. Perhaps we do want the option(?) of deploying only a lite binary? That might make a lot of this work redundant, as we would no longer need to generate new big binaries on-demand, so wouldn't need to do all this section stuff. Perhaps instead we focus on making the binary smaller, which would be good anyway?
+   - One option could be to compress the embedded lite binaries.
+   - We can avoid including a lite binary for the platform that is the outer binary, as we can extract this instead
+   - "Strip" the embedded binaries (and the progenitor too?) (remove debugging symbols etc., see linux `strip` command)
 * When the doer is listening on network port, if the boss never connects (e.g. due to firewall) it seems that even when you close the boss, the doer is left behind and doesn't close, possibly because it's just sat waiting for network connection that never comes (cos of firewall). Maybe we should have a timeout on the doer, if the boss doesn't connect within some short time, it should exit? Or if the stdin drops (i.e. ssh disappears)?
-* Tidy up error reporting in boss_launch.rs
-* Add separate crate features for each embedded binary, so can specify just one to reduce build time. Default can be all of them like it is now. Can have these features depend on the existing progenitor feature.
+* Tidy up error reporting in boss_launch.rs and boss_deploy.rs
 
 Syncing logic
 -------------

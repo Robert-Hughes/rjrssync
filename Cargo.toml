@@ -63,13 +63,18 @@ profiling=["dep:json"]
 # but we need a special build to create the "first" big binary, which is the progenitor.
 # A progenitor is always big, but big is not necessarily a progenitor.
 progenitor=[]
+# Individual features for each embedded binary, so that by disabling some of these we can build
+# a progenitor with just one embedded lite binary, so speed up the build for development.
+embed-x64-windows=["progenitor"]
+embed-x64-linux=["progenitor"]
+embed-aarch64-linux=["progenitor"]
 # By default, build a progenitor (a binary that includes copies of binaries for other platforms),
 # so that it can be easily deployed to other platforms.
 # Also the guidance on Cargo features is to make them "additive", i.e. to add functionality not
 # have a feature which removes functionality.
 # If you want to build a lite binary (e.g. for faster iterating in development),
 # then you have to pass --no-default-features to cargo to disable this feature.
-default=["progenitor"]
+default=["progenitor", "embed-x64-windows", "embed-x64-linux", "embed-aarch64-linux"]
 
 # Note this is a profiling _profile_ and is orthogonal to the profiling _feature_, and is for
 # including symbols in a release build so that an external profiling tool can be used.

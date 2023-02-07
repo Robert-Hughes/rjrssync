@@ -14,26 +14,32 @@ fn get_embedded_binary_target_triples() -> Vec<&'static str> {
     let mut result = vec![];
 
     // x64 Windows
-    // There are two main target triples for this - one using MSVC and one using MinGW.
-    // The MSVC one isn't available when building on Linux, so we have to use MinGW there.
-    // When building on Windows, we could use the MinGW one too for consistency, but setting this up
-    // on Windows is annoying (need to download MinGW as well as rustup target add), so we stick with MSVC.
-    // (See section in notes.md for some more discussion on consistency of embedded binaries.)
-    // Specifically, we check if the _target_ was already set to MSVC, implying that MSVC
-    // is available, and accounting for somebody building on Windows but without MSVC.
-    if std::env::var("TARGET").unwrap().contains("msvc") {
-        result.push("x86_64-pc-windows-msvc");
-    } else {
-        result.push("x86_64-pc-windows-gnu");
+    if env::var("CARGO_FEATURE_EMBED_X64_WINDOWS") == Ok("1".to_string()) {
+        // There are two main target triples for this - one using MSVC and one using MinGW.
+        // The MSVC one isn't available when building on Linux, so we have to use MinGW there.
+        // When building on Windows, we could use the MinGW one too for consistency, but setting this up
+        // on Windows is annoying (need to download MinGW as well as rustup target add), so we stick with MSVC.
+        // (See section in notes.md for some more discussion on consistency of embedded binaries.)
+        // Specifically, we check if the _target_ was already set to MSVC, implying that MSVC
+        // is available, and accounting for somebody building on Windows but without MSVC.
+        if std::env::var("TARGET").unwrap().contains("msvc") {
+            result.push("x86_64-pc-windows-msvc");
+        } else {
+            result.push("x86_64-pc-windows-gnu");
+        }
     }
 
     // x64 Linux
-    // Use musl rather than gnu as it's statically linked, so makes the resulting binary more portable
-    result.push("x86_64-unknown-linux-musl");
+    if env::var("CARGO_FEATURE_EMBED_X64_LINUX") == Ok("1".to_string()) {
+        // Use musl rather than gnu as it's statically linked, so makes the resulting binary more portable
+        result.push("x86_64-unknown-linux-musl");
+    }
 
     // aarch64 Linux
-    // Use musl rather than gnu as it's statically linked, so makes the resulting binary more portable
-    result.push("aarch64-unknown-linux-musl");
+    if env::var("CARGO_FEATURE_EMBED_AARCH64_LINUX") == Ok("1".to_string()) {
+        // Use musl rather than gnu as it's statically linked, so makes the resulting binary more portable
+        result.push("aarch64-unknown-linux-musl");
+    }
 
     result
 }
