@@ -4,11 +4,9 @@ TODO:
 Current
 -------
 
-* "Connecting" phase seems to be taking longer, especially on work PC. Only happens sometimes.  Could be because of mingw build? (vs. msvc build we were using before)
-  - Maybe anti-virus scanning, because of embedded binary stuff?
-  - Could it be static crt linking?
-  - Or the mingw build?
+* "Connecting" phase seems to be taking longer, especially on work PC. Only happens sometimes.
   - Looks like it's being flagged up by windows defender, can see messages in Event Viewer. Possibly it was always scanning it, but because the binary size is so much bigger now it has a noticeable effect.
+  - Tried reducing binary size with a few things, test to see if it's better now.
 
 * Upload new version to crates.io
 

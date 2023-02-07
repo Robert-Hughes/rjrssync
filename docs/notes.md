@@ -380,6 +380,42 @@ On Windows, we could embed the lite binaries as proper "resources" (using .rc fi
 
 Ideas for reducing binary size: https://github.com/johnthagen/min-sized-rust
 
+Stripping symbols helped quite a lot (~50% reduction)
+Optimising for speed rather than size helped reasonably as well, but might have perf effects so didn't do this
+LTO helped a little bit, and might produce better code too so turned it on.
+
+Sizes here built from windows (in release!)
+
+original:
+
+x86_64-pc-windows-msvc (3.31 MiB)
+x86_64-unknown-linux-musl (8.68 MiB)
+aarch64-unknown-linux-musl (8.65 MiB)
+
+with strip
+
+x86_64-pc-windows-msvc (3.30 MiB)
+x86_64-unknown-linux-musl (3.59 MiB)
+aarch64-unknown-linux-musl (2.90 MiB)
+
+with strip + optimize for size
+
+x86_64-pc-windows-msvc (2.64 MiB)
+x86_64-unknown-linux-musl (3.22 MiB)
+aarch64-unknown-linux-musl (2.65 MiB)
+
+with strip + optimize for size + lto:
+
+x86_64-pc-windows-msvc (2.29 MiB)
+x86_64-unknown-linux-musl (2.48 MiB)
+aarch64-unknown-linux-musl (1.99 MiB)
+
+with strip + lto (optimize for speed, not size):
+
+x86_64-pc-windows-msvc (3.19 MiB)
+x86_64-unknown-linux-musl (3.07 MiB)
+aarch64-unknown-linux-musl (2.41 MiB)
+
 Documentation (README.md, --help, etc.)
 =======================================
 
