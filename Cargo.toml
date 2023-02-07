@@ -76,6 +76,12 @@ embed-aarch64-linux=["progenitor"]
 # then you have to pass --no-default-features to cargo to disable this feature.
 default=["progenitor", "embed-x64-windows", "embed-x64-linux", "embed-aarch64-linux"]
 
+
+# Automatically strip symbols from the binary in release builds. This decreases the binary size
+# which is especially relevant to keep the big binary size down (as it contains many binaries).
+[profile.release]
+strip = true
+
 # Note this is a profiling _profile_ and is orthogonal to the profiling _feature_, and is for
 # including symbols in a release build so that an external profiling tool can be used.
 [profile.profiling]

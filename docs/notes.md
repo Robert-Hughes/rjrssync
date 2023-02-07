@@ -378,6 +378,8 @@ But it does mean that users would need to set up all the rustup cross-compilatio
 
 On Windows, we could embed the lite binaries as proper "resources" (using .rc file etc.), but this isn't a thing on Linux, so we choose to use the same approach for both and so don't use this Windows feature. Instead we append the embedded binaries as sections in the final binary (.exe/.elf) (both platforms have the concept of sections in their executable formats). Because we'll need to manipulate the binaries anyway at runtime when building a new big binary, we're gonna need to mess around with the sections anyway, and making them work as resources is more work.
 
+Ideas for reducing binary size: https://github.com/johnthagen/min-sized-rust
+
 Documentation (README.md, --help, etc.)
 =======================================
 
