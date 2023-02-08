@@ -234,19 +234,25 @@ pub fn setup_comms(
                 None // No point trying again. launch_doer_via_ssh will have logged the error already.
             }
             SshDoerLaunchResult::Success { ssh_process, stdin, stdout, stderr, secret_key, actual_port } =>
-                return connect_to_remote_doer(remote_hostname, debug_name, ssh_process, stdin, stdout, stderr, secret_key, actual_port),
+                match connect_to_remote_doer(remote_hostname, debug_name, ssh_process, stdin, stdout, stderr, secret_key, actual_port) {
+                    Ok(c) => return Some(c),
+                    Err(e) => {
+                        error!("Failed to connect to remote: {e}");
+                        return None;
+                    }
+                }
         }
     };
 
     let deploy_reason = attempt_deploy?; // Stop here if decided not to deploy (error that we don't think deploying will help with)
 
     // New version is needed
-    if deploy_to_remote(remote_hostname, remote_user, &deploy_reason, deploy_behaviour, progress_bar).is_ok() {
-        debug!("Successfully deployed, attempting to run again");
-    } else {
-        error!("Failed to deploy to remote");
+    if let Err(e) = deploy_to_remote(remote_hostname, remote_user, &deploy_reason, deploy_behaviour, progress_bar) {
+        error!("Failed to deploy to remote: {e}");
         return None;
     }
+
+    debug!("Successfully deployed, attempting to run again");
 
     // Check again
     match launch_doer_via_ssh(remote_hostname, remote_user, remote_port_for_comms, progress_bar) {
@@ -260,7 +266,13 @@ pub fn setup_comms(
             return None;
         }
         SshDoerLaunchResult::Success { ssh_process, stdin, stdout, stderr, secret_key, actual_port } =>
-            return connect_to_remote_doer(remote_hostname, debug_name, ssh_process, stdin, stdout, stderr, secret_key, actual_port),
+            match connect_to_remote_doer(remote_hostname, debug_name, ssh_process, stdin, stdout, stderr, secret_key, actual_port) {
+                Ok(c) => return Some(c),
+                Err(e) => {
+                    error!("Failed to connect to remote: {e}");
+                    return None;
+                }
+            }
     };
 }
 
@@ -273,7 +285,7 @@ fn connect_to_remote_doer(
     stderr: BufReader<ChildStderr>,
     secret_key: Key<Aes128Gcm>,
     actual_port: u16
-) -> Option<Comms> {
+) -> Result<Comms, String> {
     // Start a background thread to print out log messages from the remote doer,
     // which it can send over its stderr.
     let debug_name_clone = debug_name.clone();
@@ -289,15 +301,12 @@ fn connect_to_remote_doer(
                 debug!("Connected! {:?}", t);
                 t
             }
-            Err(e) => {
-                error!("Failed to connect to network port: {}", e);
-                return None;
-            }
+            Err(e) => return Err(format!("Failed to connect to network address {:?}: {}", addr, e)),
         }
     };
 
     let debug_comms_name = "Remote ".to_string() + &debug_name;
-    return Some(Comms::Remote {
+    return Ok(Comms::Remote {
         debug_name: debug_comms_name.clone(),
         ssh_process,
         stdin,

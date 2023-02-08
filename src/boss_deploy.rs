@@ -1,5 +1,5 @@
 use indicatif::{HumanBytes, ProgressBar};
-use log::{debug, error, info};
+use log::{debug, info};
 use std::ffi::OsStr;
 use std::path::{Path};
 use std::sync::mpsc;
@@ -18,7 +18,7 @@ use embedded_binaries::EmbeddedBinaries;
 /// Deploys a pre-built binary of rjrssync to the given remote computer, ready to be executed.
 pub fn deploy_to_remote(remote_hostname: &str, remote_user: &str, reason: &str,
     deploy_behaviour: DeployBehaviour, progress_bar: &ProgressBar)
--> Result<(), ()>
+-> Result<(), String>
 {
     profile_this!();
 
@@ -44,15 +44,9 @@ pub fn deploy_to_remote(remote_hostname: &str, remote_user: &str, reason: &str,
     let remote_command = format!("echo >/dev/null # >nul & echo Remote system is Windows %PROCESSOR_ARCHITECTURE%\necho Remote system is `uname -a`");
     debug!("Running remote command: {}", remote_command);
     let os_test_output = match run_process_with_live_output("ssh", &[user_prefix.clone() + remote_hostname, remote_command.to_string()]) {
-        Err(e) => {
-            error!("Error running ssh: {}", e);
-            return Err(());
-        }
+        Err(e) => return Err(format!("Error running ssh: {}", e)),
         Ok(output) if output.exit_status.success() => output.stdout,
-        Ok(output) => {
-            error!("Error checking remote OS. Exit status from ssh: {}", output.exit_status);
-            return Err(());
-        }
+        Ok(output) => return Err(format!("Error checking remote OS. Exit status from ssh: {}", output.exit_status)),
     };
 
     // We could check for "linux" in the string, but there are other Unix systems we might want to support too e.g. Mac,
@@ -63,17 +57,13 @@ pub fn deploy_to_remote(remote_hostname: &str, remote_user: &str, reason: &str,
     // Create temporary staging folder for upload
     let staging_dir = match TempDir::new("rjrssync-deploy-staging") {
         Ok(x) => x,
-        Err(e) => {
-            error!("Error creating temp dir: {}", e);
-            return Err(());
-        }
+        Err(e) => return Err(format!("Error creating temp dir: {}", e)),
     };
     // Add an extra "rjrssync" folder with a fixed name (as opposed to the temp dir, whose name varies),
     // to work around SCP weirdness below.
     let staging_dir = staging_dir.path().join("rjrssync");
     if let Err(e) = std::fs::create_dir_all(&staging_dir) {
-        error!("Error creating staging dir {}: {}", staging_dir.display(), e);
-        return Err(());
+        return Err(format!("Error creating staging dir {}: {}", staging_dir.display(), e));
     }
 
     let binary_filename = staging_dir.join("rjrssync").with_extension(binary_extension);
@@ -81,10 +71,7 @@ pub fn deploy_to_remote(remote_hostname: &str, remote_user: &str, reason: &str,
     // Generate a big binary for this platform into the staging folder, if we can.
     let binary_size = match create_binary_for_target(&os_test_output, &binary_filename) {
         Ok(s) => s,
-        Err(e) => {
-            error!("Error generating binary to deploy: {}", e);
-            return Err(());
-        }
+        Err(e) => return Err(format!("Error generating binary to deploy: {}", e)),
     };
 
     let (remote_temp, remote_rjrssync_folder) = if is_windows {
@@ -113,10 +100,7 @@ pub fn deploy_to_remote(remote_hostname: &str, remote_user: &str, reason: &str,
     };
     match resolved_behaviour {
         DeployBehaviour::Prompt | DeployBehaviour::Force => panic!("Should have been alredy resolved!"),
-        DeployBehaviour::Error => {
-            error!("{msg}. Will not deploy. See --deploy.");
-            return Err(());
-        }
+        DeployBehaviour::Error => return Err(format!("{msg}. Will not deploy. See --deploy.")),
         DeployBehaviour::Ok => (), // Continue with deployment
     };
 
@@ -127,17 +111,11 @@ pub fn deploy_to_remote(remote_hostname: &str, remote_user: &str, reason: &str,
     let remote_spec = format!("{user_prefix}{remote_hostname}:{remote_temp}");
     debug!("Copying {} to {}", source_spec.display(), remote_spec);
     match run_process_with_live_output("scp", &[OsStr::new("-r"), source_spec.as_os_str(), OsStr::new(&remote_spec)]) {
-        Err(e) => {
-            error!("Error running scp: {}", e);
-            return Err(());
-        }
+        Err(e) => return Err(format!("Error running scp: {}", e)),
         Ok(s) if s.exit_status.success() => {
             // Good!
-        }
-        Ok(s) => {
-            error!("Error copying source code. Exit status from scp: {}", s.exit_status);
-            return Err(());
-        }
+        },
+        Ok(s) => return Err(format!("Error copying pre-built binary. Exit status from scp: {}", s.exit_status)),
     };
 
     // Make sure the remote exe is executable (on Linux this is required)
@@ -148,17 +126,11 @@ pub fn deploy_to_remote(remote_hostname: &str, remote_user: &str, reason: &str,
         let remote_command = format!("cd {remote_rjrssync_folder} && chmod +x rjrssync");
         debug!("Running remote command: {}", remote_command);
         match run_process_with_live_output("ssh", &[user_prefix + remote_hostname, remote_command]) {
-            Err(e) => {
-                error!("Error running ssh: {}", e);
-                return Err(());
-            }
+            Err(e) => return Err(format!("Error running ssh: {}", e)),
             Ok(s) if s.exit_status.success() => {
                 // Good!
             }
-            Ok(s) => {
-                error!("Error setting executable bit. Exit status from ssh: {}", s.exit_status);
-                return Err(());
-            }
+            Ok(s) => return Err(format!("Error setting executable bit. Exit status from ssh: {}", s.exit_status)),
         };
     }
 
