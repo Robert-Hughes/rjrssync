@@ -10,6 +10,9 @@ Current
 
 * Upload new version to crates.io
 
+* Tidy up error reporting in boss_launch.rs and boss_deploy.rs
+
+
 Interface
 ----------
 
@@ -45,7 +48,6 @@ Remote launching
    - "Strip" the embedded binaries (and the progenitor too?) (remove debugging symbols etc., see linux `strip` command)
    - https://github.com/johnthagen/min-sized-rust
 * When the doer is listening on network port, if the boss never connects (e.g. due to firewall) it seems that even when you close the boss, the doer is left behind and doesn't close, possibly because it's just sat waiting for network connection that never comes (cos of firewall). Maybe we should have a timeout on the doer, if the boss doesn't connect within some short time, it should exit? Or if the stdin drops (i.e. ssh disappears)?
-* Tidy up error reporting in boss_launch.rs and boss_deploy.rs
 
 Syncing logic
 -------------

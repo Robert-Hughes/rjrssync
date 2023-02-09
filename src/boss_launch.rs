@@ -221,17 +221,17 @@ pub fn setup_comms(
     }
     else {
         match launch_doer_via_ssh(remote_hostname, remote_user, remote_port_for_comms, progress_bar) {
-            SshDoerLaunchResult::FailedToRunSsh => {
-                None // No point trying again. launch_doer_via_ssh will have logged the error already.
+            SshDoerLaunchResult::FailedToRunSsh(e) |
+            SshDoerLaunchResult::CommunicationError(e) |
+            SshDoerLaunchResult::ExitedUnexpectedly(e) => {
+                error!("{e}");
+                None // No point trying again
             }
             SshDoerLaunchResult::NotPresentOnRemote => {
                 Some(format!("rjrssync is not present on the remote target")) // Attempt to deploy
             }
             SshDoerLaunchResult::HandshakeIncompatibleVersion { expected, actual } => {
                 Some(format!("the rjrssync version present on the remote target ({actual}) is not compatible with this version ({expected})")) // Will attempt to deploy
-            }
-            SshDoerLaunchResult::ExitedUnexpectedly | SshDoerLaunchResult::CommunicationError => {
-                None // No point trying again. launch_doer_via_ssh will have logged the error already.
             }
             SshDoerLaunchResult::Success { ssh_process, stdin, stdout, stderr, secret_key, actual_port } =>
                 match connect_to_remote_doer(remote_hostname, debug_name, ssh_process, stdin, stdout, stderr, secret_key, actual_port) {
@@ -256,11 +256,16 @@ pub fn setup_comms(
 
     // Check again
     match launch_doer_via_ssh(remote_hostname, remote_user, remote_port_for_comms, progress_bar) {
-        SshDoerLaunchResult::FailedToRunSsh |
+        SshDoerLaunchResult::FailedToRunSsh(e) |
+        SshDoerLaunchResult::CommunicationError(e) |
+        SshDoerLaunchResult::ExitedUnexpectedly(e) => {
+            error!("{e}");
+            // Failed to launch even after deployment
+            error!("Failed to launch, even after deployment");
+            return None;
+        },
         SshDoerLaunchResult::NotPresentOnRemote |
-        SshDoerLaunchResult::HandshakeIncompatibleVersion { .. } |
-        SshDoerLaunchResult::ExitedUnexpectedly |
-        SshDoerLaunchResult::CommunicationError => {
+        SshDoerLaunchResult::HandshakeIncompatibleVersion { .. } => {
             // Failed to launch even after deployment. launch_doer_via_ssh will have logged the error already.
             error!("Failed to launch, even after deployment");
             return None;
@@ -350,15 +355,15 @@ fn remote_doer_logging_thread(mut stderr: BufReader<ChildStderr>, debug_name: St
 // Result of launch_doer_via_ssh function.
 enum SshDoerLaunchResult {
     /// The ssh process couldn't be started, for example because the ssh executable isn't available on the PATH.
-    FailedToRunSsh,
+    FailedToRunSsh(String),
     /// We connected to the remote computer, but couldn't launch rjrssync because it didn't exist.
     /// This would be expected if this computer has never been used as a remote target before.
     NotPresentOnRemote,
     /// ssh exited before the handshake with rjrssync took place. This could be due to many reasons,
     /// for example rjrssync couldn't launch correctly because it bind to a free port.
-    ExitedUnexpectedly,
+    ExitedUnexpectedly(String),
     /// Failed to send/receive some data on stdin/stdout commuicating with the doer.
-    CommunicationError,
+    CommunicationError(String),
     /// rjrssync launched successfully on the remote computer, but it reported a version number that
     /// isn't compatible with our version.
     HandshakeIncompatibleVersion {
@@ -543,10 +548,7 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str,
         .spawn()
     {
         Ok(c) => c,
-        Err(e) => {
-            error!("Error launching ssh: {}", e);
-            return SshDoerLaunchResult::FailedToRunSsh;
-        }
+        Err(e) => return SshDoerLaunchResult::FailedToRunSsh(format!("Error launching ssh: {}", e)),
     };
 
     // Some of the output from ssh (errors etc.) comes on stderr, so we need to display both stdout and stderr
@@ -630,8 +632,7 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str,
                     let mut msg = base64::engine::general_purpose::STANDARD.encode(key).as_bytes().to_vec();
                     msg.push(b'\n');
                     if let Err(e) = ssh_stdin.write_all(&msg) {
-                        error!("Failed to send secret: {}", e);
-                        return SshDoerLaunchResult::CommunicationError;
+                        return SshDoerLaunchResult::CommunicationError(format!("Failed to send secret: {}", e));
                     }
                     handshook_data.secret_key = Some(key); // Remember the key - we'll need it too!
                 }
@@ -645,10 +646,7 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str,
 
                 let actual_port : u16 = match line.split_at(HANDSHAKE_COMPLETED_MSG.len()).1.parse() {
                     Ok(p) => p,
-                    Err(e) => {
-                        error!("Failed to parse port number from line '{}': {e}", line);
-                        return SshDoerLaunchResult::CommunicationError;
-                    }
+                    Err(e) => return SshDoerLaunchResult::CommunicationError(format!("Failed to parse port number from line '{}': {e}", line)),
                 };
 
                 // Need to wait for both stdout and stderr to pass the handshake
@@ -664,8 +662,7 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str,
                 };
             }
             Ok((stream_type, OutputReaderThreadMsg::Error(e))) => {
-                error!("Error reading from {}: {}", stream_type, e);
-                return SshDoerLaunchResult::CommunicationError;
+                return SshDoerLaunchResult::CommunicationError(format!("Error reading from {}: {}", stream_type, e));
             }
             Ok((stream_type, OutputReaderThreadMsg::StreamClosed)) => {
                 debug!("ssh {} closed", stream_type);
@@ -677,8 +674,7 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str,
                 debug!("Both reader threads done, ssh must have exited. Waiting for process.");
                 // Wait for the process to exit, for tidyness
                 let result = ssh_process.wait();
-                error!("ssh exited unexpectedly with {:?}", result);
-                return SshDoerLaunchResult::ExitedUnexpectedly;
+                return SshDoerLaunchResult::ExitedUnexpectedly(format!("ssh exited unexpectedly with {:?}", result));
             }
         }
     }
