@@ -733,8 +733,11 @@ fn execute_spec(spec: Spec, args: &BossCliArgs, progress_bar: &ProgressBar) -> E
         spec.deploy_behaviour,
         &progress_bar,
     ) {
-        Some(c) => c,
-        None => return ExitCode::from(10),
+        Ok(c) => c,
+        Err(e) => {
+            error!("Error connecting to {}: {}", spec.src_hostname, e);
+            return ExitCode::from(10);
+        }
     };
     let mut dest_comms = match setup_comms(
         &spec.dest_hostname,
@@ -744,8 +747,11 @@ fn execute_spec(spec: Spec, args: &BossCliArgs, progress_bar: &ProgressBar) -> E
         spec.deploy_behaviour,
         &progress_bar,
     ) {
-        Some(c) => c,
-        None => return ExitCode::from(11),
+        Ok(c) => c,
+        Err(e) => {
+            error!("Error connecting to {}: {}", spec.dest_hostname, e);
+            return ExitCode::from(11);
+        }
     };
 
     // Perform the actual file sync(s)

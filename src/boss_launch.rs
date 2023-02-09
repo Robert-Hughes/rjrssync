@@ -186,7 +186,7 @@ pub fn setup_comms(
     debug_name: String,
     deploy_behaviour: DeployBehaviour,
     progress_bar: &ProgressBar,
-) -> Option<Comms> {
+) -> Result<Comms, String> {
     profile_this!(format!("setup_comms {}", debug_name));
     debug!(
         "setup_comms with hostname '{}' and username '{}'. debug_name = {}",
@@ -205,7 +205,7 @@ pub fn setup_comms(
         let thread = thread_builder.spawn(move || {
             doer_thread_running_on_boss(command_receiver, response_sender)
         }).unwrap();
-        return Some(Comms::Local {
+        return Ok(Comms::Local {
             debug_name,
             thread,
             sender: command_sender,
@@ -216,40 +216,34 @@ pub fn setup_comms(
     // We first attempt to run a previously-deployed copy of the program on the remote, to save time.
     // If it exists and is a compatible version, we can use that. Otherwise we deploy a new version
     // and try again
-    let attempt_deploy = if deploy_behaviour == DeployBehaviour::Force {
-        Some(format!("--deploy=force was set"))
+    let deploy_reason = if deploy_behaviour == DeployBehaviour::Force {
+        format!("--deploy=force was set")
     }
     else {
         match launch_doer_via_ssh(remote_hostname, remote_user, remote_port_for_comms, progress_bar) {
             SshDoerLaunchResult::FailedToRunSsh(e) |
             SshDoerLaunchResult::CommunicationError(e) |
             SshDoerLaunchResult::ExitedUnexpectedly(e) => {
-                error!("{e}");
-                None // No point trying again
+                // No point trying again
+                return Err(format!("{e}"));
             }
             SshDoerLaunchResult::NotPresentOnRemote => {
-                Some(format!("rjrssync is not present on the remote target")) // Attempt to deploy
+                format!("rjrssync is not present on the remote target") // Attempt to deploy
             }
             SshDoerLaunchResult::HandshakeIncompatibleVersion { expected, actual } => {
-                Some(format!("the rjrssync version present on the remote target ({actual}) is not compatible with this version ({expected})")) // Will attempt to deploy
+                format!("the rjrssync version present on the remote target ({actual}) is not compatible with this version ({expected})") // Will attempt to deploy
             }
             SshDoerLaunchResult::Success { ssh_process, stdin, stdout, stderr, secret_key, actual_port } =>
                 match connect_to_remote_doer(remote_hostname, debug_name, ssh_process, stdin, stdout, stderr, secret_key, actual_port) {
-                    Ok(c) => return Some(c),
-                    Err(e) => {
-                        error!("Failed to connect to remote: {e}");
-                        return None;
-                    }
+                    Ok(c) => return Ok(c),
+                    Err(e) => return Err(format!("Failed to connect to remote: {e}")),
                 }
         }
     };
 
-    let deploy_reason = attempt_deploy?; // Stop here if decided not to deploy (error that we don't think deploying will help with)
-
     // New version is needed
     if let Err(e) = deploy_to_remote(remote_hostname, remote_user, &deploy_reason, deploy_behaviour, progress_bar) {
-        error!("Failed to deploy to remote: {e}");
-        return None;
+        return Err(format!("Failed to deploy to remote: {e}"));
     }
 
     debug!("Successfully deployed, attempting to run again");
@@ -259,24 +253,16 @@ pub fn setup_comms(
         SshDoerLaunchResult::FailedToRunSsh(e) |
         SshDoerLaunchResult::CommunicationError(e) |
         SshDoerLaunchResult::ExitedUnexpectedly(e) => {
-            error!("{e}");
-            // Failed to launch even after deployment
-            error!("Failed to launch, even after deployment");
-            return None;
+            return Err(format!("Failed to launch, even after deployment: {e}"));
         },
-        SshDoerLaunchResult::NotPresentOnRemote |
-        SshDoerLaunchResult::HandshakeIncompatibleVersion { .. } => {
-            // Failed to launch even after deployment. launch_doer_via_ssh will have logged the error already.
-            error!("Failed to launch, even after deployment");
-            return None;
+        x @ (SshDoerLaunchResult::NotPresentOnRemote |
+        SshDoerLaunchResult::HandshakeIncompatibleVersion { .. }) => {
+            return Err(format!("Failed to launch, even after deployment: {:?}", x));
         }
         SshDoerLaunchResult::Success { ssh_process, stdin, stdout, stderr, secret_key, actual_port } =>
             match connect_to_remote_doer(remote_hostname, debug_name, ssh_process, stdin, stdout, stderr, secret_key, actual_port) {
-                Ok(c) => return Some(c),
-                Err(e) => {
-                    error!("Failed to connect to remote: {e}");
-                    return None;
-                }
+                Ok(c) => return Ok(c),
+                Err(e) => return Err(format!("Failed to connect to remote: {e}")),
             }
     };
 }
@@ -353,6 +339,7 @@ fn remote_doer_logging_thread(mut stderr: BufReader<ChildStderr>, debug_name: St
 }
 
 // Result of launch_doer_via_ssh function.
+#[derive(Debug)]
 enum SshDoerLaunchResult {
     /// The ssh process couldn't be started, for example because the ssh executable isn't available on the PATH.
     FailedToRunSsh(String),

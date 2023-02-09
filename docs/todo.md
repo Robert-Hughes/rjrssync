@@ -10,9 +10,6 @@ Current
 
 * Upload new version to crates.io
 
-* Tidy up error reporting in boss_launch.rs and boss_deploy.rs
-
-
 Interface
 ----------
 
