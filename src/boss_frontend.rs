@@ -156,12 +156,7 @@ pub struct BossCliArgs {
     /// The default is 'prompt'.
     // (the default isn't defined here, because it's defined in SyncSpec::default() and if we duplicate it
     //  here then we'll have no way of knowing if the user provided it on the cmd prompt as an override or not)
-    #[arg(long,
-        default_value_if("all_destructive_behaviour", "prompt", "prompt"),
-        default_value_if("all_destructive_behaviour", "error", "error"),
-        default_value_if("all_destructive_behaviour", "skip", "skip"),
-        default_value_if("all_destructive_behaviour", "proceed", "overwrite"),
-    )]
+    #[arg(long)]
     dest_file_newer: Option<DestFileUpdateBehaviour>,
 
     /// Behaviour when a file exists on both source and destination sides, and the destination file has a older modified timestamp.
@@ -172,12 +167,7 @@ pub struct BossCliArgs {
     //  here then we'll have no way of knowing if the user provided it on the cmd prompt as an override or not)
     // Although this option might not be very useful most of the time, it completes the set of options needed
     // for --all-destructive-behaviour to be available (i.e. to prevent anything destructive)
-    #[arg(long,
-        default_value_if("all_destructive_behaviour", "prompt", "prompt"),
-        default_value_if("all_destructive_behaviour", "error", "error"),
-        default_value_if("all_destructive_behaviour", "skip", "skip"),
-        default_value_if("all_destructive_behaviour", "proceed", "overwrite"),
-    )]
+    #[arg(long)]
     dest_file_older: Option<DestFileUpdateBehaviour>,
 
     /// Behaviour when a file/folder/symlink on the destination side needs to be deleted.
@@ -186,12 +176,7 @@ pub struct BossCliArgs {
     /// The default is 'delete'.
     // (the default isn't defined here, because it's defined in SyncSpec::default() and if we duplicate it
     //  here then we'll have no way of knowing if the user provided it on the cmd prompt as an override or not)
-    #[arg(long,
-        default_value_if("all_destructive_behaviour", "prompt", "prompt"),
-        default_value_if("all_destructive_behaviour", "error", "error"),
-        default_value_if("all_destructive_behaviour", "skip", "skip"),
-        default_value_if("all_destructive_behaviour", "proceed", "delete"),
-    )]
+    #[arg(long)]
     dest_entry_needs_deleting: Option<DestEntryNeedsDeletingBehaviour>,
 
     /// Behaviour when the entire root path on the destination needs to be deleted.
@@ -203,12 +188,7 @@ pub struct BossCliArgs {
     // special warning.
     // (the default isn't defined here, because it's defined in SyncSpec::default() and if we duplicate it
     //  here then we'll have no way of knowing if the user provided it on the cmd prompt as an override or not)
-    #[arg(long,
-        default_value_if("all_destructive_behaviour", "prompt", "prompt"),
-        default_value_if("all_destructive_behaviour", "error", "error"),
-        default_value_if("all_destructive_behaviour", "skip", "skip"),
-        default_value_if("all_destructive_behaviour", "proceed", "delete"),
-    )]
+    #[arg(long)]
     dest_root_needs_deleting: Option<DestRootNeedsDeletingBehaviour>,
 
     /// Behaviour when a file exists on both source and destination sides,
@@ -224,7 +204,8 @@ pub struct BossCliArgs {
     /// Behaviour when any destructive action is required.
     ///
     /// This might indicate that data is about to be unintentionally lost.
-    /// This is a convenience for setting the following flags to equivalant values:
+    /// This is a convenience for setting the following flags, if their default value or
+    /// value set in the spec file could lead to data being lost.
     ///
     ///   --dest-file-newer
     ///
@@ -233,6 +214,8 @@ pub struct BossCliArgs {
     ///   --dest-entry-needs-deleting
     ///
     ///   --dest-root-needs-deleting
+    ///
+    ///   --files-same-time
     ///
     /// If any of these arguments are also set individually, their value will take precedence.
     /// This can be useful for running rjrssync in a "safe" mode (set this to 'prompt' or 'error'),
@@ -698,6 +681,59 @@ fn resolve_spec(args: &BossCliArgs) -> Result<Spec, String> {
         if !args.filter.is_empty() {
             sync.filters = args.filter.clone();
         }
+
+        if let Some(b) = args.all_destructive_behaviour {
+            // We don't want --all-destructive-behaviour
+            // to override things set to Skip (by default or in the spec file),
+            // as then you would get a bunch of errors/prompts/etc. that for things
+            // that weren't going to be overwritten anyway.
+            // The idea is that --all-destructive-behaviour
+            // can be used to prevent any accidental data loss.
+            // Therefore we only modify behaviours if they're set to something other than Skip
+            if sync.dest_file_newer_behaviour != DestFileUpdateBehaviour::Skip {
+                sync.dest_file_newer_behaviour = match b {
+                    AllDestructiveBehaviour::Prompt => DestFileUpdateBehaviour::Prompt,
+                    AllDestructiveBehaviour::Error => DestFileUpdateBehaviour::Error,
+                    AllDestructiveBehaviour::Skip => DestFileUpdateBehaviour::Skip,
+                    AllDestructiveBehaviour::Proceed => DestFileUpdateBehaviour::Overwrite,
+                }
+            }
+            if sync.dest_file_older_behaviour != DestFileUpdateBehaviour::Skip {
+                sync.dest_file_older_behaviour = match b {
+                    AllDestructiveBehaviour::Prompt => DestFileUpdateBehaviour::Prompt,
+                    AllDestructiveBehaviour::Error => DestFileUpdateBehaviour::Error,
+                    AllDestructiveBehaviour::Skip => DestFileUpdateBehaviour::Skip,
+                    AllDestructiveBehaviour::Proceed => DestFileUpdateBehaviour::Overwrite,
+                }
+            }
+            if sync.files_same_time_behaviour != DestFileUpdateBehaviour::Skip {
+                sync.files_same_time_behaviour = match b {
+                    AllDestructiveBehaviour::Prompt => DestFileUpdateBehaviour::Prompt,
+                    AllDestructiveBehaviour::Error => DestFileUpdateBehaviour::Error,
+                    AllDestructiveBehaviour::Skip => DestFileUpdateBehaviour::Skip,
+                    AllDestructiveBehaviour::Proceed => DestFileUpdateBehaviour::Overwrite,
+                }
+            }
+            if sync.dest_entry_needs_deleting_behaviour != DestEntryNeedsDeletingBehaviour::Skip {
+                sync.dest_entry_needs_deleting_behaviour = match b {
+                    AllDestructiveBehaviour::Prompt => DestEntryNeedsDeletingBehaviour::Prompt,
+                    AllDestructiveBehaviour::Error => DestEntryNeedsDeletingBehaviour::Error,
+                    AllDestructiveBehaviour::Skip => DestEntryNeedsDeletingBehaviour::Skip,
+                    AllDestructiveBehaviour::Proceed => DestEntryNeedsDeletingBehaviour::Delete,
+                }
+            }
+            if sync.dest_root_needs_deleting_behaviour != DestRootNeedsDeletingBehaviour::Skip {
+                sync.dest_root_needs_deleting_behaviour = match b {
+                    AllDestructiveBehaviour::Prompt => DestRootNeedsDeletingBehaviour::Prompt,
+                    AllDestructiveBehaviour::Error => DestRootNeedsDeletingBehaviour::Error,
+                    AllDestructiveBehaviour::Skip => DestRootNeedsDeletingBehaviour::Skip,
+                    AllDestructiveBehaviour::Proceed => DestRootNeedsDeletingBehaviour::Delete,
+                }
+            }
+        }
+
+        // Individual behaviours specified on the command-line override everything else
+        // (spec file and --all-destructive-behaviour).
         if let Some(b) = args.dest_file_newer {
             sync.dest_file_newer_behaviour = b;
         }
@@ -1394,7 +1430,8 @@ mod tests {
         });
     }
 
-    /// Tests that --all-destructive-behaviour overrides things set in the spec file.
+    /// Tests that --all-destructive-behaviour overrides things set in the spec file,
+    /// but can itself be overridden by individual behaviours set on the command-line.
     #[test]
     fn all_destructive_behaviour_override() {
         let mut spec_file = NamedTempFile::new().unwrap();
@@ -1404,6 +1441,7 @@ mod tests {
               dest: b
               dest_file_newer_behaviour: skip
               dest_root_needs_deleting_behaviour: prompt
+              files_same_time: overwrite
             - src: c
               dest: d
         "#).unwrap();
@@ -1411,6 +1449,7 @@ mod tests {
         let args = BossCliArgs::try_parse_from(&["rjrssync",
             "--spec", spec_file.path().to_str().unwrap(),
             "--all-destructive-behaviour=error",
+            "--dest-file-older=overwrite"
         ]).unwrap();
         let spec = resolve_spec(&args).unwrap();
         assert_eq!(spec, Spec {
@@ -1418,20 +1457,30 @@ mod tests {
                 SyncSpec {
                     src: "a".to_string(),
                     dest: "b".to_string(),
-                    // Overriden by command-line args
-                    dest_file_newer_behaviour: DestFileUpdateBehaviour::Error,
-                    dest_file_older_behaviour: DestFileUpdateBehaviour::Error,
+                    // Specified as skip in the spec file, so --all-destructive-behaviour does not change it as it's not overwriting
+                    dest_file_newer_behaviour: DestFileUpdateBehaviour::Skip,
+                    // Specified on the command-line, which always takes priority
+                    dest_file_older_behaviour: DestFileUpdateBehaviour::Overwrite,
+                    // Specified as overwrite in the spec file, but --all-destructive-behaviour overrides this to Error
+                    files_same_time_behaviour: DestFileUpdateBehaviour::Error,
+                    // Not specified anywhere, and the default behaviour is to delete, so --all-destructive-behaviour overrides this to Error
                     dest_entry_needs_deleting_behaviour: DestEntryNeedsDeletingBehaviour::Error,
+                    // Specified as prompt in the spec file, so --all-destructive-behaviour overrides this to Error
                     dest_root_needs_deleting_behaviour: DestRootNeedsDeletingBehaviour::Error,
                     ..Default::default()
                 },
                 SyncSpec {
                     src: "c".to_string(),
                     dest: "d".to_string(),
-                    // Overriden by command-line args
+                    // Default is prompt, so --all-destructive-behaviour overrides this to Error
                     dest_file_newer_behaviour: DestFileUpdateBehaviour::Error,
-                    dest_file_older_behaviour: DestFileUpdateBehaviour::Error,
+                    // Specified on the command-line, which always takes priority
+                    dest_file_older_behaviour: DestFileUpdateBehaviour::Overwrite,
+                    // Default is skip, so --all-destructive-behaviour doesn't affect this
+                    files_same_time_behaviour: DestFileUpdateBehaviour::Skip,
+                    // Not specified anywhere, and the default behaviour is to delete, so --all-destructive-behaviour overrides this to Error
                     dest_entry_needs_deleting_behaviour: DestEntryNeedsDeletingBehaviour::Error,
+                    // Default is to prompt, so --all-destructive-behaviour overrides this to Error
                     dest_root_needs_deleting_behaviour: DestRootNeedsDeletingBehaviour::Error,
                     ..Default::default()
                 }
