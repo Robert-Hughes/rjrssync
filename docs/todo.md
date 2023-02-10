@@ -4,10 +4,6 @@ TODO:
 Current
 -------
 
-* "Connecting" phase seems to be taking longer, especially on work PC. Only happens sometimes.
-  - Looks like it's being flagged up by windows defender, can see messages in Event Viewer. Possibly it was always scanning it, but because the binary size is so much bigger now it has a noticeable effect.
-  - Tried reducing binary size with a few things, test to see if it's better now.
-
 * Upload new version to crates.io
 
 Interface
@@ -44,6 +40,9 @@ Remote launching
    - We can avoid including a lite binary for the platform that is the outer binary, as we can extract this instead
    - "Strip" the embedded binaries (and the progenitor too?) (remove debugging symbols etc., see linux `strip` command)
    - https://github.com/johnthagen/min-sized-rust
+* Launching rjrssync on work PC is slower now that the binary is bigger (at least sometimes).
+  - Looks like it's being flagged up by windows defender, can see messages in Event Viewer. Possibly it was always scanning it, but because the binary size is so much bigger now it has a noticeable effect.
+  - Tried reducing binary size with a few things, it is better now but still a bit slow :(
 * When the doer is listening on network port, if the boss never connects (e.g. due to firewall) it seems that even when you close the boss, the doer is left behind and doesn't close, possibly because it's just sat waiting for network connection that never comes (cos of firewall). Maybe we should have a timeout on the doer, if the boss doesn't connect within some short time, it should exit? Or if the stdin drops (i.e. ssh disappears)?
 
 Syncing logic
