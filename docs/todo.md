@@ -4,8 +4,6 @@ TODO:
 Current
 -------
 
-* Option for force copying, even if it thinks it's up-to-date? Would this be just for files, or for folders etc. too?
-
 
 Interface
 ----------
