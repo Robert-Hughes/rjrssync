@@ -211,6 +211,16 @@ pub struct BossCliArgs {
     )]
     dest_root_needs_deleting: Option<DestRootNeedsDeletingBehaviour>,
 
+    /// Behaviour when a file exists on both source and destination sides,
+    /// and both files have the same modified timestamp.
+    ///
+    /// This can be useful to force copying, even if the destination appears to be up-to-date.
+    /// The default is 'skip'.
+    // (the default isn't defined here, because it's defined in SyncSpec::default() and if we duplicate it
+    //  here then we'll have no way of knowing if the user provided it on the cmd prompt as an override or not)
+    #[arg(long)]
+    files_same_time: Option<DestFileUpdateBehaviour>,
+
     /// Behaviour when any destructive action is required.
     ///
     /// This might indicate that data is about to be unintentionally lost.
@@ -407,6 +417,7 @@ pub struct SyncSpec {
     pub filters: Vec<String>,
     pub dest_file_newer_behaviour: DestFileUpdateBehaviour,
     pub dest_file_older_behaviour: DestFileUpdateBehaviour,
+    pub files_same_time_behaviour: DestFileUpdateBehaviour,
     pub dest_entry_needs_deleting_behaviour: DestEntryNeedsDeletingBehaviour,
     pub dest_root_needs_deleting_behaviour: DestRootNeedsDeletingBehaviour,
 }
@@ -418,6 +429,7 @@ impl Default for SyncSpec {
             filters: vec![],
             dest_file_newer_behaviour: DestFileUpdateBehaviour::Prompt,
             dest_file_older_behaviour: DestFileUpdateBehaviour::Overwrite,
+            files_same_time_behaviour: DestFileUpdateBehaviour::Skip,
             dest_entry_needs_deleting_behaviour: DestEntryNeedsDeletingBehaviour::Delete,
             dest_root_needs_deleting_behaviour: DestRootNeedsDeletingBehaviour::Prompt,
         }
@@ -451,13 +463,15 @@ fn parse_sync_spec(yaml: &Yaml) -> Result<SyncSpec, String> {
                 }
             },
             Yaml::String(x) if x == "dest_file_newer_behaviour" =>
-                result.dest_file_newer_behaviour = DestFileUpdateBehaviour::from_str(&parse_string(root_value, "dest")?, true)?,
+                result.dest_file_newer_behaviour = DestFileUpdateBehaviour::from_str(&parse_string(root_value, "dest_file_newer_behaviour")?, true)?,
             Yaml::String(x) if x == "dest_file_older_behaviour" =>
-                result.dest_file_older_behaviour = DestFileUpdateBehaviour::from_str(&parse_string(root_value, "dest")?, true)?,
+                result.dest_file_older_behaviour = DestFileUpdateBehaviour::from_str(&parse_string(root_value, "dest_file_older_behaviour")?, true)?,
+            Yaml::String(x) if x == "files_same_time" =>
+                result.files_same_time_behaviour = DestFileUpdateBehaviour::from_str(&parse_string(root_value, "files_same_time")?, true)?,
             Yaml::String(x) if x == "dest_entry_needs_deleting_behaviour" =>
-                result.dest_entry_needs_deleting_behaviour = DestEntryNeedsDeletingBehaviour::from_str(&parse_string(root_value, "dest")?, true)?,
+                result.dest_entry_needs_deleting_behaviour = DestEntryNeedsDeletingBehaviour::from_str(&parse_string(root_value, "dest_entry_needs_deleting_behaviour")?, true)?,
             Yaml::String(x) if x == "dest_root_needs_deleting_behaviour" =>
-                result.dest_root_needs_deleting_behaviour = DestRootNeedsDeletingBehaviour::from_str(&parse_string(root_value, "dest")?, true)?,
+                result.dest_root_needs_deleting_behaviour = DestRootNeedsDeletingBehaviour::from_str(&parse_string(root_value, "dest_root_needs_deleting_behaviour")?, true)?,
             x => return Err(format!("Unexpected key in 'syncs' entry: {:?}", x)),
         }
     }
@@ -689,6 +703,9 @@ fn resolve_spec(args: &BossCliArgs) -> Result<Spec, String> {
         }
         if let Some(b) = args.dest_file_older {
             sync.dest_file_older_behaviour = b;
+        }
+        if let Some(b) = args.files_same_time {
+            sync.files_same_time_behaviour = b;
         }
         if let Some(b) = args.dest_entry_needs_deleting {
             sync.dest_entry_needs_deleting_behaviour = b;
@@ -1151,6 +1168,7 @@ mod tests {
               filters: [ "-exclude1", "-exclude2" ]
               dest_file_newer_behaviour: error
               dest_file_older_behaviour: skip
+              files_same_time_behaviour: overwrite
               dest_entry_needs_deleting_behaviour: prompt
               dest_root_needs_deleting_behaviour: delete
             - src: T:\Source2
@@ -1158,6 +1176,7 @@ mod tests {
               filters: [ "-exclude3", "-exclude4" ]
               dest_file_newer_behaviour: prompt
               dest_file_older_behaviour: overwrite
+              files_same_time_behaviour: error
               dest_entry_needs_deleting_behaviour: error
               dest_root_needs_deleting_behaviour: skip
         "#).unwrap();
@@ -1175,6 +1194,7 @@ mod tests {
                     filters: vec![ "-exclude1".to_string(), "-exclude2".to_string() ],
                     dest_file_newer_behaviour: DestFileUpdateBehaviour::Error,
                     dest_file_older_behaviour: DestFileUpdateBehaviour::Skip,
+                    files_same_time_behaviour: DestFileUpdateBehaviour::Overwrite,
                     dest_entry_needs_deleting_behaviour: DestEntryNeedsDeletingBehaviour::Prompt,
                     dest_root_needs_deleting_behaviour: DestRootNeedsDeletingBehaviour::Delete,
                 },
@@ -1184,6 +1204,7 @@ mod tests {
                     filters: vec![ "-exclude3".to_string(), "-exclude4".to_string() ],
                     dest_file_newer_behaviour: DestFileUpdateBehaviour::Prompt,
                     dest_file_older_behaviour: DestFileUpdateBehaviour::Overwrite,
+                    files_same_time_behaviour: DestFileUpdateBehaviour::Error,
                     dest_entry_needs_deleting_behaviour: DestEntryNeedsDeletingBehaviour::Error,
                     dest_root_needs_deleting_behaviour: DestRootNeedsDeletingBehaviour::Skip,
                 }

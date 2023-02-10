@@ -4,7 +4,8 @@ TODO:
 Current
 -------
 
-* Upload new version to crates.io
+* Option for force copying, even if it thinks it's up-to-date? Would this be just for files, or for folders etc. too?
+
 
 Interface
 ----------
@@ -16,11 +17,9 @@ Interface
 * In the spec file, could allow some settings to be set at both per-sync level, and at the top level (which would then apply to all syncs, but allowing overrides per-sync as well)
 * Decide if info! (and other) log messages should be on stdout or stderr
 * When showing multiple prompts, could remember the selection from previous time the same prompt was shown and use that as the default for the next one?
-* Maybe could make "Connecting" spinner actually spin, until the first message from ssh?
 * Long prompt messages (multi-line) duplicate themselves once answered.
 * Could warn or similar when filters will lead to an error, like trying to delete a folder that isn't empty (because the filters hid the files inside)
 * When prompting and given the choice to remember for "all occurences", we could show the number of occurences, e.g. "All occurences (17)".
-* Option for force copying, even if it thinks it's up-to-date? Would this be just for files, or for folders etc. too?
 * Document that ssh is used for connecting and launching, and that the sync is performed over a different network port, and that it is encrypted. Some of this added to readme already, but needs more. This should possibly be moved/copied to the --help so is available there too? Mention firewall issues?
 * The progress bar update granularity (MARKER_THRESHOLD) should probably vary depending on the transfer speed? e.g. if it's 10MB that could be very quick or very long, depending on the connection etc.
 

@@ -127,6 +127,7 @@ struct SyncContext<'a> {
     dry_run: bool,
     dest_file_newer_behaviour: DestFileUpdateBehaviour,
     dest_file_older_behaviour: DestFileUpdateBehaviour,
+    files_same_time_behaviour: DestFileUpdateBehaviour,
     dest_entry_needs_deleting_behaviour: DestEntryNeedsDeletingBehaviour,
     dest_root_needs_deleting_behaviour: DestRootNeedsDeletingBehaviour,
     progress_bar: &'a ProgressBar,
@@ -199,6 +200,7 @@ pub fn sync(
         show_stats,
         dest_file_newer_behaviour: sync_spec.dest_file_newer_behaviour,
         dest_file_older_behaviour: sync_spec.dest_file_older_behaviour,
+        files_same_time_behaviour: sync_spec.files_same_time_behaviour,
         dest_entry_needs_deleting_behaviour: sync_spec.dest_entry_needs_deleting_behaviour,
         dest_root_needs_deleting_behaviour: sync_spec.dest_root_needs_deleting_behaviour,
         src_root: sync_spec.src.clone(),
@@ -433,6 +435,7 @@ pub enum CopyReason {
     NotOnDest,
     DestNewer,
     DestOlder,
+    SameTimeAndNotSkipped,
 }
 
 type EntriesList = OrderedMap<RootRelativePath, EntryDetails>;
@@ -639,10 +642,17 @@ fn needs_copy(ctx: &SyncContext, path: &RootRelativePath, src_details: &EntryDet
             };
             match src_modified_time.cmp(&dest_modified_time) {
                 Ordering::Equal => {
-                    trace!("{} has same modified time as {}. Will not update.",
-                        ctx.pretty_dest_kind(&path, "file"),
-                        ctx.pretty_src_kind(&path, "file"));
-                    None
+                    // This option is unlikely to be changed from the default, so we don't bother
+                    // adding all the files to the list be later removed. We could perhaps do the same
+                    // for newer/older, but haven't refactored that.
+                    if ctx.files_same_time_behaviour == DestFileUpdateBehaviour::Skip {
+                        trace!("{} has same modified time as {}. Will not update.",
+                            ctx.pretty_dest_kind(&path, "file"),
+                            ctx.pretty_src_kind(&path, "file"));
+                        None
+                    } else {
+                        Some(CopyReason::SameTimeAndNotSkipped)
+                    }
                 },
                 Ordering::Greater => Some(CopyReason::DestOlder),
                 Ordering::Less => Some(CopyReason::DestNewer),
@@ -707,6 +717,7 @@ fn confirm_actions(ctx: &mut SyncContext, actions: &mut Actions) -> Result<(), S
     let mut to_remove = vec![]; // Rather than removing things as we go, we remove them at the end
     for (path, (_entry_to_copy, reason)) in actions.to_copy.iter() {
         match reason {
+            //TODO: there's a lot of duplication between these match arms
             CopyReason::NotOnDest => (), // Nothing to confirm
             CopyReason::DestNewer => {
                 let msg = format!(
@@ -777,7 +788,42 @@ fn confirm_actions(ctx: &mut SyncContext, actions: &mut Actions) -> Result<(), S
                         trace!("{msg}. Overwriting.");
                     }
                 }
-            }
+            },
+            CopyReason::SameTimeAndNotSkipped => {
+                let msg = format!(
+                    "{} has the same modified time as {}",
+                    ctx.pretty_dest_kind(&path, "file"),
+                    ctx.pretty_src_kind(&path, "file"));
+                // Resolve any behaviour resulting from a prompt first
+                let resolved_behaviour = match ctx.files_same_time_behaviour {
+                    DestFileUpdateBehaviour::Prompt => {
+                        let prompt_result = resolve_prompt(format!("{msg}. What do?"),
+                            None,
+                            &[
+                                ("Skip", DestFileUpdateBehaviour::Skip),
+                                ("Overwrite", DestFileUpdateBehaviour::Overwrite),
+                            ], true, DestFileUpdateBehaviour::Error);
+                        if let Some(b) = prompt_result.remembered_behaviour {
+                            ctx.files_same_time_behaviour = b;
+                        }
+                        prompt_result.immediate_behaviour
+                    },
+                    x => x,
+                };
+                match resolved_behaviour {
+                    DestFileUpdateBehaviour::Prompt => panic!("Should have already been resolved!"),
+                    DestFileUpdateBehaviour::Error => return Err(format!(
+                        "{msg}. Errorring as requested. See --files-same-time."
+                    )),
+                    DestFileUpdateBehaviour::Skip => {
+                        trace!("{msg}. Skipping.");
+                        to_remove.push(path.clone());
+                    }
+                    DestFileUpdateBehaviour::Overwrite => {
+                        trace!("{msg}. Overwriting anyway.");
+                    }
+                }
+            },
         }
     }
     for p in to_remove {
