@@ -449,8 +449,8 @@ fn parse_sync_spec(yaml: &Yaml) -> Result<SyncSpec, String> {
                 result.dest_file_newer_behaviour = DestFileUpdateBehaviour::from_str(&parse_string(root_value, "dest_file_newer_behaviour")?, true)?,
             Yaml::String(x) if x == "dest_file_older_behaviour" =>
                 result.dest_file_older_behaviour = DestFileUpdateBehaviour::from_str(&parse_string(root_value, "dest_file_older_behaviour")?, true)?,
-            Yaml::String(x) if x == "files_same_time" =>
-                result.files_same_time_behaviour = DestFileUpdateBehaviour::from_str(&parse_string(root_value, "files_same_time")?, true)?,
+            Yaml::String(x) if x == "files_same_time_behaviour" =>
+                result.files_same_time_behaviour = DestFileUpdateBehaviour::from_str(&parse_string(root_value, "files_same_time_behaviour")?, true)?,
             Yaml::String(x) if x == "dest_entry_needs_deleting_behaviour" =>
                 result.dest_entry_needs_deleting_behaviour = DestEntryNeedsDeletingBehaviour::from_str(&parse_string(root_value, "dest_entry_needs_deleting_behaviour")?, true)?,
             Yaml::String(x) if x == "dest_root_needs_deleting_behaviour" =>
@@ -1441,7 +1441,7 @@ mod tests {
               dest: b
               dest_file_newer_behaviour: skip
               dest_root_needs_deleting_behaviour: prompt
-              files_same_time: overwrite
+              files_same_time_behaviour: overwrite
             - src: c
               dest: d
         "#).unwrap();
