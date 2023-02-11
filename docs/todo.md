@@ -33,10 +33,12 @@ Syncing logic
 -------------
 
 * Compare and sync file permissions?
-* Progress bar
-  - show bytes or entries per seconds in the text as it goes?
+* Progress bar - show bytes or entries per seconds in the text as it goes?
 * What happens if src and dest both point to the same place?
    - Either directly, or via symlink(s)?
+* The asserts and assumptions in boss_progress about total vs. sent work etc are a bit risky, as the files may have changed between determining the total and doing the sync. This can be seen for example
+by syncing with src == dest, or probably by deleting/adding to the contents of a file as the sync
+is going. We should probably add a test case for this
 * --dry-run isn't honoured when creating dest ancestors! It should instead say that it _would_ create the ancestors.
 * CreateDestAncestors doesn't honour any of the behaviour flags to make it non-destructive?
 * When splitting large files, the optimum chunk size might vary, we could adjust this dynamically. Right now I just picked an arbitrary value which could possibly be improved a lot! Also the same buffer size this is used for both the filesystem read() buffer size, _and_ the size of data we send to the boss, _and_ the size of data written on the other doer. The same size might not be optimal for all of these!
