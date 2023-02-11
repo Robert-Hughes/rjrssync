@@ -33,9 +33,7 @@ Remote launching
 * Embed Windows on Arm (aarch64-pc-windows-msvc) binary, and detect it when checking a remote OS
 * When building embedded binaries, if the target platform cross-compiler isn't installed, then the build will produce a LOT of errors which is very noisy and slow. Maybe instead we should do our own quick check up front?
 * Deploying a big binary to "less powerful"/slower targets may be bad because it will take ages to copy the big binary there, and the benefits of having a fully-functional rjrssync.exe on there may be minimal. Perhaps we do want the option(?) of deploying only a lite binary? That might make a lot of this work redundant, as we would no longer need to generate new big binaries on-demand, so wouldn't need to do all this section stuff. Perhaps instead we focus on making the binary smaller, which would be good anyway?
-   - One option could be to compress the embedded lite binaries.
    - We can avoid including a lite binary for the platform that is the outer binary, as we can extract this instead
-   - "Strip" the embedded binaries (and the progenitor too?) (remove debugging symbols etc., see linux `strip` command)
    - https://github.com/johnthagen/min-sized-rust
 * Launching rjrssync on work PC is slower now that the binary is bigger (at least sometimes).
   - Looks like it's being flagged up by windows defender, can see messages in Event Viewer. Possibly it was always scanning it, but because the binary size is so much bigger now it has a noticeable effect.
@@ -119,7 +117,7 @@ Misc
 `cargo run D:\TempSource\ robhug01@localhost:/home/robhug01/TempDest -v`
 ERROR | rjrssync::boss_frontend: Sync error: Unexpected response from dest GetEntries: Ok(Error("normalize_path failed: Illegal characters in path"))
 * Would be nice to automatically detect cases where the version number hasn't been updated, e.g. if we could see that the Command/Response struct layout has changed.
-* Upload to cargo binstall (or similar) so that users don't need to build from source (especially if we're bundling embedded binaries, the initial build time will be looong!)
+* Upload to cargo binstall (or similar) so that users don't need to build from source (especially as we're bundling embedded binaries, the initial build time will be looong!)
 * Look at cargo dependency graph, to see if we can remove some dependencies
    - Looks like most things are brought in by stuff that would be hard to remove.
    - Some simple ones that we could look at removing (though it wouldn't save us much):

@@ -416,6 +416,8 @@ x86_64-pc-windows-msvc (3.19 MiB)
 x86_64-unknown-linux-musl (3.07 MiB)
 aarch64-unknown-linux-musl (2.41 MiB)
 
+Compression of embedded binaries also helps quite a bit (~50% reduction in embedded binaries). Possibly more could be gained by a better compression format (zstd, brotli, lzma?)
+
 Documentation (README.md, --help, etc.)
 =======================================
 

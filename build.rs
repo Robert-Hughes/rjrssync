@@ -1,4 +1,4 @@
-use std::{env, process::{Command}, path::{Path, PathBuf}, collections::HashMap};
+use std::{env, process::{Command}, path::{Path, PathBuf}, collections::HashMap, io::Write};
 
 /// Shared definition of the embedded binaries header.
 #[path = "src/embedded_binaries.rs"]
@@ -84,7 +84,12 @@ fn main() {
     // Build the lite binaries into a nested build folder. We can put all the different target
     // builds into this same target folder, because cargo automatically makes a subfolder for each target triple
     let lite_target_dir = Path::new(&env::var("OUT_DIR").unwrap()).join("lite");
-    let mut embedded_binaries = EmbeddedBinaries::default();
+    let mut embedded_binaries = EmbeddedBinaries {
+        // Compress the data, to keep the big binary smaller. Only do this in release builds though,
+        // to keep the build time quick for debug.
+        is_compressed: env::var("PROFILE").unwrap() == "release",
+        binaries: vec![],
+    };
     for target_triple in get_embedded_binary_target_triples() {
         let mut cargo_cmd = Command::new(&cargo);
         cargo_cmd.arg("build")
@@ -156,7 +161,18 @@ fn main() {
         };
 
         println!("{}", lite_binary_filename.display());
-        let data = std::fs::read(lite_binary_filename).expect("Failed to read lite binary data");
+        let mut data = std::fs::read(lite_binary_filename).expect("Failed to read lite binary data");
+
+        // Compress the data, to keep the big binary smaller. Only do this in release builds though,
+        // to keep the build time quick for debug.
+        if embedded_binaries.is_compressed {
+            println!("Compressing {} bytes...", data.len());
+            // Flate2 supports a few different formats (Gzip, Zlib, Deflate), but they're all the same underneath so it doesn't matter which we use.
+            let mut encoder = flate2::write::DeflateEncoder::new(Vec::new(), flate2::Compression::best());
+            encoder.write_all(&data).expect("Failed to compress");
+            data = encoder.finish().expect("Failed to compress");
+            println!("Compressed to {} bytes", data.len());
+        }
 
         embedded_binaries.binaries.push(EmbeddedBinary {
             target_triple: target_triple.to_string(),

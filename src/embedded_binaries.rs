@@ -7,8 +7,9 @@ use serde::{Deserialize, Serialize};
 pub const SECTION_NAME: &'static str = ".rjembed";
 
 /// Embedded binaries table.
-#[derive(Serialize, Deserialize, Debug, Default)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct EmbeddedBinaries {
+    pub is_compressed: bool,
     pub binaries: Vec<EmbeddedBinary>,
 }
 

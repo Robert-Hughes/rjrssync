@@ -1,6 +1,7 @@
 use indicatif::{HumanBytes, ProgressBar};
 use log::{debug, info};
 use std::ffi::OsStr;
+use std::io::Write;
 use std::path::{Path};
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
@@ -336,7 +337,18 @@ fn create_binary_for_target(os_test_output: &str, output_binary_filename: &Path)
     // Create new executable for the target platform, by upgrading the chosen lite binary
     // to a big binary.
     debug!("Found embedded binary ({}), extracting and upgrading it to a big binary", target_platform_binary.target_triple);
-    let size = create_big_binary(&output_binary_filename, &target_platform_binary.target_triple, target_platform_binary.data, embedded_binaries_data)?;
+    let mut target_platform_binary_data = target_platform_binary.data;
+
+    // Decompress the target platform binary, if necessary
+    if embedded_binaries.is_compressed {
+        let mut decoder = flate2::write::DeflateDecoder::new(Vec::new());
+        decoder.write_all(&target_platform_binary_data).map_err(|e|
+            format!("Unable to decompress embedded lite binary: {e}"))?;
+        target_platform_binary_data = decoder.finish().map_err(|e|
+            format!("Unable to decompress embedded lite binary: {e}"))?;
+    }
+
+    let size = create_big_binary(&output_binary_filename, &target_platform_binary.target_triple, target_platform_binary_data, embedded_binaries_data)?;
     debug!("Created big binary at {} ({})", output_binary_filename.display(), HumanBytes(size));
     Ok(size)
 }

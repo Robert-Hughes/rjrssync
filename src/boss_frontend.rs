@@ -606,7 +606,8 @@ fn boss_main_impl(args: BossCliArgs, progress_bar: &ProgressBar) -> ExitCode {
         match boss_deploy::get_embedded_binaries() {
             Ok(eb) => {
                 for b in eb.0.binaries {
-                    println!("{} ({})", b.target_triple, HumanBytes(b.data.len() as u64));
+                    println!("{} ({}, {})", b.target_triple, HumanBytes(b.data.len() as u64),
+                        if eb.0.is_compressed { "compressed" } else { "uncompressed" });
                 }
                 return ExitCode::SUCCESS;
             }
