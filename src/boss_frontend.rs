@@ -5,7 +5,7 @@ use std::sync::Mutex;
 
 use clap::{Parser, ValueEnum, CommandFactory};
 use env_logger::{Env, fmt::Color};
-use indicatif::{ProgressBar, HumanBytes, ProgressDrawTarget, ProgressStyle};
+use indicatif::{ProgressBar, HumanBytes, ProgressStyle};
 use log::info;
 use log::{debug, error};
 use regex::Regex;
@@ -576,7 +576,7 @@ pub fn boss_main() -> ExitCode {
 
     // Wrap the env_logger::Logger in our own wrapper, which handles ProgressBar hiding.
     // Use Box::leak to turn it into a 'static reference, which is required for the log API
-    let log_wrapper = Box::new(LoggerAndProgress::new(logger));
+    let log_wrapper = Box::new(LoggerAndProgress::new(logger, !args.quiet));
     let log_wrapper = Box::leak(log_wrapper);
     log::set_logger(log_wrapper).expect("Failed to init logging");
 
@@ -772,7 +772,6 @@ fn execute_spec(spec: Spec, args: &BossCliArgs, progress_bar: &ProgressBar) -> E
 
     // Configure the progress bar for the first phase (connecting to remote doers).
     // Functions inside setup_comms will set the message appropriately.
-    progress_bar.set_draw_target(ProgressDrawTarget::stderr());
     // Note the use of wide_msg to prevent line wrapping issues if terminal too narrow
     progress_bar.set_style(ProgressStyle::with_template("{wide_msg}").unwrap());
     // Unfortunately we can't use enable_steady_tick to get a nice animation as we connect, because

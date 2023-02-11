@@ -1,4 +1,4 @@
-use indicatif::ProgressBar;
+use indicatif::{ProgressBar, ProgressDrawTarget};
 
 /// A log::Log implementation which simply forwards to a nested Log implementation,
 /// but suspends an indicatif::ProgressBar during the logging.
@@ -28,11 +28,14 @@ pub struct LoggerAndProgress<InnerLog: log::Log> {
 }
 
 impl<InnerLog: log::Log> LoggerAndProgress<InnerLog> {
-    pub fn new(inner_log: InnerLog) -> Self {
+    pub fn new(inner_log: InnerLog, progress_bar_visible: bool) -> Self {
         Self {
             inner_log,
-            // Default to an invisible progress bar - clients will need to reconfigure it when they want it visible
-            progress_bar: ProgressBar::hidden(),
+            // We support making an invisible progress bar, so that the APIs still work
+            // but nothing is displayed. This makes it easier to implement the --quiet option without
+            // too many other code changes.
+            progress_bar: ProgressBar::with_draw_target(None,
+                if progress_bar_visible { ProgressDrawTarget::stderr() } else { ProgressDrawTarget::hidden() }),
         }
     }
     pub fn get_progress_bar(&self) -> &ProgressBar {

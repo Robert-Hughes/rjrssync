@@ -34,7 +34,6 @@ Syncing logic
 
 * Compare and sync file permissions?
 * Progress bar
-  - hide progress bar for --quiet?
   - hide progress bar for --no-progress? This should be automatic when it's an "unattended" terminal?
   - show bytes or entries per seconds in the text as it goes?
 * What happens if src and dest both point to the same place?
