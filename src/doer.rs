@@ -1,5 +1,5 @@
 use aes_gcm::aead::generic_array::GenericArray;
-use base64::Engine;
+
 use clap::Parser;
 use env_logger::Env;
 use log::{debug, error, trace, info};
@@ -195,8 +195,9 @@ pub fn doer_main() -> ExitCode {
     }
     secret.pop(); // remove trailing newline
 
-    let secret_bytes = match base64::engine::general_purpose::STANDARD.decode(secret) {
-        Ok(b) => b,
+    // The key is 16 bytes, so we can use u128 to parse the hex string.
+    let secret_bytes = match u128::from_str_radix(&secret, 16) {
+        Ok(b) => b.to_be_bytes(), // Big-endian because this the string formatting on the boss places most-significant bytes first
         Err(e) => {
             error!("Failed to decode secret: {}", e);
             return ExitCode::from(23);

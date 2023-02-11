@@ -101,13 +101,12 @@ Testing
 * Keep looking for a way to get two github runners to talk to each other, so we can have one windows and one linux rather than having to use WSL which brings with it a bunch of problems. Maybe we can open a TCP tunnel between two runners, some kind of NAT traversal handoff thing that doesn't involve all the traffic going through a third party, just the setup bits somehow?
    - https://en.wikipedia.org/wiki/NAT_traversal
    - https://github.com/ValdikSS/nat-traversal-github-actions-openvpn-wireguard/blob/master/README.md
-* Confirm that github actions nightly schedule is working
 * Various tests are leaving behind temporary folders, filling up with disk space! Especially benchmarks which are big!
 * Using tar for remote filesytem nodes messes about with symlinks when extracting on a different platform (Windows vs Linux)
 * Add test for multiple syncs with remote doer (to make sure it stays alive and can be used for multiple syncs) spec file
 * Tests for progress bar (large files, small files, deleting and copying files). Could unit test some of the stuff, especially boss_progress.rs
 * When installing rust on the GitHub job, could use the "minimal" profile to avoid downloading things like clippy, rust-docs etc. which we don't need
-* Tests for --all-destructive-behaviour. Including that the individual settings can be overidden.
+* Tests for --all-destructive-behaviour. Including that the individual settings can be overidden. This might be covered by the unit test we already have?
 
 
 Misc
@@ -122,7 +121,6 @@ ERROR | rjrssync::boss_frontend: Sync error: Unexpected response from dest GetEn
    - Looks like most things are brought in by stuff that would be hard to remove.
    - Some simple ones that we could look at removing (though it wouldn't save us much):
       - filetime
-      - base64
       - const_format
       - winapi (only for development?)
       - num_cpus?
