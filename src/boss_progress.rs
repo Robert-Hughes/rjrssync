@@ -173,7 +173,12 @@ pub struct Progress<'a> {
     to_delete_paths: Vec<RootRelativePath>,
 }
 impl<'a> Progress<'a> {
-    pub fn new(actions: &Actions, progress_bar: &'a ProgressBar, detailed: bool) -> Self {
+    pub fn new(actions: &Actions, progress_bar: &'a ProgressBar, mut detailed: bool) -> Self {
+        if progress_bar.is_hidden() {
+            // No point doing extra work if the progress bar isn't visible anyway (e.g. unattended terminal)
+            detailed = false;
+        }
+
         // Sum up the total amount of work that needs doing, and store a copy of the
         // paths so that we can display these on the progress bar as we go
         let mut to_delete_paths = vec![];

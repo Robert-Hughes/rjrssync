@@ -419,6 +419,8 @@ fn run_benchmarks_for_target(args: &CliArgs, src_target: &Target, dest_target: &
 
         // Add --no-progress to get maximum performance, especially on GitHub actions where this seems to
         // make a larger difference.
+        // Note that after later improvements, this should no longer be necessary as rjrssync should detect
+        // that it's running on an unattended terminal and reduce this overhead automatically.
         results.push(("rjrssync", run_benchmarks_using_program(args, rjrssync_path,
             &["$SRC", "$DEST", "--no-progress"], src_target.clone(), dest_target.clone())));
     }
