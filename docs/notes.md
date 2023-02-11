@@ -418,6 +418,8 @@ aarch64-unknown-linux-musl (2.41 MiB)
 
 Compression of embedded binaries also helps quite a bit (~50% reduction in embedded binaries). Possibly more could be gained by a better compression format (zstd, brotli, lzma?)
 
+We can avoid including a lite binary for the platform that is the outer binary, as we can extract this instead
+
 Documentation (README.md, --help, etc.)
 =======================================
 

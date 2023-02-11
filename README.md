@@ -52,6 +52,8 @@ A quick example:
 rjrssync local-folder/ user@hostname:/remote/folder
 ```
 
-rjrssync uses `ssh` to estabilish an initial connection to the remote host but then switches to its own protocol to maximize performance. The first time that a remote host is used, rjrssync will deploy a pre-built binary to the remote host, which will be launched whenever rjrssync connects to that host. You will be prompted before this deployment happens.
+rjrssync uses `ssh` to estabilish an initial connection to the remote host but then switches to its own protocol to maximize performance. The first time that a remote host is used, rjrssync will deploy a pre-built binary to the remote host, which will be launched whenever rjrssync connects to that host. You will be prompted before this deployment happens. rjrssync's protocol is encrypted and authenticated using [AES-GCM with a 128-bit key and 96-bit nonce](https://docs.rs/aes-gcm/latest/aes_gcm/index.html). It operates over TCP and so needs an open network port that the local copy can connect to the remote copy on. By default it automatically chooses a free port, but this can be overridden using `--remote-port`. You may need to adjust your firewall settings to allow this connection.
 
 See `rjrssync --help` for more.
+
+There are also some less well-presented notes on various features [here](docs/notes.md).

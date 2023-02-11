@@ -1,6 +1,6 @@
 [package]
 name = "rjrssync"
-version = "0.2.4"
+version = "0.2.5"
 description = "Fast rsync-like tool for incrementally copying files. Runs natively on both Windows and Linux and uses network for communication."
 edition = "2021"
 repository = "https://github.com/Robert-Hughes/rjrssync"

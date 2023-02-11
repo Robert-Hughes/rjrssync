@@ -10,15 +10,11 @@ Interface
 
 * Could have some kind of hierarchy of filters, so can exclude something without continuing to evaluate other filters?
 * Perhaps could have hard/soft includes/excludes - soft would keep evaluating other filters which may change the decision, hard would stop evaluating and keep that as the final decision.
-* Ctrl-C doesn't seem to work very well at stopping rjrssync when it's running
-* Documentation - Add reference somewhere to the trailing slash and symlink behaviour section of notes.md?
 * In the spec file, could allow some settings to be set at both per-sync level, and at the top level (which would then apply to all syncs, but allowing overrides per-sync as well)
-* Decide if info! (and other) log messages should be on stdout or stderr
 * When showing multiple prompts, could remember the selection from previous time the same prompt was shown and use that as the default for the next one?
 * Long prompt messages (multi-line) duplicate themselves once answered.
 * Could warn or similar when filters will lead to an error, like trying to delete a folder that isn't empty (because the filters hid the files inside)
 * When prompting and given the choice to remember for "all occurences", we could show the number of occurences, e.g. "All occurences (17)".
-* Document that ssh is used for connecting and launching, and that the sync is performed over a different network port, and that it is encrypted. Some of this added to readme already, but needs more. This should possibly be moved/copied to the --help so is available there too? Mention firewall issues?
 * The progress bar update granularity (MARKER_THRESHOLD) should probably vary depending on the transfer speed? e.g. if it's 10MB that could be very quick or very long, depending on the connection etc.
 
 
@@ -32,13 +28,6 @@ Remote launching
 * The prompt messages don't account for --dry-run, so it will look like things are actually going to be deleted, when they're not
 * Embed Windows on Arm (aarch64-pc-windows-msvc) binary, and detect it when checking a remote OS
 * When building embedded binaries, if the target platform cross-compiler isn't installed, then the build will produce a LOT of errors which is very noisy and slow. Maybe instead we should do our own quick check up front?
-* Deploying a big binary to "less powerful"/slower targets may be bad because it will take ages to copy the big binary there, and the benefits of having a fully-functional rjrssync.exe on there may be minimal. Perhaps we do want the option(?) of deploying only a lite binary? That might make a lot of this work redundant, as we would no longer need to generate new big binaries on-demand, so wouldn't need to do all this section stuff. Perhaps instead we focus on making the binary smaller, which would be good anyway?
-   - We can avoid including a lite binary for the platform that is the outer binary, as we can extract this instead
-   - https://github.com/johnthagen/min-sized-rust
-* Launching rjrssync on work PC is slower now that the binary is bigger (at least sometimes).
-  - Looks like it's being flagged up by windows defender, can see messages in Event Viewer. Possibly it was always scanning it, but because the binary size is so much bigger now it has a noticeable effect.
-  - Tried reducing binary size with a few things, it is better now but still a bit slow :(
-* When the doer is listening on network port, if the boss never connects (e.g. due to firewall) it seems that even when you close the boss, the doer is left behind and doesn't close, possibly because it's just sat waiting for network connection that never comes (cos of firewall). Maybe we should have a timeout on the doer, if the boss doesn't connect within some short time, it should exit? Or if the stdin drops (i.e. ssh disappears)?
 
 Syncing logic
 -------------

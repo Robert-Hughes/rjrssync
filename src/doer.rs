@@ -234,6 +234,15 @@ pub fn doer_main() -> ExitCode {
 
     let timer = start_timer("Waiting for connection");
 
+    // Spawn a thread to keep track of our stdin, to check if the boss disconnects.
+    // This is particularly useful before the boss connects via TCP, as if there is e.g. a firewall
+    // issue then we could be stuck waiting forever, and would never exit as we would never detect
+    // that the ssh connection has dropped (because in non-interactive sessions, ssh won't terminate
+    // the spawned process when the connection drops, it will just close its stdin/out, so we need to be
+    // reading or writing from them to detect this).
+    // Remaining alive forever causes problems (e.g. can't deploy new version)
+    std::thread::spawn(stdin_reading_thread);
+
     // Wait for a connection from the boss
     let tcp_connection = match listener.accept() {
         Ok((socket, addr)) => {
@@ -279,6 +288,20 @@ pub fn doer_main() -> ExitCode {
 
     debug!("doer process finished successfully!");
     ExitCode::SUCCESS
+}
+
+fn stdin_reading_thread() {
+    loop {
+        let mut l: String = "".to_string();
+        match std::io::stdin().read_line(&mut l) {
+            Ok(0) | Err(_) => {
+                // Boss has disconnected prematurely - nothing we can do, just exit.
+                error!("Boss disconnected from stdin - exiting process");
+                std::process::exit(321);
+            }
+            Ok(_) => (), // We're not expecting to receive anything over stdin, so we just ignore it
+        }
+    }
 }
 
 // When the source and/or dest is local, the doer is run as a thread in the boss process,
