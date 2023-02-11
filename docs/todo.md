@@ -117,12 +117,6 @@ Misc
 ERROR | rjrssync::boss_frontend: Sync error: Unexpected response from dest GetEntries: Ok(Error("normalize_path failed: Illegal characters in path"))
 * Would be nice to automatically detect cases where the version number hasn't been updated, e.g. if we could see that the Command/Response struct layout has changed.
 * Upload to cargo binstall (or similar) so that users don't need to build from source (especially as we're bundling embedded binaries, the initial build time will be looong!)
-* Look at cargo dependency graph, to see if we can remove some dependencies
-   - Looks like most things are brought in by stuff that would be hard to remove.
-   - Some simple ones that we could look at removing (though it wouldn't save us much):
-      - filetime
-      - winapi (only for development?)
-      - num_cpus?
 * Add Josh as crates.io package owner (needs to make an account first)
 * Syncing something that doesn't exist to a remote, leads to dodgy looking errors:
 ERROR: Sync error: src path 'something-that-doesnt-exist' doesn't exist!
