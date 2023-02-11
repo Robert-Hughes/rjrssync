@@ -804,6 +804,7 @@ fn execute_spec(spec: Spec, args: &BossCliArgs, progress_bar: &ProgressBar) -> E
         Ok(c) => c,
         Err(e) => {
             error!("Error connecting to {}: {}", spec.dest_hostname, e);
+            src_comms.shutdown(); // Clean shutdown
             return ExitCode::from(11);
         }
     };
@@ -822,6 +823,9 @@ fn execute_spec(spec: Spec, args: &BossCliArgs, progress_bar: &ProgressBar) -> E
             Ok(()) => (),
             Err(e) => {
                 error!("Sync error: {}", e);
+                 // Clean shutdown
+                src_comms.shutdown();
+                dest_comms.shutdown();
                 return ExitCode::from(12);
             }
         }

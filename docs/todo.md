@@ -118,8 +118,4 @@ ERROR | rjrssync::boss_frontend: Sync error: Unexpected response from dest GetEn
 * Would be nice to automatically detect cases where the version number hasn't been updated, e.g. if we could see that the Command/Response struct layout has changed.
 * Upload to cargo binstall (or similar) so that users don't need to build from source (especially as we're bundling embedded binaries, the initial build time will be looong!)
 * Add Josh as crates.io package owner (needs to make an account first)
-* Syncing something that doesn't exist to a remote, leads to dodgy looking errors:
-ERROR: Sync error: src path 'something-that-doesnt-exist' doesn't exist!
-ERROR: 2023-02-04T16:55:12.108217500Z Thread 'remote boss -> doer' failed with error: Error reading len: failed to fill whole buffer
-ERROR: 2023-02-04T16:55:12.108269300Z Error sending final message: Error sending length: Connection reset by peer (os error 104)
 * Link to perf figures from the README, to "prove" our perf advantages!
