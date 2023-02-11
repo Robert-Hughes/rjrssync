@@ -13,7 +13,7 @@ use std::{
 };
 
 use crate::*;
-use crate::boss_doer_interface::{EntryDetails, SymlinkTarget, Response, Command, SymlinkKind, Filters, FilterKind, HANDSHAKE_STARTED_MSG, VERSION, HANDSHAKE_COMPLETED_MSG};
+use crate::boss_doer_interface::{EntryDetails, SymlinkTarget, Response, Command, SymlinkKind, Filters, FilterKind, HANDSHAKE_STARTED_MSG, HANDSHAKE_COMPLETED_MSG};
 use crate::encrypted_comms::AsyncEncryptedComms;
 use crate::memory_bound_channel::{Sender, Receiver};
 use crate::parallel_walk_dir::parallel_walk_dir;
@@ -148,7 +148,7 @@ pub fn doer_main() -> ExitCode {
     // Note that this needs to be done even before parsing cmd line args, because the cmd line args interface might change
     // (e.g. adding a new required parameter), then we wouldn't be able to launch the doer, and users
     // will be forced to do a --deploy=force which isn't very nice.
-    let msg = format!("{}{}", HANDSHAKE_STARTED_MSG, VERSION);
+    let msg = format!("{}{}", HANDSHAKE_STARTED_MSG, boss_doer_interface::get_version_string());
     println!("{}", msg);
     eprintln!("{}", msg);
 

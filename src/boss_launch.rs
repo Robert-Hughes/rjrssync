@@ -19,7 +19,7 @@ use std::{
 
 use crate::*;
 use crate::boss_deploy::deploy_to_remote;
-use crate::boss_doer_interface::{Response, Command, HANDSHAKE_STARTED_MSG, HANDSHAKE_COMPLETED_MSG, VERSION};
+use crate::boss_doer_interface::{Response, Command, HANDSHAKE_STARTED_MSG, HANDSHAKE_COMPLETED_MSG};
 use crate::encrypted_comms::AsyncEncryptedComms;
 
 pub const REMOTE_TEMP_UNIX: &str = "/var/tmp"; // Use /var/tmp rather than /tmp so it doesn't get wiped on reboot (and thus requiring a re-deploy)
@@ -599,14 +599,15 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str,
                 debug!("Handshake started on {}: {}", stream_type, line);
 
                 let remote_version = line.split_at(HANDSHAKE_STARTED_MSG.len()).1;
-                if remote_version != VERSION.to_string() {
+                let local_version = boss_doer_interface::get_version_string();
+                if remote_version != local_version {
                     debug!(
                         "Remote server has incompatible version ({} vs local version {})",
-                        remote_version, VERSION
+                        remote_version, local_version
                     );
                     // Note the stdin of the ssh will be dropped and this will tidy everything up nicely
                     return SshDoerLaunchResult::HandshakeIncompatibleVersion {
-                        expected: VERSION.to_string(), actual: remote_version.to_string() };
+                        expected: local_version, actual: remote_version.to_string() };
                 }
 
                 // Generate and send a secret key, so that we can authenticate/encrypt the network connection

@@ -121,7 +121,6 @@ ERROR | rjrssync::boss_frontend: Sync error: Unexpected response from dest GetEn
    - Looks like most things are brought in by stuff that would be hard to remove.
    - Some simple ones that we could look at removing (though it wouldn't save us much):
       - filetime
-      - const_format
       - winapi (only for development?)
       - num_cpus?
 * Add Josh as crates.io package owner (needs to make an account first)

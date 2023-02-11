@@ -32,7 +32,6 @@ aes-gcm = "0.10.1"
 aead = {version = "0.5.1"}
 yaml-rust = "0.4.5"
 lazy_static = "1.4.0"
-const_format = "0.2.30"
 indicatif = "0.17.2"
 dialoguer = "0.10.2"
 console = "0.15.4"
