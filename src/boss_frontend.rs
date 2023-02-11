@@ -816,7 +816,9 @@ fn execute_spec(spec: Spec, args: &BossCliArgs, progress_bar: &ProgressBar) -> E
             info!("{} => {}:", sync_spec.src, sync_spec.dest);
         }
 
-        let sync_result = sync(&sync_spec, args.dry_run, &progress_bar, !args.no_progress,
+        // No point showing progress when doing a dry run
+        let show_progress = !args.no_progress && !args.dry_run;
+        let sync_result = sync(&sync_spec, args.dry_run, &progress_bar, show_progress,
             args.stats, &mut src_comms, &mut dest_comms);
 
         match sync_result {
