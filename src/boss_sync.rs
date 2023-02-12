@@ -968,6 +968,14 @@ fn copy_file(
             };
             trace!("Create/update {}", ctx.pretty_dest_kind(&path, "file"));
             let chunk_size = data.len();
+
+            if chunk_offset + chunk_size as u64 > size {
+                // We'll check the expected vs. actual size of the file anyway after this loop,
+                // but this will catch issues earlier, so we don't spend ages copying a big file
+                // only to report the error afterwards anyway.
+                break;
+            }
+
             ctx.dest_comms
                 .send_command(Command::CreateOrUpdateFile {
                     path: path.clone(),
@@ -987,6 +995,13 @@ fn copy_file(
             if !more_to_follow {
                 break;
             }
+        }
+
+        if chunk_offset != size {
+            // The file has changed size since the querying phase. This will cause problems for boss_progress
+            // because of asserts/assumptions it makes about work sent vs. completed, but also might indicate
+            // something fishy is going on and so we err on the side of caution and raise an error.
+            return Err(format!("Size of {} has changed during the sync.", ctx.pretty_src_kind(&path, "file")));
         }
     } else {
         progress.copy_sent_partial(0, size, size);

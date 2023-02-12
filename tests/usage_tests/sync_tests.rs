@@ -1,3 +1,7 @@
+use std::io::Write;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 use std::time::SystemTime;
 
@@ -41,7 +45,7 @@ fn test_remove_dest_stuff() {
             }
         }
     };
-    run_expect_success(&src_folder, &dest_folder, NumActions { copied_files: 3, created_folders: 1, copied_symlinks: 0, 
+    run_expect_success(&src_folder, &dest_folder, NumActions { copied_files: 3, created_folders: 1, copied_symlinks: 0,
         deleted_files: 5, deleted_folders: 2, deleted_symlinks: 0 });
 }
 
@@ -220,7 +224,7 @@ fn dry_run() {
 }
 
 /// Checks that the --dry-run flag means that no changes are made, and that information about
-/// what _would_ happen is printed. Also checks when dest ancestor folders are missing, that 
+/// what _would_ happen is printed. Also checks when dest ancestor folders are missing, that
 /// they are not created.
 #[test]
 fn dry_run_root_ancestors() {
@@ -238,9 +242,9 @@ fn dry_run_root_ancestors() {
         ],
         args: vec![
             "$TEMP/src".to_string(),
-            // Place the dest inside some non-existent folders, to check that root ancestors are not 
+            // Place the dest inside some non-existent folders, to check that root ancestors are not
             // created in dry-run mode
-            "$TEMP/dest1/dest2/dest3/dest".to_string(), 
+            "$TEMP/dest1/dest2/dest3/dest".to_string(),
             "--dry-run".to_string(),
         ],
         expected_exit_code: 0,
@@ -258,5 +262,41 @@ fn dry_run_root_ancestors() {
         ],
         ..Default::default()
     });
+}
+
+/// Checks what happens when a file's size changes between the querying phase and the actual sync.
+#[test]
+fn file_size_change_during_sync() {
+    let src_file = tempfile::NamedTempFile::new().expect("Failed to create temp file");
+    src_file.as_file().write_all("original contents".as_bytes()).expect("Failed to write file");
+
+    // Launch a background thread that constantly changes the file's size
+    let mut second_handle = src_file.reopen().expect("Failed to reopen temp file");
+    let stop_signal = Arc::new(AtomicBool::new(false));
+    let stop_signal2 = stop_signal.clone();
+    let thread = std::thread::spawn(move || {
+        while !stop_signal2.load(Ordering::Relaxed) {
+            write!(second_handle, "some more stuff").expect("Failed to write to temp file");
+        }
+    });
+
+    run(TestDesc {
+        args: vec![
+            src_file.path().to_string_lossy().to_string(),
+            "$TEMP/dest_file.txt".to_string(),
+        ],
+        expected_exit_code: 12,
+        expected_output_messages: vec![
+            (1, Regex::new("Size of .* changed during the sync").unwrap()),
+        ],
+        expected_filesystem_nodes: vec![
+            // Source file is constantly changing, so nothing we can really check here
+            // Dest file might have been changed, but it depends at what point the error is caught, so there's nothing we can really check here
+        ],
+        ..Default::default()
+    });
+
+    stop_signal.store(true, Ordering::Relaxed);
+    thread.join().expect("Failed to join thread");
 }
 
