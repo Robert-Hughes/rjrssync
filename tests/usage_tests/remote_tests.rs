@@ -311,3 +311,31 @@ fn needs_deploy_ok() {
         ..Default::default()
     });
 }
+
+/// Tests that the --remote-port option works.
+#[test]
+fn remote_port() {
+    let src = file_with_modified("something to sync", SystemTime::UNIX_EPOCH);
+    run(TestDesc {
+        setup_filesystem_nodes: vec![
+            ("$TEMP/src", &src),
+        ],
+        args: vec![
+            "$TEMP/src".to_string(),
+            "$REMOTE_WINDOWS_TEMP/dest".to_string(),
+            "--deploy=ok".to_string(),
+            "--verbose".to_string(), // So that we can check the port number in the logs
+            "--remote-port=1234".to_string(),
+        ],
+        expected_exit_code: 0,
+        expected_output_messages: [&[
+            (2, Regex::new("Waiting for incoming network connection on port 1234").unwrap()),
+            (1, Regex::new("Connecting to doer over network at .*1234").unwrap()),
+        ], &<NumActions as Into<Vec<(usize, Regex)>>>::into(copied_files(1))[..]].concat(),
+        expected_filesystem_nodes: vec![
+            ("$TEMP/src", Some(&src)), // Unchanged
+            ("$REMOTE_WINDOWS_TEMP/dest", Some(&src)), // Src copied to dest
+        ],
+        ..Default::default()
+    });
+}

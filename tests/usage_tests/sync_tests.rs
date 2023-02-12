@@ -375,3 +375,32 @@ fn quiet() {
     });
 }
 
+/// Checks that --verbose prints additional messages
+#[test]
+fn verbose() {
+    let src = folder! {
+        "file" => file("contents"),
+    };
+    run(TestDesc {
+        setup_filesystem_nodes: vec![
+            ("$TEMP/src", &src),
+        ],
+        args: vec![
+            "$TEMP/src".to_string(),
+            "$TEMP/dest".to_string(),
+            "--verbose".to_string(),
+        ],
+        expected_exit_code: 0,
+        expected_output_messages: vec![
+            (2, Regex::new("setup_comms").unwrap()),
+            (1, Regex::new("Copying source file").unwrap()),
+            (2, Regex::new("Shutdown command received").unwrap()),
+        ],
+        expected_filesystem_nodes: vec![
+            ("$TEMP/src", Some(&src)),
+            ("$TEMP/dest", Some(&src)),
+        ],
+        ..Default::default()
+    });
+}
+
