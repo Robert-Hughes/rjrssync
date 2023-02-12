@@ -12,6 +12,16 @@
 
 use std::ops::{Sub, Div, Add, Mul};
 
+pub enum ExtractSectionError {
+    SectionNotFound,
+    Other(String),
+}
+impl From<String> for ExtractSectionError {
+    fn from(s: String) -> Self {
+        ExtractSectionError::Other(s)
+    }
+}
+
 // Validates the magic signature and returns the offset of the start of the COFF file header.
 #[cfg_attr(not(windows), allow(unused))]
 fn validate_pe_signature(pe_bytes: &[u8]) -> Result<usize, String> {
@@ -20,7 +30,7 @@ fn validate_pe_signature(pe_bytes: &[u8]) -> Result<usize, String> {
     if 0x12345678_u32.to_le_bytes() != 0x12345678_u32.to_ne_bytes() {
         return Err(format!("This code can only run on a little-endian system"));
     }
-    
+
     let signature_offset = read_field::<u32>(&pe_bytes, 0x3c)? as usize;
     let signature = read_field::<u32>(&pe_bytes, signature_offset)?;
     if signature.to_le_bytes() != *b"PE\0\0" {
@@ -32,7 +42,7 @@ fn validate_pe_signature(pe_bytes: &[u8]) -> Result<usize, String> {
 }
 
 #[cfg_attr(not(windows), allow(unused))]
-pub fn extract_section_from_pe(mut pe_bytes: Vec<u8>, section_name: &str) -> Result<Vec<u8>, String> {
+pub fn extract_section_from_pe(mut pe_bytes: Vec<u8>, section_name: &str) -> Result<Vec<u8>, ExtractSectionError> {
     // https://0xrick.github.io/win-internals/pe5/
     // https://learn.microsoft.com/en-us/windows/win32/debug/pe-format
 
@@ -59,19 +69,19 @@ pub fn extract_section_from_pe(mut pe_bytes: Vec<u8>, section_name: &str) -> Res
             let mut x = pe_bytes.split_off(pointer_to_raw_data as usize);
             x.truncate(size_of_raw_data as usize);
             return Ok(x);
-        }       
+        }
     }
-    
-    Err(format!("Can't find section with name '{section_name}'"))
+
+    Err(ExtractSectionError::SectionNotFound)
 }
 
 #[cfg_attr(not(windows), allow(unused))]
-pub fn add_section_to_pe(mut pe_bytes: Vec<u8>, new_section_name: &str, mut new_section_bytes: Vec<u8>) 
-    -> Result<Vec<u8>, String> 
+pub fn add_section_to_pe(mut pe_bytes: Vec<u8>, new_section_name: &str, mut new_section_bytes: Vec<u8>)
+    -> Result<Vec<u8>, String>
 {
     // Skip past the DOS header to the COFF header
     let file_header_offset = validate_pe_signature(&pe_bytes)?;
-    
+
     // Increment number of sections
     let num_sections_offset = file_header_offset + 2;
     let orig_num_sections = read_field::<u16>(&pe_bytes, num_sections_offset)?;
@@ -89,14 +99,14 @@ pub fn add_section_to_pe(mut pe_bytes: Vec<u8>, new_section_name: &str, mut new_
 
     // Because the section data is aligned to FileAlignment, there is (probably) a gap of padding after
     // the end of the section headers and before the data. We can put our new section header in there
-    // without having to shuffle everything else up, if there is such a gap. If not, we will have to 
+    // without having to shuffle everything else up, if there is such a gap. If not, we will have to
     // shuffle everything up by one FileAlignment, to create space for our new section header.
     let orig_end_of_section_headers = section_headers_offset + orig_num_sections as usize * 40;
     if align(orig_end_of_section_headers, file_alignment as usize) - orig_end_of_section_headers < 40 {
         // No space, we'll need to bump everything up
         let padding = vec![0 as u8; file_alignment as usize];
         pe_bytes.splice(orig_end_of_section_headers..orig_end_of_section_headers, padding).for_each(drop);
-       
+
         // All the existing sections need their PointerToRawData offsetting to point to the offseted data
         for section_idx in 0..orig_num_sections {
             let section_header_offset = section_headers_offset + section_idx as usize * 40;
@@ -126,7 +136,7 @@ pub fn add_section_to_pe(mut pe_bytes: Vec<u8>, new_section_name: &str, mut new_
     let prev_section_virtual_size = read_field::<u32>(&pe_bytes, prev_section_virtual_size_offset)?;
     let new_section_virtual_address = align(prev_section_virtual_address + prev_section_virtual_size, section_alignment);
     write_field::<u32>(&mut new_section_header, 12, new_section_virtual_address as u32)?;
-    // SizeOfRawData 
+    // SizeOfRawData
     let new_section_size_of_raw_data = align(new_section_bytes.len() as u32, file_alignment);
     write_field::<u32>(&mut new_section_header, 16, new_section_size_of_raw_data)?;
     // Characteristics
@@ -135,7 +145,7 @@ pub fn add_section_to_pe(mut pe_bytes: Vec<u8>, new_section_name: &str, mut new_
     // Add the new section header, overwriting the padding/zeroes that we've ensured is there
     let new_section_header_offset = section_headers_offset + orig_num_sections as usize * 40;
     pe_bytes[new_section_header_offset..new_section_header_offset+40].copy_from_slice(&new_section_header);
-    
+
     // Append the new section data, adding padding before to align it if necessary,
     // and padding after to make it match SizeOfRawData
     let new_section_offset = align(pe_bytes.len(), file_alignment as usize);
@@ -145,27 +155,27 @@ pub fn add_section_to_pe(mut pe_bytes: Vec<u8>, new_section_name: &str, mut new_
     drop(new_section_bytes); // It's just been emptied, so prevent further use
 
     // Set the new section's PointerToRawData
-    write_field::<u32>(&mut pe_bytes, new_section_header_offset + 20, new_section_offset as u32)?; 
-    
+    write_field::<u32>(&mut pe_bytes, new_section_header_offset + 20, new_section_offset as u32)?;
+
     // Update SizeOfImage in the optional header
     let size_of_image_offset = optional_header_offset + 56;
     let new_size_of_image = new_section_virtual_address + new_section_virtual_size as u32;
     let new_size_of_image = align(new_size_of_image, section_alignment);
-    write_field::<u32>(&mut pe_bytes, size_of_image_offset, new_size_of_image as u32)?;    
+    write_field::<u32>(&mut pe_bytes, size_of_image_offset, new_size_of_image as u32)?;
 
     // Recalculate SizeOfHeaders in the optional header
     let size_of_headers_offset = optional_header_offset + 60;
     let new_size_of_headers = orig_end_of_section_headers + 40;
     let new_size_of_headers = align(new_size_of_headers, file_alignment as usize);
-    write_field::<u32>(&mut pe_bytes, size_of_headers_offset, new_size_of_headers as u32)?;    
-    
+    write_field::<u32>(&mut pe_bytes, size_of_headers_offset, new_size_of_headers as u32)?;
+
     Ok(pe_bytes)
 }
 
 #[cfg_attr(not(unix), allow(unused))]
 fn validate_elf_header(elf_bytes: &[u8]) -> Result<(), String> {
     // ELF files can be big or little endian.
-    // The code written here assumes that it is little-endian and that we are 
+    // The code written here assumes that it is little-endian and that we are
     // running on a little-endian system too, so confirm this.
     if 0x12345678_u32.to_le_bytes() != 0x12345678_u32.to_ne_bytes() {
         return Err(format!("This code can only run on a little-endian system"));
@@ -196,7 +206,7 @@ fn validate_elf_header(elf_bytes: &[u8]) -> Result<(), String> {
 }
 
 #[cfg_attr(not(unix), allow(unused))]
-pub fn extract_section_from_elf(mut elf_bytes: Vec<u8>, section_name: &str) -> Result<Vec<u8>, String> {
+pub fn extract_section_from_elf(mut elf_bytes: Vec<u8>, section_name: &str) -> Result<Vec<u8>, ExtractSectionError> {
     // https://en.wikipedia.org/wiki/Executable_and_Linkable_Format
     // https://docs.oracle.com/cd/E23824_01/html/819-0690/chapter6-73709.html
 
@@ -210,14 +220,14 @@ pub fn extract_section_from_elf(mut elf_bytes: Vec<u8>, section_name: &str) -> R
 
     // Find the string table that contains section names (which is itself a section)
     let section_names_section_idx = read_field::<u16>(&elf_bytes, 0x3E)? as usize;
-    let section_names_table_offset = read_field::<u64>(&elf_bytes, 
+    let section_names_table_offset = read_field::<u64>(&elf_bytes,
         section_header_table_offset + section_names_section_idx * section_header_size + 0x18)? as usize;
 
     // Search through the section table for the one with the right name
     for section_idx in 0..num_sections {
         let section_header_offset = section_header_table_offset + section_idx * section_header_size;
         // Read the section name and check it. Name is the first field (offset 0x0)
-        let name_offset_within_string_table = 
+        let name_offset_within_string_table =
             read_field::<u32>(&elf_bytes, section_header_offset + 0x0)? as usize;
         // Practical max length of 32, just to prevent us reading too much garbage if something goes wrong
         let name = read_string(&elf_bytes, section_names_table_offset + name_offset_within_string_table, 32)?;
@@ -225,19 +235,19 @@ pub fn extract_section_from_elf(mut elf_bytes: Vec<u8>, section_name: &str) -> R
             // This is the right section - return the contents
             let section_data_offset = read_field::<u64>(&elf_bytes, section_header_offset + 0x18)?;
             let section_data_size = read_field::<u64>(&elf_bytes, section_header_offset + 0x20)?;
-            
+
             let mut x = elf_bytes.split_off(section_data_offset as usize);
             x.truncate(section_data_size as usize);
             return Ok(x);
         }
     }
 
-    Err(format!("Can't find section with name '{section_name}'"))
+    Err(ExtractSectionError::SectionNotFound)
 }
 
 #[cfg_attr(not(unix), allow(unused))]
-pub fn add_section_to_elf(mut elf_bytes: Vec<u8>, new_section_name: &str, mut new_section_bytes: Vec<u8>) 
-    -> Result<Vec<u8>, String> 
+pub fn add_section_to_elf(mut elf_bytes: Vec<u8>, new_section_name: &str, mut new_section_bytes: Vec<u8>)
+    -> Result<Vec<u8>, String>
 {
     let new_section_size = new_section_bytes.len();
     // https://en.wikipedia.org/wiki/Executable_and_Linkable_Format
@@ -249,12 +259,12 @@ pub fn add_section_to_elf(mut elf_bytes: Vec<u8>, new_section_name: &str, mut ne
     let section_header_table_offset = read_field::<u64>(&elf_bytes, 0x28)? as usize;
     // Size of each section header
     let section_header_size = read_field::<u16>(&elf_bytes, 0x3A)? as usize;
-    
+
     // Number of sections - we'll need to increment this, but we'll save the new value later
     let orig_num_sections = read_field::<u16>(&elf_bytes, 0x3C)? as usize;
     let new_num_sections = orig_num_sections + 1;
 
-    // Index of the section which contains sections names. 
+    // Index of the section which contains sections names.
     // We'll need to update the contents this section to include the name of our new section.
     let section_names_section_idx = read_field::<u16>(&elf_bytes, 0x3E)? as usize;
 
@@ -264,11 +274,11 @@ pub fn add_section_to_elf(mut elf_bytes: Vec<u8>, new_section_name: &str, mut ne
         return Err(format!("ELF file wrong size or layout"));
     }
     let mut section_header_table = elf_bytes.split_off(section_header_table_offset);
-        
+
     // Update the section which contains section header names, appending our new section name
-    let section_names_table_offset = read_field::<u64>(&section_header_table, 
+    let section_names_table_offset = read_field::<u64>(&section_header_table,
         section_names_section_idx * section_header_size + 0x18)? as usize;
-    let section_names_table_old_size = read_field::<u64>(&section_header_table, 
+    let section_names_table_old_size = read_field::<u64>(&section_header_table,
         section_names_section_idx * section_header_size + 0x20)? as usize;
     // Add new bytes to the end
     let mut new_bytes = new_section_name.as_bytes().to_vec();
@@ -284,7 +294,7 @@ pub fn add_section_to_elf(mut elf_bytes: Vec<u8>, new_section_name: &str, mut ne
     write_field::<u64>(&mut section_header_table,
         section_names_section_idx * section_header_size + 0x20, section_names_table_new_size as u64)?;
 
-    // Update the section headers for any sections following the names section, 
+    // Update the section headers for any sections following the names section,
     // as their offsets will have been bumped up now that we inserted data
     for section_idx in section_names_section_idx + 1..orig_num_sections {
         let section_offset_offset = section_idx * section_header_size + 0x18;
@@ -357,7 +367,7 @@ fn read_string(bytes: &[u8], offset: usize, max_size: usize) -> Result<&[u8], St
 
 /// Rounds up `x` to a multiple of `multiple`
 fn align<T>(x: T, multiple: T) -> T
-    where T : Copy + Sub<Output = T> + Div<Output = T> + Add<Output=T> + Mul<Output = T> + From<u8> 
+    where T : Copy + Sub<Output = T> + Div<Output = T> + Add<Output=T> + Mul<Output = T> + From<u8>
 {
     ((x - 1.into()) / multiple + 1.into()) * multiple
 }
@@ -376,7 +386,7 @@ macro_rules! impl_number_trait {
             fn to_bytes(self) -> Vec<u8> {
                 self.to_le_bytes().to_vec()
             }
-        }        
+        }
     };
 }
 

@@ -383,9 +383,16 @@ fn get_embedded_binaries_data() -> Result<Vec<u8>, String> {
     let current_exe = std::env::current_exe().map_err(|e| format!("Unable to get path to current exe: {e}"))?;
     let exe_data = std::fs::read(current_exe).map_err(|e| format!("Error loading current exe: {e}"))?;
     #[cfg(windows)]
-    let embedded_binaries_data = exe_utils::extract_section_from_pe(exe_data, embedded_binaries::SECTION_NAME)?;
+    let embedded_binaries_data = exe_utils::extract_section_from_pe(exe_data, embedded_binaries::SECTION_NAME);
     #[cfg(unix)]
-    let embedded_binaries_data = exe_utils::extract_section_from_elf(exe_data, embedded_binaries::SECTION_NAME)?;
+    let embedded_binaries_data = exe_utils::extract_section_from_elf(exe_data, embedded_binaries::SECTION_NAME);
+
+    let embedded_binaries_data = match embedded_binaries_data {
+        Ok(e) => e,
+        Err(exe_utils::ExtractSectionError::SectionNotFound) =>
+            return Err(format!("Can't find section with name '{}'. If this binary was built from source, check that the `progenitor` feature is enabled.", embedded_binaries::SECTION_NAME)),
+        Err(exe_utils::ExtractSectionError::Other(e)) => return Err(format!("Error extracting section: {e}")),
+    };
 
     Ok(embedded_binaries_data)
 }
