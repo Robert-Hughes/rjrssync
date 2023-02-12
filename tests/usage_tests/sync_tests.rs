@@ -300,3 +300,38 @@ fn file_size_change_during_sync() {
     thread.join().expect("Failed to join thread");
 }
 
+/// Checks that --stats prints some stats
+#[test]
+fn stats() {
+    let src = folder! {
+        "file" => file("contents"),
+        "folder" => folder! {
+            "c1" => file("contents1"),
+        },
+        "symlink" => symlink_file("bob")
+    };
+    run(TestDesc {
+        setup_filesystem_nodes: vec![
+            ("$TEMP/src", &src),
+        ],
+        args: vec![
+            "$TEMP/src".to_string(),
+            "$TEMP/dest".to_string(),
+            "--stats".to_string(),
+        ],
+        expected_exit_code: 0,
+        expected_output_messages: vec![
+            (1, Regex::new(&regex::escape("Source: 2 file(s) totalling 17B, 2 folder(s) and 1 symlink(s)")).unwrap()),
+            (1, Regex::new(&regex::escape("Dest: 0 file(s) totalling 0B, 0 folder(s) and 0 symlink(s)")).unwrap()),
+            (1, Regex::new("Queried in .* seconds").unwrap()),
+            (1, Regex::new("Deleted .* in .* seconds").unwrap()),
+            (1, Regex::new("Copied .* in .* seconds").unwrap()),
+        ],
+        expected_filesystem_nodes: vec![
+            ("$TEMP/src", Some(&src)),
+            ("$TEMP/dest", Some(&src)),
+        ],
+        ..Default::default()
+    });
+}
+

@@ -5,6 +5,7 @@ Current
 -------
 
 
+
 Interface
 ----------
 
@@ -16,7 +17,6 @@ Interface
 * Could warn or similar when filters will lead to an error, like trying to delete a folder that isn't empty (because the filters hid the files inside)
 * When prompting and given the choice to remember for "all occurences", we could show the number of occurences, e.g. "All occurences (17)".
 * The progress bar update granularity (MARKER_THRESHOLD) should probably vary depending on the transfer speed? e.g. if it's 10MB that could be very quick or very long, depending on the connection etc.
-
 
 Remote launching
 ----------------
@@ -42,11 +42,11 @@ Performance
 
 * Investigate if parallelising copying/deleting would speed it up
 * Investigate if pipelining some stages would speed it up, e.g. encrypting and serialization at same time
-* Probably better to batch together File() Responses, to avoid overhead from sending loads of messages
+* Probably better to batch together EntryDetails Responses, to avoid overhead from sending loads of messages
 * If launching two remote doers, then it would be quicker to run the two setup_comms in parallel
    - need to watch out for ssh prompts though - what if we get two of these in parallel!
 * Could investigate using UDP or something else to reduce TCP overhead, possibly this could speed up the TCP connection time?
-* Benchmarking with explicit clear of linux cahce beforehand: sudo bash -c "sync; echo 3 > /proc/sys/vm/drop_caches"
+* Benchmarking with explicit clear of linux cache beforehand: sudo bash -c "sync; echo 3 > /proc/sys/vm/drop_caches"
    - And the same for Windows, it seems to have some sort of caching too (faster second time) https://learn.microsoft.com/en-us/windows/win32/api/memoryapi/nf-memoryapi-setsystemfilecachesize
 
                unsafe {
@@ -55,7 +55,6 @@ Performance
                 }
             }
    Also need the "memoryapi" feature for the winapi crate
-
    Need to grant the SE_INCREASE_QUOTA_NAME privilege, which it seems isn't as simple as running as admin
 * Profiling events like send/receive could show the message type?
 * --no-encryption option, might be faster?
@@ -66,12 +65,14 @@ Performance
 * Looks like we're worse than competitors on windows: Windows -> Windows for "large file"
 * When splitting large files, the optimum chunk size might vary, we could adjust this dynamically. Right now I just picked an arbitrary value which could possibly be improved a lot! Also the same buffer size this is used for both the filesystem read() buffer size, _and_ the size of data we send to the boss, _and_ the size of data written on the other doer. The same size might not be optimal for all of these!
 
-
 Testing
 -------
 
-* Test for --stats (maybe just all the command-line options...)
+* Tests for --quiet
+* Tests for --verbose
+* Tests for --remote-port
 * Tests for when filesystem operations fail, e.g. failing to read/write a file
+* Test for --generate_auto_complete_script
 * Generating the benchmark graphs takes 8 mins! (On GitHub)
 * Improve display of benchmark graph
    - add memory (local and remote) to the page somehow
@@ -86,9 +87,11 @@ Testing
 * Using tar for remote filesytem nodes messes about with symlinks when extracting on a different platform (Windows vs Linux)
 * Add test for multiple syncs with remote doer (to make sure it stays alive and can be used for multiple syncs) spec file
 * Tests for progress bar (large files, small files, deleting and copying files). Could unit test some of the stuff, especially boss_progress.rs
+   * --no-progress
+   * automatic no-progress when unattended terminal
+   * --quiet mode
 * When installing rust on the GitHub job, could use the "minimal" profile to avoid downloading things like clippy, rust-docs etc. which we don't need
 * Tests for --all-destructive-behaviour. Including that the individual settings can be overidden. This might be covered by the unit test we already have?
-
 
 Misc
 -----
@@ -98,5 +101,6 @@ Misc
 ERROR | rjrssync::boss_frontend: Sync error: Unexpected response from dest GetEntries: Ok(Error("normalize_path failed: Illegal characters in path"))
 * Would be nice to automatically detect cases where the version number hasn't been updated, e.g. if we could see that the Command/Response struct layout has changed.
 * Upload to cargo binstall (or similar) so that users don't need to build from source (especially as we're bundling embedded binaries, the initial build time will be looong!)
+* Maybe change to not have default features, so that development is easier. Can use --all-features to turn them on for a proper build?
 * Add Josh as crates.io package owner (needs to make an account first)
 * Link to perf figures from the README, to "prove" our perf advantages!
