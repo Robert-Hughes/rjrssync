@@ -296,7 +296,8 @@ jobs:
       # The logic in remote_tests.rs should automatically detect the WSL instance and connect to that
       # Specify double-verbose to get output of the build.rs (building embedded binaries),
       # as this takes a while and otherwise it appears the build has hung.
-      run: cargo test -vv -- "remote"
+      # --feature embed-all needed to include embedded binaries
+      run: cargo test --feature embed-all -vv -- "remote"
 
     - name: Run remote tests on WSL
       # Only run tests that require a remote, as the other tests are covered by the "native" jobs above.
@@ -305,19 +306,22 @@ jobs:
       # via /mnt/... (so that it's faster and more faithful to a 'proper' linux setup)
       # Specify double-verbose to get output of the build.rs (building embedded binaries),
       # as this takes a while and otherwise it appears the build has hung.
+      # --feature embed-all needed to include embedded binaries
       shell: wsl-bash {0}
-      run: cd ~/rjrssync && cargo test -vv -- "remote"
+      run: cd ~/rjrssync && cargo test --feature embed-all -vv -- "remote"
 
     - name: Run benchmarks on Windows
       shell: pwsh
-      run: cargo bench -- -n 5 --json-output benchmark-results-windows-$(Get-Date -Format "yyyy-MM-dd-HH-mm")-$env:GITHUB_SHA.json
+      # --feature embed-all needed to include embedded binaries
+      run: cargo bench --feature embed-all -- -n 5 --json-output benchmark-results-windows-$(Get-Date -Format "yyyy-MM-dd-HH-mm")-$env:GITHUB_SHA.json
 
     - name: Run benchmarks on WSL
       shell: wsl-bash {0}
       # Note we use the copy of the source code on the native Linux filesystem, not the one in the Github actions workspace
       # via /mnt/... (so that it's faster and more faithful to a 'proper' linux setup)
+      # --feature embed-all needed to include embedded binaries
       run: |
-        cargo bench --manifest-path ~/rjrssync/Cargo.toml -- -n 5 --json-output benchmark-results-wsl-$(printf '%(%Y-%m-%d-%H-%M)T')-${GITHUB_SHA}.json
+        cargo bench --manifest-path ~/rjrssync/Cargo.toml --feature embed-all -- -n 5 --json-output benchmark-results-wsl-$(printf '%(%Y-%m-%d-%H-%M)T')-${GITHUB_SHA}.json
         # Copy the json output to the workspace, where we can upload it from
         cp ~/rjrssync/benchmark-results-* .
 

@@ -100,5 +100,6 @@ ERROR | rjrssync::boss_frontend: Sync error: Unexpected response from dest GetEn
 * Would be nice to automatically detect cases where the version number hasn't been updated, e.g. if we could see that the Command/Response struct layout has changed.
 * Upload to cargo binstall (or similar) so that users don't need to build from source (especially as we're bundling embedded binaries, the initial build time will be looong!)
 * Maybe change to not have default features, so that development is easier. Can use --all-features to turn them on for a proper build?
+* Add warning when .rjembed section is missing, explaining that it might be because a non-progenitor binary was built (esp. now we no longer do this by default!)
 * Add Josh as crates.io package owner (needs to make an account first)
 * Link to perf figures from the README, to "prove" our perf advantages!
