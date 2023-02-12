@@ -335,3 +335,43 @@ fn stats() {
     });
 }
 
+/// Checks that --quiet doesn't print anything, but does show errors
+#[test]
+fn quiet() {
+    let src = folder! {
+        "file" => file("contents"),
+    };
+    run(TestDesc {
+        setup_filesystem_nodes: vec![
+            ("$TEMP/src", &src),
+        ],
+        args: vec![
+            "$TEMP/src".to_string(),
+            "$TEMP/dest".to_string(),
+            "--quiet".to_string(),
+        ],
+        expected_exit_code: 0,
+        expected_output_messages: vec![
+            (0, Regex::new(".+").unwrap()), // No output at all
+        ],
+        expected_filesystem_nodes: vec![
+            ("$TEMP/src", Some(&src)),
+            ("$TEMP/dest", Some(&src)),
+        ],
+        ..Default::default()
+    });
+
+    run(TestDesc {
+        args: vec![
+            "$TEMP/src-that-doesnt-exist".to_string(),
+            "$TEMP/dest".to_string(),
+            "--quiet".to_string(),
+        ],
+        expected_exit_code: 12,
+        expected_output_messages: vec![
+            (1, Regex::new("src path .* doesn't exist").unwrap()), // Just an error message
+        ],
+        ..Default::default()
+    });
+}
+

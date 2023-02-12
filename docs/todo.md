@@ -68,7 +68,6 @@ Performance
 Testing
 -------
 
-* Tests for --quiet
 * Tests for --verbose
 * Tests for --remote-port
 * Tests for when filesystem operations fail, e.g. failing to read/write a file
