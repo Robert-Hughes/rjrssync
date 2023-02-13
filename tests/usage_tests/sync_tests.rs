@@ -404,3 +404,34 @@ fn verbose() {
     });
 }
 
+/// Checks what happens when a file on the dest needs to be overwritten but it is read-only.
+/// This should result in an error that gracefully stops the sync.
+#[test]
+fn read_only_dest_file() {
+    let dest_file = tempfile::NamedTempFile::new().expect("Failed to create temp file");
+    let mut perm = dest_file.as_file().metadata().expect("Failed to query metadata").permissions();
+    perm.set_readonly(true);
+    dest_file.as_file().set_permissions(perm).expect("Failed to make read-only");
+
+    let src = file("contents");
+    run(TestDesc {
+        setup_filesystem_nodes: vec![
+            ("$TEMP/src", &src),
+        ],
+        args: vec![
+            "$TEMP/src".to_string(),
+            dest_file.path().to_string_lossy().to_string(),
+        ],
+        expected_exit_code: 12,
+        expected_output_messages: vec![
+            (1, Regex::new("Error writing file contents to").unwrap()),
+        ],
+        expected_filesystem_nodes: vec![
+            ("$TEMP/src", Some(&src)), // Source unchanged
+            (&dest_file.path().to_string_lossy(), // Dest unchanged (as sync failed)
+                Some(&file_with_modified("", dest_file.as_file().metadata().unwrap().modified().unwrap()))),
+        ],
+        ..Default::default()
+    });
+}
+

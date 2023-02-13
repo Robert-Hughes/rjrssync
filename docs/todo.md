@@ -68,7 +68,6 @@ Performance
 Testing
 -------
 
-* Tests for when filesystem operations fail, e.g. failing to read/write a file
 * Test for --generate-auto-complete-script
 * Generating the benchmark graphs takes 8 mins! (On GitHub)
 * Improve display of benchmark graph
