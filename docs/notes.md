@@ -238,11 +238,11 @@ Idea for filters, with re-usable "functions":
 Benchmarking results
 =======================
 
-`cargo bench --feature embed-all`, see benchmarks.rs. Run on both Windows and Linux.
+`cargo bench --features embed-all`, see benchmarks.rs. Run on both Windows and Linux.
 
 Some more advanced options (see `cargo bench -- --help` for details):
 
-`cargo bench --feature embed-all -- --skip-setup --only-remote --programs rjrssync -n 5`
+`cargo bench --features embed-all -- --skip-setup --only-remote --programs rjrssync -n 5`
 
 ```
 Each cell shows <min> - <max> over 5 sample(s) for: time | local memory (if available) | remote memory (if available)
