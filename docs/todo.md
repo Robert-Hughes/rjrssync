@@ -68,6 +68,7 @@ Performance
 Testing
 -------
 
+* file_size_change_during_sync test is intermittently failing on GitHub, maybe can repro easily on local linux? Trying a fix now
 * Test for --generate-auto-complete-script
 * Generating the benchmark graphs takes 8 mins! (On GitHub)
 * Improve display of benchmark graph

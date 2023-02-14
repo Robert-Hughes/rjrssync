@@ -268,15 +268,17 @@ fn dry_run_root_ancestors() {
 #[test]
 fn file_size_change_during_sync() {
     let src_file = tempfile::NamedTempFile::new().expect("Failed to create temp file");
-    src_file.as_file().write_all("original contents".as_bytes()).expect("Failed to write file");
+    // Make the file quite large, so that it takes a little while to copy it, giving the background
+    // thread plenty of time to update it (to minimize race conditions)
+    src_file.as_file().write_all(&"so much big!".as_bytes().repeat(1000*1000)).expect("Failed to write file");
 
     // Launch a background thread that constantly changes the file's size
-    let mut second_handle = src_file.reopen().expect("Failed to reopen temp file");
+    let mut second_handle = std::fs::File::options().append(true).open(src_file.path()).expect("Failed to reopen temp file");
     let stop_signal = Arc::new(AtomicBool::new(false));
     let stop_signal2 = stop_signal.clone();
     let thread = std::thread::spawn(move || {
         while !stop_signal2.load(Ordering::Relaxed) {
-            write!(second_handle, "some more stuff").expect("Failed to write to temp file");
+            writeln!(second_handle, "some more stuff").expect("Failed to write to temp file");
         }
     });
 
