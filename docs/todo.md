@@ -68,15 +68,12 @@ Performance
 Testing
 -------
 
-* file_size_change_during_sync test is intermittently failing on GitHub, maybe can repro easily on local linux? Trying a fix now
 * Test for --generate-auto-complete-script
-* Generating the benchmark graphs takes 8 mins! (On GitHub)
 * Improve display of benchmark graph
    - add memory (local and remote) to the page somehow
    - Add moving average or similar to show trend, perhaps match it to a series of step functions?
    - add proper link(s) to the -order version
    - dynamic display, so can change stuff live on the page (e.g. swapping between timestamp and order, hiding/showing some platforms, looking at memory usage)
-* Make a note somewhere that because we're using WSL 1 on GHA, the "linux" filesystem performance won't be as good and might have "windows" characteristics (as the kernel is still windows)
 * Keep looking for a way to get two github runners to talk to each other, so we can have one windows and one linux rather than having to use WSL which brings with it a bunch of problems. Maybe we can open a TCP tunnel between two runners, some kind of NAT traversal handoff thing that doesn't involve all the traffic going through a third party, just the setup bits somehow?
    - https://en.wikipedia.org/wiki/NAT_traversal
    - https://github.com/ValdikSS/nat-traversal-github-actions-openvpn-wireguard/blob/master/README.md
