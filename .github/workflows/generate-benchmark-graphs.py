@@ -17,7 +17,7 @@ def main():
 
     #e.g. benchmark-results-wsl-2023-01-02-13-26-127ca5f54c8605f9f872548a1157f2b595981863.json
     filename_regex = re.compile("benchmark-results-(.+)-(\d+)-(\d+)-(\d+)-(\d+)-(\d+)-([0-9a-zA-Z]+).json")
-    all_results = pandas.DataFrame()
+    data_rows = [] # It's much faster to accumulate the data in regular python objects and only convert to a DataFrame afterwards
     for dirpath, dirs, files in os.walk(args.json_files):
         for filename in files:
             filename_abs = os.path.join(dirpath, filename)
@@ -56,9 +56,10 @@ def main():
                                     "measurement": measurement,
                                     "value": value,
                                 }
-                                all_results = pandas.concat([all_results, pandas.DataFrame.from_records([row])])
+                                data_rows.append(row)
 
 
+    all_results = pandas.DataFrame(data_rows)
     all_timestamps = all_results["timestamp"].unique()
     all_timestamps.sort()
     all_timestamps = all_timestamps.tolist()

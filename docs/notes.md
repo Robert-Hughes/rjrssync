@@ -337,6 +337,8 @@ Linux -> Remote Linux
 
 ```
 
+We're now running this automatically on GitHub actions, but because we're using WSL 1 on GHA, the "linux" filesystem performance won't be as good and might have "windows" characteristics (as the kernel is still windows). Would be better to use a native Linux agent somehow.
+
 Notes on filters
 ================
 

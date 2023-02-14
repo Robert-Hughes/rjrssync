@@ -17,6 +17,7 @@ Interface
 * Could warn or similar when filters will lead to an error, like trying to delete a folder that isn't empty (because the filters hid the files inside)
 * When prompting and given the choice to remember for "all occurences", we could show the number of occurences, e.g. "All occurences (17)".
 * The progress bar update granularity (MARKER_THRESHOLD) should probably vary depending on the transfer speed? e.g. if it's 10MB that could be very quick or very long, depending on the connection etc.
+* Interrupt command (e.g. ctrl-something) which allows you to skip a file that's currently being copied, in case it's copying a big one that you don't want. Perhaps it shows a prompt, allowing you to skip that file or continue?
 
 Remote launching
 ----------------
