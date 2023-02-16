@@ -118,13 +118,13 @@ pub fn run_process_with_live_output_impl(c: &mut std::process::Command,
             }
             Ok(OutputReaderThreadMsg2::StreamClosed(stream_type)) => {
                 if !quiet {
-                    println!("Child process {} closed", stream_type);
+                  //  println!("Child process {} closed", stream_type);
                 }
             }
             Err(_) => {
                 // Both senders have been dropped, i.e. both background threads exited
                 if !quiet {
-                    println!("Both reader threads done, child process must have exited. Waiting for process.");
+                 //   println!("Both reader threads done, child process must have exited. Waiting for process.");
                 }
 
                 // Wait for the process to exit, to get the exit code
