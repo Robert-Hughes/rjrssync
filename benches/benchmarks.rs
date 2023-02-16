@@ -535,34 +535,43 @@ fn run_benchmarks<F>(cli_args: &CliArgs, id: &str, sync_fn: F,
     let mut delete_and_copy_results : CaseResults = vec![];
     let mut single_large_file_results : CaseResults = vec![];
 
+    let src_prefix = match &src_target {
+        Target::Local(d) => {
+            let d = d.join("src");
+            d.to_string_lossy().to_string() + &std::path::MAIN_SEPARATOR.to_string()
+        }
+        Target::Remote { platform, folder } => {
+            let folder = format!("{folder}{}src", platform.path_separator);
+            platform.user_and_host.clone() + ":" + &folder + &platform.path_separator.to_string()
+        }
+    };
+
+    let dest_prefix = match &dest_target {
+        Target::Local(d) => {
+            let d = d.join("dest");
+            d.to_string_lossy().to_string() + &std::path::MAIN_SEPARATOR.to_string()
+        }
+        Target::Remote { platform, folder } => {
+            let folder = format!("{folder}{}dest", platform.path_separator);
+            platform.user_and_host.clone() + ":" + &folder + &platform.path_separator.to_string()
+        }
+    };
+
     for sample_idx in 0..cli_args.num_samples {
         println!("    Sample {sample_idx}/{}", cli_args.num_samples);
 
-        let src_prefix = match &src_target {
-            Target::Local(d) => {
-                let d = d.join("src");
-                d.to_string_lossy().to_string() + &std::path::MAIN_SEPARATOR.to_string()
-            }
-            Target::Remote { platform, folder } => {
-                let folder = format!("{folder}{}src", platform.path_separator);
-                platform.user_and_host.clone() + ":" + &folder + &platform.path_separator.to_string()
-            }
-        };
-
-        // Delete any old dest folder from other subjects
-        let dest_prefix = match &dest_target {
+        // Delete any old dest folder from other subjects and recreate it
+        match &dest_target {
             Target::Local(d) => {
                 let d = d.join("dest");
                 if Path::new(&d).exists() {
                     std::fs::remove_dir_all(&d).expect("Failed to delete old dest folder");
                 }
                 std::fs::create_dir(&d).expect("Failed to create dest dir");
-                d.to_string_lossy().to_string() + &std::path::MAIN_SEPARATOR.to_string()
             }
             Target::Remote { platform, folder } => {
                 let folder = format!("{folder}{}dest", platform.path_separator);
                 test_utils::delete_and_recreate_remote_folder(&folder, platform);
-                platform.user_and_host.clone() + ":" + &folder + &platform.path_separator.to_string()
             }
         };
 
@@ -612,6 +621,18 @@ fn run_benchmarks<F>(cli_args: &CliArgs, id: &str, sync_fn: F,
         println!("      {id} example-repo single large file: {:?}", s);
         single_large_file_results.push(s);
     }
+
+    // Delete dest folder to clean up after ourselves
+    match &dest_target {
+        Target::Local(d) => {
+            let d = d.join("dest");
+            std::fs::remove_dir_all(&d).expect("Failed to delete old dest folder");
+        }
+        Target::Remote { platform, folder } => {
+            let folder = format!("{folder}{}dest", platform.path_separator);
+            test_utils::delete_remote_folder(&folder, platform);
+        }
+    };
 
     vec![
         ("Everything copied", everything_copied_results),
