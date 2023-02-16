@@ -199,7 +199,7 @@ fn set_up_src_folders_impl_remote(platform: &RemotePlatform, remote_path: &str, 
     // stack overflow on Windows https://github.com/PowerShell/Win32-OpenSSH/issues/1897
     println!("Deploying source data to {user_and_host}:{remote_path}...");
     let node = filesystem_node::load_filesystem_node_from_disk_local(&context.local_temp_dir.join("src"));
-    filesystem_node::save_filesystem_node_to_disk_remote(&node.unwrap(), &format!("{user_and_host}:{remote_path}"));
+    filesystem_node::save_filesystem_node_to_disk_remote(&node.unwrap(), platform, remote_path);
 }
 
 fn main () {

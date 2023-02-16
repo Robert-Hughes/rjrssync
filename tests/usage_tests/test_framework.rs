@@ -1,10 +1,11 @@
 use std::{path::{PathBuf}};
 
 
+use lazy_static::__Deref;
 use regex::Regex;
 use tempdir::TempDir;
 
-use crate::test_utils::{run_process_with_live_output, get_unique_remote_temp_folder, RemotePlatforms};
+use crate::test_utils::{run_process_with_live_output, get_unique_remote_temp_folder, RemotePlatforms, RemotePlatform};
 use crate::filesystem_node::*;
 
 /// Describes a test configuration in a generic way that hopefully covers various success and failure cases.
@@ -40,21 +41,28 @@ pub struct TestDesc<'a> {
     pub remote_platforms: Option<&'a RemotePlatforms>,
 }
 
-fn get_remote_platforms<'a>(existing_lock: Option<&'a RemotePlatforms>, remote_platforms_lock: &'a mut Option<std::sync::MutexGuard<'static, RemotePlatforms>>)
-    -> &'a RemotePlatforms
-{
-    if let Some(r) = existing_lock {
-        return r;
+/// Checks that running rjrssync with the setup described by the TestDesc behaves as described by the TestDesc.
+/// See TestDesc for more details.
+pub fn run(desc: TestDesc) {
+    // Lock the global RemotePlatforms if we need it for this test, and it wasn't provided in the TestDesc
+    let needs_remote_platforms = desc.args.iter().any(|a| a.contains("$REMOTE_")) ||
+        desc.setup_filesystem_nodes.iter().any(|a| a.0.contains("$REMOTE_")) ||
+        desc.expected_filesystem_nodes.iter().any(|a| a.0.contains("$REMOTE_"));
+    if needs_remote_platforms && desc.remote_platforms.is_none() {
+        let remote_platforms_lock = RemotePlatforms::lock();
+        let desc2 = TestDesc {
+            remote_platforms: Some(remote_platforms_lock.deref()),
+            ..desc
+        };
+        run_impl(desc2);
+    } else {
+        run_impl(desc);
     }
-    if remote_platforms_lock.is_none() {
-        *remote_platforms_lock = Some(RemotePlatforms::lock());
-    }
-    return remote_platforms_lock.as_ref().unwrap();
 }
 
 /// Checks that running rjrssync with the setup described by the TestDesc behaves as described by the TestDesc.
 /// See TestDesc for more details.
-pub fn run(desc: TestDesc) {
+fn run_impl(desc: TestDesc) {
     // Create a temporary folder to store test files/folders,
     let temp_folder = TempDir::new("rjrssync-test").unwrap();
     let mut temp_folder = temp_folder.path().to_path_buf();
@@ -66,38 +74,44 @@ pub fn run(desc: TestDesc) {
 
     // Lazy-initialize as we might not need these, and we want to be able to work when remote platforms
     // aren't available
-    let mut remote_platforms_lock = None;
     let mut remote_windows_temp_path = None;
     let mut remote_linux_temp_path = None;
 
     // All paths provided in TestDesc have $TEMP (and remote windows/linux temps) replaced with the temporary folder.
-    let mut substitute_vars = |p: &str| {
+    // Also returns a remote platform if one is used.
+    let mut substitute_vars = |p: &str| -> (String, Option<&RemotePlatform>) {
+        let mut remote_platform = None;
         let mut p = p.replace("$TEMP", &temp_folder.to_string_lossy());
         // Lazily evaluate the remote windows/linux variables, so that tests which do not use them do not
         // need to have remote platforms available (e.g. on GitHub Actions).
         // Use a new remote temporary folder for each test (rather than re-using the root one)
-        if p.contains("$REMOTE_WINDOWS_TEMP") {
-            let platform = &get_remote_platforms(desc.remote_platforms, &mut remote_platforms_lock).windows;
-            if remote_windows_temp_path.is_none() {
-                remote_windows_temp_path = Some(get_unique_remote_temp_folder(platform));
+        if p.contains("$REMOTE_") {
+            let remote_platforms = desc.remote_platforms.expect("Missing remote_platforms"); // Ensured by run() which calls us
+            if p.contains("$REMOTE_WINDOWS_TEMP") {
+                let platform = &remote_platforms.windows;
+                if remote_windows_temp_path.is_none() {
+                    remote_windows_temp_path = Some(get_unique_remote_temp_folder(platform));
+                }
+                p = p.replace("$REMOTE_WINDOWS_TEMP", &format!("{}:{}", platform.user_and_host, remote_windows_temp_path.as_ref().unwrap()));
+                remote_platform = Some(platform);
             }
-            p = p.replace("$REMOTE_WINDOWS_TEMP", &format!("{}:{}", platform.user_and_host, remote_windows_temp_path.as_ref().unwrap()));
-        }
-        if p.contains("$REMOTE_LINUX_TEMP") {
-            let platform = &get_remote_platforms(desc.remote_platforms, &mut remote_platforms_lock).linux;
-            if remote_linux_temp_path.is_none() {
-                remote_linux_temp_path = Some(get_unique_remote_temp_folder(platform));
+            if p.contains("$REMOTE_LINUX_TEMP") {
+                let platform = &remote_platforms.linux;
+                if remote_linux_temp_path.is_none() {
+                    remote_linux_temp_path = Some(get_unique_remote_temp_folder(platform));
+                }
+                p = p.replace("$REMOTE_LINUX_TEMP", &format!("{}:{}", platform.user_and_host, remote_linux_temp_path.as_ref().unwrap()));
+                remote_platform = Some(platform);
             }
-            p = p.replace("$REMOTE_LINUX_TEMP", &format!("{}:{}", platform.user_and_host, remote_linux_temp_path.as_ref().unwrap()));
         }
-        p
+        (p, remote_platform)
     };
 
     // Setup initial filesystem
     for (p, n) in desc.setup_filesystem_nodes {
-        let p = substitute_vars(&p);
-        if matches!(p.find(':'), Some(p) if p > 1) { // Note the colon must be after position 2, to avoid treating C:\blah as remote
-            save_filesystem_node_to_disk_remote(&n, &p);
+        let (p, remote_platform) = substitute_vars(&p);
+        if let Some(remote_platform) = remote_platform {
+            save_filesystem_node_to_disk_remote(&n, remote_platform, p.split_once(':').expect("Missing colon").1);
         } else {
             save_filesystem_node_to_disk_local(&n, &PathBuf::from(p));
         }
@@ -111,7 +125,7 @@ pub fn run(desc: TestDesc) {
         std::process::Command::new(rjrssync_path)
         .current_dir(&temp_folder) // So that any relative paths are inside the test folder
         .env("RJRSSYNC_TEST_PROMPT_RESPONSE", desc.prompt_responses.join(","))
-        .args(desc.args.iter().map(|a| substitute_vars(a))));
+        .args(desc.args.iter().map(|a| substitute_vars(a).0)));
 
     // Check exit code
     assert_eq!(output.exit_status.code(), Some(desc.expected_exit_code));
@@ -126,8 +140,8 @@ pub fn run(desc: TestDesc) {
 
     // Check the filesystem is as expected afterwards
     for (p, n) in desc.expected_filesystem_nodes {
-        let p = substitute_vars(&p);
-        let actual_node = if matches!(p.find(':'), Some(p) if p > 1) {  // Note the colon must be after position 2, to avoid treating C:\blah as remote
+        let (p, remote_platform) = substitute_vars(&p);
+        let actual_node = if let Some(_) = remote_platform {
             load_filesystem_node_from_disk_remote(&p)
         } else {
             load_filesystem_node_from_disk_local(&PathBuf::from(&p))

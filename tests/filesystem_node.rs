@@ -1,6 +1,6 @@
 use std::{collections::HashMap, time::SystemTime, path::{PathBuf, Path}, process::Command};
 
-use crate::test_utils::*;
+use crate::test_utils::{*, self};
 
 use tempdir::TempDir;
 
@@ -23,7 +23,7 @@ pub enum FilesystemNode {
         children: HashMap<String, FilesystemNode>, // Use map rather than Vec, so that comparison of FilesystemNodes doesn't depend on order of children.
     },
     File {
-        contents: Vec<u8>,     
+        contents: Vec<u8>,
         modified: SystemTime,
     },
     Symlink {
@@ -52,10 +52,10 @@ pub fn empty_folder() -> FilesystemNode {
     FilesystemNode::Folder{ children: HashMap::new() }
 }
 pub fn file(contents: &str) -> FilesystemNode {
-    FilesystemNode::File{ contents: contents.as_bytes().to_vec(), modified: SystemTime::now() }       
+    FilesystemNode::File{ contents: contents.as_bytes().to_vec(), modified: SystemTime::now() }
 }
 pub fn file_with_modified(contents: &str, modified: SystemTime) -> FilesystemNode {
-    FilesystemNode::File{ contents: contents.as_bytes().to_vec(), modified }       
+    FilesystemNode::File{ contents: contents.as_bytes().to_vec(), modified }
 }
 /// Creates a file symlink, but on Linux where all symlinks are generic, this creates a generic symlink instead.
 /// This allows us to write generic test code, but we need to make sure to run the tests on both Linux and Windows.
@@ -83,7 +83,7 @@ pub fn symlink_generic(target: &str) -> FilesystemNode {
 }
 
 /// Mirrors the given file/folder and its descendants onto disk, at the given path.
-pub fn save_filesystem_node_to_disk_local(node: &FilesystemNode, path: &Path) { 
+pub fn save_filesystem_node_to_disk_local(node: &FilesystemNode, path: &Path) {
     if std::fs::metadata(path).is_ok() {
         panic!("Already exists!");
     }
@@ -111,13 +111,13 @@ pub fn save_filesystem_node_to_disk_local(node: &FilesystemNode, path: &Path) {
                     #[cfg(windows)]
                     std::os::windows::fs::symlink_dir(target, path).expect("Failed to create symlink dir");
                     #[cfg(not(windows))]
-                    panic!("Not supported on this OS");        
+                    panic!("Not supported on this OS");
                 }
                 SymlinkKind::Generic => {
                     #[cfg(unix)]
                     std::os::unix::fs::symlink(target, path).expect("Failed to create unspecified symlink");
                     #[cfg(not(unix))]
-                    panic!("Not supported on this OS");        
+                    panic!("Not supported on this OS");
                 },
             }
         }
@@ -125,15 +125,14 @@ pub fn save_filesystem_node_to_disk_local(node: &FilesystemNode, path: &Path) {
 }
 
 /// Mirrors the given file/folder and its descendants onto disk, at the given path, which includes a remote prefix
-/// Save the folder structure locally, tar it up, copy it over and untar it. 
+/// Save the folder structure locally, tar it up, copy it over and untar it.
 /// We use tar to preserve symlinks (as scp would otherwise follow these and we would lose them).
-pub fn save_filesystem_node_to_disk_remote(node: &FilesystemNode, remote_host_and_path: &str) {
-    let (remote_host, remote_path) = remote_host_and_path.split_once(':').expect("Missing colon");
+pub fn save_filesystem_node_to_disk_remote(node: &FilesystemNode, remote_platform: &RemotePlatform, remote_path: &str) {
     let (remote_parent_folder, node_name) = remote_path.rsplit_once(|d| d == '/' || d == '\\').expect("Missing slash");
 
     let local_temp_folder = TempDir::new("rjrssync-test-remote-staging").unwrap();
     let local_temp_folder = local_temp_folder.path();
-  
+
     // Create local
     let local_node_path = local_temp_folder.join(node_name);
     save_filesystem_node_to_disk_local(node, &local_node_path);
@@ -141,21 +140,26 @@ pub fn save_filesystem_node_to_disk_remote(node: &FilesystemNode, remote_host_an
     // Pack into tar
     let tar_file_local = local_temp_folder.join("stuff.tar");
     // Important to use --format=posix so that modified timestamps are preserved at higher precision (the default is just 1 second)
-    assert_process_with_live_output(Command::new("tar").arg("--format=posix") 
+    assert_process_with_live_output(Command::new("tar").arg("--format=posix")
         .arg("-cf").arg(&tar_file_local).arg("-C").arg(local_temp_folder).arg(node_name));
 
     // Copy tar to remote
     let tar_file_remote = String::from(remote_path) + ".tar";
-    assert_process_with_live_output(Command::new("scp").arg(&tar_file_local).arg(format!("{}:{}", remote_host, tar_file_remote)));
+    assert_process_with_live_output(Command::new("scp").arg(&tar_file_local).arg(format!("{}:{}", &remote_platform.user_and_host, tar_file_remote)));
 
-    // Check that the destination doesn't already exist (otherwise will cause problems as the 
+    // Check that the destination doesn't already exist (otherwise will cause problems as the
     // new stuff will be merged with the existing stuff)
-    let r = run_process_with_live_output(Command::new("ssh").arg(remote_host).arg(format!("stat {remote_path} || dir {remote_path}")));
+    let r = run_process_with_live_output(Command::new("ssh").arg(&remote_platform.user_and_host).arg(format!("stat {remote_path} || dir {remote_path}")));
     assert!(!r.exit_status.success());
 
     // Extract on remote
-    assert_process_with_live_output(Command::new("ssh").arg(remote_host)
+    assert_process_with_live_output(Command::new("ssh").arg(&remote_platform.user_and_host)
         .arg(format!("tar -xf {tar_file_remote} -C {remote_parent_folder}")));
+
+    // Delete the tar file to save space (it's possible that everything on the remote side will
+    // get cleaned up after the test finishes, but for benchmarks at least we might keep some stuff
+    // to speed up future runs)
+    test_utils::delete_remote_file(&tar_file_remote, remote_platform);
 }
 
 /// Creates an in-memory representation of the file/folder and its descendents at the given path.
@@ -177,9 +181,9 @@ pub fn load_filesystem_node_from_disk_local(path: &Path) -> Option<FilesystemNod
         let mut children = HashMap::<String, FilesystemNode>::new();
         for entry in std::fs::read_dir(path).unwrap() {
             let entry = entry.unwrap();
-            children.insert(entry.file_name().to_str().unwrap().to_string(), 
+            children.insert(entry.file_name().to_str().unwrap().to_string(),
             load_filesystem_node_from_disk_local(&path.join(entry.file_name())).unwrap());
-        }        
+        }
         Some(FilesystemNode::Folder { children })
     } else if metadata.file_type().is_symlink() {
         let target = std::fs::read_link(path).expect("Unable to read symlink target");
@@ -208,7 +212,7 @@ pub fn load_filesystem_node_from_disk_local(path: &Path) -> Option<FilesystemNod
 pub fn load_filesystem_node_from_disk_remote(remote_host_and_path: &str) -> Option<FilesystemNode> {
     let (remote_host, remote_path) = remote_host_and_path.split_once(':').expect("Missing colon");
     let (remote_parent_folder, node_name) = remote_path.rsplit_once(|d| d == '/' || d == '\\').expect("Missing slash");
-    
+
     let local_temp_folder = TempDir::new("rjrssync-test-remote-staging").unwrap();
     let local_temp_folder = local_temp_folder.path();
 
@@ -226,7 +230,7 @@ pub fn load_filesystem_node_from_disk_remote(remote_host_and_path: &str) -> Opti
     // Copy tar from remote
     let tar_file_local = local_temp_folder.join("stuff.tar");
     assert_process_with_live_output(Command::new("scp").arg(format!("{}:{}", remote_host, tar_file_remote)).arg(&tar_file_local));
-    
+
     // Extract it
     assert_process_with_live_output(Command::new("tar").arg("-xf").arg(tar_file_local)
         .arg("-C").arg(&local_temp_folder));
