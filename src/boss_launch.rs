@@ -660,7 +660,7 @@ fn launch_doer_via_ssh(remote_hostname: &str, remote_user: &str,
                 debug!("Both reader threads done, ssh must have exited. Waiting for process.");
                 // Wait for the process to exit, for tidyness
                 let result = ssh_process.wait();
-                return SshDoerLaunchResult::ExitedUnexpectedly(format!("ssh exited unexpectedly with {:?}", result));
+                return SshDoerLaunchResult::ExitedUnexpectedly(format!("ssh exited unexpectedly with {:?}. Please check above output from ssh.", result));
             }
         }
     }
