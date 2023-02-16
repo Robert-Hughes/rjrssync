@@ -69,7 +69,6 @@ Performance
 Testing
 -------
 
-* Test for --generate-auto-complete-script
 * Improve display of benchmark graph
    - add memory (local and remote) to the page somehow
    - Add moving average or similar to show trend, perhaps match it to a series of step functions?
