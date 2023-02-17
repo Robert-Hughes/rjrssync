@@ -37,7 +37,8 @@ jobs:
   create-release:
     needs: build
     runs-on: ubuntu-latest
-    permissions: write # Set permissions of the GITHUB_TOKEN to allow creation of a release
+    permissions:
+      contents: write # Set permissions of the GITHUB_TOKEN to allow creation of a release
     steps:
       - name: Download Windows artifact
         uses: actions/download-artifact@v3
