@@ -158,7 +158,7 @@ jobs:
     - name: Set up cargo on WSL
       shell: wsl-bash {0}
       run: |
-        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --profile=minimal -y
         source "$HOME/.cargo/env"
         rustup target add x86_64-pc-windows-gnu
         rustup target add x86_64-unknown-linux-musl

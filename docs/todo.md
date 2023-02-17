@@ -79,7 +79,6 @@ Testing
    - https://github.com/ValdikSS/nat-traversal-github-actions-openvpn-wireguard/blob/master/README.md
 * Using tar for remote filesytem nodes messes about with symlinks when extracting on a different platform (Windows vs Linux)
 * Using tar for remote filesytem nodes messes about with modified timestamps - they seem to get rounded. We've had to use files with explicit modified timestamps to workaround this for now.
-* Add test for multiple syncs with remote doer (to make sure it stays alive and can be used for multiple syncs) spec file
 * Tests for progress bar (large files, small files, deleting and copying files). Could unit test some of the stuff, especially boss_progress.rs
    * --no-progress
    * automatic no-progress when unattended terminal
