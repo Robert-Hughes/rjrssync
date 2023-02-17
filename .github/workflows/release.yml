@@ -75,7 +75,7 @@ jobs:
       - name: Prepare artifacts for release
         run: |
           mkdir release-files
-          mv linux/rjrssync release-files/rjrssync-${{ steps.version.outputs.VERSION }}-x86_64-pc-windows-gnu
+          mv linux/rjrssync release-files/rjrssync-${{ steps.version.outputs.VERSION }}-x86_64-unknown-linux-gnu
           mv windows/rjrssync.exe release-files/rjrssync-${{ steps.version.outputs.VERSION }}-x86_64-pc-windows-msvc.exe
 
       - name: Create Release
