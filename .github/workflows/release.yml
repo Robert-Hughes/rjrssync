@@ -42,7 +42,7 @@ jobs:
       uses: actions/upload-artifact@v3
       with:
         name: binary-${{ matrix.os }}
-        path: target/release/rjrrssync*
+        path: target/release/rjrssync*
 
   # This second job creates the release and uploads the binaries built by the first job
   create-release:
