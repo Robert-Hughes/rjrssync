@@ -51,6 +51,9 @@ jobs:
     permissions:
       contents: write # Set permissions of the GITHUB_TOKEN to allow creation of a release
     steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
       - name: Download Windows artifact
         uses: actions/download-artifact@v3
         with:
@@ -63,11 +66,22 @@ jobs:
           name: binary-ubuntu-latest
           path: linux
 
-      - name: Debug dump of folder structure
-        run: tree
+      - name: Get version number
+        id: version
+        run: |
+          VERSION=$(cargo metadata --no-deps --format-version=1 | jq --raw-output '.packages[0].version')
+          echo "VERSION=v$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Prepare artifacts for release
+        run: |
+          mkdir release-files
+          mv linux/rjrssync release-files/rjrssync-${{ steps.version.outputs.VERSION }}-x86_64-pc-windows-gnu
+          mv windows/rjrssync.exe release-files/rjrssync-${{ steps.version.outputs.VERSION }}-x86_64-pc-windows-msvc.exe
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           draft: true
-          files: Release.txt
+          name: ${{ steps.version.outputs.VERSION }}
+          tag_name: ${{ steps.version.outputs.VERSION }}
+          files: release-files/*
