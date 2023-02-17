@@ -1,0 +1,61 @@
+# This workflow creates a draft 'release' on GitHub, ready to be published by using
+# the GitHub web UI. It attches pre-built binaries to the release for easy downloading.
+# It needs to be triggered manually using the GitHub web interface.
+
+name: Release
+
+on:
+  # This workflow is triggered manually
+  workflow_dispatch
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # This first job builds rjrssync for Windows & Linux and uploads the binaries as artifacts,
+  # ready to be put into a release in the following job.
+  build:
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v3
+
+    - name: Build
+      # Build with all supported embedded binaries, so that it can be easily deployed
+      run: cargo build --release --features embed-all -v
+
+    - name: Upload binary
+      uses: actions/upload-artifact@v3
+      with:
+        name: binary-${{ matrix.os }}
+        path: target/release/rjrrssync*
+
+  # This second job creates the release and uploads the binaries built by the first job
+  create-release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions: write # Set permissions of the GITHUB_TOKEN to allow creation of a release
+    steps:
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: binary-windows-latest
+          path: windows
+
+      - name: Download Linux artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: binary-ubuntu-latest
+          path: linux
+
+      - name: Debug dump of folder structure
+      - run: tree
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          draft: true
+          files: Release.txt

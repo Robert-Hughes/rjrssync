@@ -84,12 +84,14 @@ Testing
    * automatic no-progress when unattended terminal
    * --quiet mode
 * When installing rust on the GitHub job, could use the "minimal" profile to avoid downloading things like clippy, rust-docs etc. which we don't need
-* Tests for --all-destructive-behaviour. Including that the individual settings can be overidden. This might be covered by the unit test we already have?
 
 Misc
 -----
 
 * Would be nice to automatically detect cases where the version number hasn't been updated, e.g. if we could see that the Command/Response struct layout has changed.
 * Upload to cargo binstall (or similar) so that users don't need to build from source (especially as we're bundling embedded binaries, the initial build time will be looong!)
+ - github release
+ - automatic CI
+ - also upload to crates.io?
 * Add Josh as crates.io package owner (needs to make an account first)
 * Link to perf figures from the README, to "prove" our perf advantages!
