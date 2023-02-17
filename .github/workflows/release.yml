@@ -23,9 +23,15 @@ jobs:
     - name: Checkout repo
       uses: actions/checkout@v3
 
+    - name: Set up cross build
+      run: |
+        rustup target add x86_64-pc-windows-gnu
+        rustup target add x86_64-unknown-linux-musl
+        rustup target add aarch64-unknown-linux-musl
+
     - name: Build
       # Build with all supported embedded binaries, so that it can be easily deployed
-      run: cargo build --release --features embed-all -v
+      run: cargo build --release --features embed-all -vv
 
     - name: Upload binary
       uses: actions/upload-artifact@v3
