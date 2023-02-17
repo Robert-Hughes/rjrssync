@@ -92,7 +92,7 @@ fn run_impl(desc: TestDesc) {
                 if remote_windows_temp_path.is_none() {
                     remote_windows_temp_path = Some(get_unique_remote_temp_folder(platform));
                 }
-                p = p.replace("$REMOTE_WINDOWS_TEMP", &format!("{}:{}", platform.user_and_host, remote_windows_temp_path.as_ref().unwrap()));
+                p = p.replace("$REMOTE_WINDOWS_TEMP", &format!("{}:{}", platform.user_and_host, remote_windows_temp_path.as_ref().unwrap().folder));
                 remote_platform = Some(platform);
             }
             if p.contains("$REMOTE_LINUX_TEMP") {
@@ -100,7 +100,7 @@ fn run_impl(desc: TestDesc) {
                 if remote_linux_temp_path.is_none() {
                     remote_linux_temp_path = Some(get_unique_remote_temp_folder(platform));
                 }
-                p = p.replace("$REMOTE_LINUX_TEMP", &format!("{}:{}", platform.user_and_host, remote_linux_temp_path.as_ref().unwrap()));
+                p = p.replace("$REMOTE_LINUX_TEMP", &format!("{}:{}", platform.user_and_host, remote_linux_temp_path.as_ref().unwrap().folder));
                 remote_platform = Some(platform);
             }
         }

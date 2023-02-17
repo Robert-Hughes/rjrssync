@@ -368,7 +368,7 @@ fn test_symlink_target_slashes() {
             ],
             args: vec![
                 "$TEMP/src".to_string(),
-                format!("{}:{}", remote_platform.user_and_host, remote_dest),
+                format!("{}:{}", remote_platform.user_and_host, remote_dest.folder),
                 "--deploy=ok".to_string(),  // Skip the confirmation prompt for deploying
             ],
             expected_exit_code: 0,
@@ -381,8 +381,8 @@ fn test_symlink_target_slashes() {
         let mut cmd = std::process::Command::new("ssh");
         let cmd = cmd.arg(&remote_platform.user_and_host);
         let cmd = match &remote_platform.path_separator {
-            '/' => cmd.arg("ls").arg("-al").arg(remote_dest),
-            '\\' => cmd.arg("dir").arg(remote_dest),
+            '/' => cmd.arg("ls").arg("-al").arg(&remote_dest.folder),
+            '\\' => cmd.arg("dir").arg(&remote_dest.folder),
             _ => panic!()
         };
         let result = run_process_with_live_output(cmd);

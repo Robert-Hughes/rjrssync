@@ -77,7 +77,6 @@ Testing
 * Keep looking for a way to get two github runners to talk to each other, so we can have one windows and one linux rather than having to use WSL which brings with it a bunch of problems. Maybe we can open a TCP tunnel between two runners, some kind of NAT traversal handoff thing that doesn't involve all the traffic going through a third party, just the setup bits somehow?
    - https://en.wikipedia.org/wiki/NAT_traversal
    - https://github.com/ValdikSS/nat-traversal-github-actions-openvpn-wireguard/blob/master/README.md
-* Various tests are leaving behind temporary folders, filling up with disk space! Especially benchmarks which are big!
 * Using tar for remote filesytem nodes messes about with symlinks when extracting on a different platform (Windows vs Linux)
 * Using tar for remote filesytem nodes messes about with modified timestamps - they seem to get rounded. We've had to use files with explicit modified timestamps to workaround this for now.
 * Add test for multiple syncs with remote doer (to make sure it stays alive and can be used for multiple syncs) spec file
@@ -95,3 +94,4 @@ Misc
 * Upload to cargo binstall (or similar) so that users don't need to build from source (especially as we're bundling embedded binaries, the initial build time will be looong!)
 * Add Josh as crates.io package owner (needs to make an account first)
 * Link to perf figures from the README, to "prove" our perf advantages!
+* Do dev-dependencies get linked in to the main binary still? If so, they could be making build times and binary size larger than necessary!

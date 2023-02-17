@@ -400,10 +400,23 @@ fn confirm_remote_test_environment(remote_user_and_host: &str, remote_folder: &s
     assert!(output.stdout.contains(expected_os));
 }
 
+pub struct RemoteTempDir<'a> {
+    remote_platform: &'a RemotePlatform,
+    pub folder: String,
+}
+impl<'a> Drop for RemoteTempDir<'a> {
+    /// Delete when dropped to clean up after ourselves.
+    fn drop(&mut self) {
+        delete_remote_folder(&self.folder, self.remote_platform);
+    }
+}
+
 /// Creates and returns the path to an empty temporary folder on the given remote platform.
 /// We can't use TempDir or similar as this is for a remote platform, not the local one.
 /// We need to use separate folders for each test so that each test is run in a clean environment.
-pub fn get_unique_remote_temp_folder(remote_platform: &RemotePlatform) -> String {
+/// Returns a struct wrapping the remote folder, so that it can be deleted when dropped to clean up
+/// after ourselves
+pub fn get_unique_remote_temp_folder(remote_platform: &RemotePlatform) -> RemoteTempDir {
     // For now we make a random number and hope that it's unique!
     let mut rng = thread_rng();
     let folder = format!("{}{}{}", remote_platform.test_folder, remote_platform.path_separator, &rand::distributions::Alphanumeric.sample_string(&mut rng, 8));
@@ -411,7 +424,7 @@ pub fn get_unique_remote_temp_folder(remote_platform: &RemotePlatform) -> String
     // Create the folder
     assert_process_with_live_output(Command::new("ssh").arg(&remote_platform.user_and_host).arg(format!("mkdir {folder}")));
 
-    folder
+    RemoteTempDir { remote_platform, folder }
 }
 
 pub fn delete_remote_file(file: &str, remote_platform: &RemotePlatform) {
