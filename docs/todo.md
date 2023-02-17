@@ -94,4 +94,3 @@ Misc
 * Upload to cargo binstall (or similar) so that users don't need to build from source (especially as we're bundling embedded binaries, the initial build time will be looong!)
 * Add Josh as crates.io package owner (needs to make an account first)
 * Link to perf figures from the README, to "prove" our perf advantages!
-* Do dev-dependencies get linked in to the main binary still? If so, they could be making build times and binary size larger than necessary!
