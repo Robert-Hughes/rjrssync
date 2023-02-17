@@ -52,7 +52,7 @@ jobs:
           path: linux
 
       - name: Debug dump of folder structure
-      - run: tree
+        run: tree
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
