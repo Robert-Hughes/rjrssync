@@ -93,5 +93,6 @@ Misc
  - also upload to crates.io?
  - upload musl build for linux, so it's more portable? This isn't the one we test though...
  - check works with cargo binstall
+ - Update README.md installation steps to point to the release downloads, or to cargo binstall?
 * Add Josh as crates.io package owner (needs to make an account first)
 * Link to perf figures from the README, to "prove" our perf advantages!

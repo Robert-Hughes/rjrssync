@@ -12,39 +12,55 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # This first job builds rjrssync for Windows & Linux and uploads the binaries as artifacts,
+  # These first jobs build rjrssync for Windows & Linux and upload the binaries as artifacts,
   # ready to be put into a release in the following job.
-  build:
-    strategy:
-      matrix:
-        os: [windows-latest, ubuntu-latest]
-    runs-on: ${{ matrix.os }}
+  build-windows:
+    runs-on: windows-latest
     steps:
     - name: Checkout repo
       uses: actions/checkout@v3
 
-    - name: Set up cross build (Linux-only bits)
-      if: ${{ runner.os == 'Linux' }}
-      # mingw-w64 for Linux -> Windows
-      run: sudo apt install mingw-w64
-
     - name: Set up cross build
       run: |
-        rustup target add x86_64-pc-windows-gnu
         rustup target add x86_64-unknown-linux-musl
         rustup target add aarch64-unknown-linux-musl
 
     - name: Build
       # Build with all supported embedded binaries, so that it can be easily deployed
-      run: cargo build --release --features embed-all -vv
+      run: cargo build --release --features=embed-all -vv
 
     - name: Upload binary
       uses: actions/upload-artifact@v3
       with:
-        name: binary-${{ matrix.os }}
-        path: target/release/rjrssync*
+        name: binary-windows
+        path: target/release/rjrssync.exe
 
-  # This second job creates the release and uploads the binaries built by the first job
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v3
+
+    - name: Set up cross build
+      # mingw-w64 for Linux -> Windows
+      run: |
+        rustup target add x86_64-pc-windows-gnu
+        rustup target add x86_64-unknown-linux-musl
+        rustup target add aarch64-unknown-linux-musl
+        sudo apt install mingw-w64
+
+    - name: Build
+      # Build with all supported embedded binaries, so that it can be easily deployed
+      # Do the Linux build with musl, which is more portable
+      run: cargo build --release --features=embed-all --target=x86_64-unknown-linux-musl -vv
+
+    - name: Upload binary
+      uses: actions/upload-artifact@v3
+      with:
+        name: binary-linux
+        path: target/x86_64-unknown-linux-musl/release/rjrssync
+
+  # This job creates the release and uploads the binaries built by the first jobs
   create-release:
     needs: build
     runs-on: ubuntu-latest
@@ -57,13 +73,13 @@ jobs:
       - name: Download Windows artifact
         uses: actions/download-artifact@v3
         with:
-          name: binary-windows-latest
+          name: binary-windows
           path: windows
 
       - name: Download Linux artifact
         uses: actions/download-artifact@v3
         with:
-          name: binary-ubuntu-latest
+          name: binary-linux
           path: linux
 
       - name: Get version number
@@ -75,7 +91,7 @@ jobs:
       - name: Prepare artifacts for release
         run: |
           mkdir release-files
-          mv linux/rjrssync release-files/rjrssync-${{ steps.version.outputs.VERSION }}-x86_64-unknown-linux-gnu
+          mv linux/rjrssync release-files/rjrssync-${{ steps.version.outputs.VERSION }}-x86_64-unknown-linux-musl
           mv windows/rjrssync.exe release-files/rjrssync-${{ steps.version.outputs.VERSION }}-x86_64-pc-windows-msvc.exe
 
       - name: Create Release
