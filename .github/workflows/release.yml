@@ -117,5 +117,8 @@ jobs:
 
       - name: Upload source code to crates.io
         if:  ${{ inputs.upload_to_crates_io }}
+        env:
+          # Use the token saved as a secret in the GitHub repo settings to authenticate ourselves for crates.io
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN  }}
         run: cargo publish
 

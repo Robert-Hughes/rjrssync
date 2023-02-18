@@ -83,7 +83,6 @@ Testing
    * --no-progress
    * automatic no-progress when unattended terminal
    * --quiet mode
-* When installing rust on the GitHub job, could use the "minimal" profile to avoid downloading things like clippy, rust-docs etc. which we don't need
 * Should we be doing testing and benchmarking with musl version of Linux build, as this is what we upload as release artifacts?
 
 Misc
@@ -92,7 +91,6 @@ Misc
 * Would be nice to automatically detect cases where the version number hasn't been updated, e.g. if we could see that the Command/Response struct layout has changed.
 * Distribute binaries
  - warning or similar if trying to update existing release version? Otherwise could accidentally overwrite an old one if forget to bump the version?
- - upload musl build for linux, so it's more portable
  - also upload to crates.io?
  - check works with cargo binstall
  - Update README.md installation steps to point to the release downloads, or to cargo binstall?
