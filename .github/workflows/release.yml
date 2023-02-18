@@ -10,12 +10,13 @@ name: Release
 on:
   # This workflow is triggered manually
   workflow_dispatch:
-    upload_to_crates_io:
-      description: |
-        Upload the source code to crates.io after creating the GitHub release?
-        (THIS CANNOT BE UNDONE!)
-      required: true
-      type: boolean
+    inputs:
+      upload_to_crates_io:
+        description: |
+          Upload the source code to crates.io after creating the GitHub release?
+          (THIS CANNOT BE UNDONE!)
+        required: true
+        type: boolean
 
 env:
   CARGO_TERM_COLOR: always
