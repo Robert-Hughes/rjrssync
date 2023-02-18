@@ -91,6 +91,7 @@ Misc
 * Would be nice to automatically detect cases where the version number hasn't been updated, e.g. if we could see that the Command/Response struct layout has changed.
 * Distribute binaries
  - warning or similar if trying to update existing release version? Otherwise could accidentally overwrite an old one if forget to bump the version?
+ - It seems that running the job without bumping the version doesn't update the tag on github, so it doesn't really update the existing release at all. The binaries uploaded will be for the more recent code though, so it won't match! So safer just to disallow this? If we want to update the release, need to delete and recreate?
  - also upload to crates.io?
  - check works with cargo binstall
  - Update README.md installation steps to point to the release downloads, or to cargo binstall?

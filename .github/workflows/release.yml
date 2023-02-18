@@ -111,6 +111,10 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           draft: true
+          # Explicitly specify what hash to make the release tag for. Although this is the default,
+          # it has different behaviour when a release with this name/tag already exists, as it will update
+          # the tag to the new commit
+          target_commitish: HEAD
           name: ${{ steps.version.outputs.VERSION }}
           tag_name: ${{ steps.version.outputs.VERSION }}
           files: release-files/*
