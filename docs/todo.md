@@ -65,6 +65,7 @@ Performance
 * Looks like we're worse than competitors on wsl: Linux -> Linux for "everything copied"
 * Looks like we're worse than competitors on windows: Windows -> Windows for "large file"
 * When splitting large files, the optimum chunk size might vary, we could adjust this dynamically. Right now I just picked an arbitrary value which could possibly be improved a lot! Also the same buffer size this is used for both the filesystem read() buffer size, _and_ the size of data we send to the boss, _and_ the size of data written on the other doer. The same size might not be optimal for all of these!
+* Possible perf regression on Windows -> Windows Everything copied ~ 18th Feb
 
 Testing
 -------
