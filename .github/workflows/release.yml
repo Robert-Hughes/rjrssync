@@ -62,7 +62,7 @@ jobs:
 
   # This job creates the release and uploads the binaries built by the first jobs
   create-release:
-    needs: build
+    needs: [build-windows, build-linux]
     runs-on: ubuntu-latest
     permissions:
       contents: write # Set permissions of the GITHUB_TOKEN to allow creation of a release
