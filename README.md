@@ -20,21 +20,35 @@ Features
 Installation
 ============
 
+Pre-built binaries are available, or you can build from source.
+
+## Binaries
+
+Binaries are available for some platforms from the [latest release page](https://github.com/Robert-Hughes/rjrssync/releases/latest).
+
+You can also install using [cargo binstall](https://github.com/cargo-bins/cargo-binstall), which will automatically download these same binaries:
+
+```
+cargo binstall rjrssync
+```
+
+## Build from source
+
 1. Install the rust build tools: https://www.rust-lang.org/tools/install
 2. Run `cargo install rjrssync`
 
 This will download the latest release of the source code from [crates.io](https://crates.io/crates/rjrssync), build and then install rjrssync.
 
-## Supporting other platforms
+### Supporting other platforms
 
 This default build configuration will not include cross-compiled binaries for other platforms, and so rjrssync will not be able to sync to remote targets that are running different OSes or architectures. If you want to enable this feature, then some additional build steps are needed:
 
 1. Install build tools for cross-compiling (see below)
-2. Run `cargo install --features embed-all rjrssync`
+2. Run `cargo install --features=embed-all rjrssync`
 
 As part of this build, rjrssync is also cross-compiled for several other platforms and these are embedded into the final binary. You may need to set up your build environment for this to work, for example adding some additional targets to `rustup`:
 
-### Example (Linux)
+#### Example (Linux)
 
 ```
 sudo apt install mingw-w64
@@ -42,7 +56,7 @@ rustup target add x86_64-pc-windows-gnu
 rustup target add x86_64-unknown-linux-musl
 rustup target add aarch64-unknown-linux-musl
 ```
-### Example (Windows)
+#### Example (Windows)
 
 ```
 rustup target add x86_64-unknown-linux-musl
