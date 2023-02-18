@@ -113,7 +113,7 @@ jobs:
         # a release with the same name already exists - it will simply update it with the new artifacts,
         # but the tag won't be edited to point at the latest main, so the the artifacts and code in the release
         # would be out-of-sync. This is confusing and so we avoid this by requiring that the tag doesn't already exist.
-        # If we want to re-do an existing release, we'd need to delete that release from GitHub first.
+        # If we want to re-do an existing release, we'd need to delete that release (and tag) from GitHub first.
         run: "! git ls-remote --exit-code origin ${{ steps.version.outputs.VERSION }}"
 
       - name: Create Release
@@ -124,10 +124,14 @@ jobs:
           tag_name: ${{ steps.version.outputs.VERSION }}
           files: release-files/*
 
+      # We upload to crates.io as the last step, because this is irreversible whereas the GitHub release
+      # is only a draft so can be easily undone.
       - name: Upload source code to crates.io
         if:  ${{ inputs.upload_to_crates_io }}
         env:
           # Use the token saved as a secret in the GitHub repo settings to authenticate ourselves for crates.io
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN  }}
-        run: cargo publish
+        run: |
+          git clean -fd # Remove the artifacts that we uploaded, which will be in the repo directory but we don't want to upload to crates.io
+          cargo publish
 
