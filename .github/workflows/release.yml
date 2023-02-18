@@ -114,7 +114,7 @@ jobs:
         # but the tag won't be edited to point at the latest main, so the the artifacts and code in the release
         # would be out-of-sync. This is confusing and so we avoid this by requiring that the tag doesn't already exist.
         # If we want to re-do an existing release, we'd need to delete that release from GitHub first.
-        run: !git show-ref refs/tags/${{ steps.version.outputs.VERSION }}
+        run: "!git show-ref refs/tags/${{ steps.version.outputs.VERSION }}"
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
