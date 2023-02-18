@@ -4,6 +4,9 @@
 # It can also optionally upload the source code to crates.io, which is needed for "cargo binstall rjrssync"
 # to find the new version. Note that uploading to crates.io cannot be undone and does not have a
 # 'draft' concept like GitHub releases do.
+# This also means that crates.io uploads need to have a new version number (cannot update existing one)
+# which is different to GitHub releases, where we can update an existing release if we don't update
+# the version number.
 
 name: Release
 
@@ -111,3 +114,8 @@ jobs:
           name: ${{ steps.version.outputs.VERSION }}
           tag_name: ${{ steps.version.outputs.VERSION }}
           files: release-files/*
+
+      - name: Upload source code to crates.io
+        if:  ${{ inputs.upload_to_crates_io }}
+        run: cargo publish
+
