@@ -717,7 +717,6 @@ fn confirm_actions(ctx: &mut SyncContext, actions: &mut Actions) -> Result<(), S
     let mut to_remove = vec![]; // Rather than removing things as we go, we remove them at the end
     for (path, (_entry_to_copy, reason)) in actions.to_copy.iter() {
         match reason {
-            //TODO: there's a lot of duplication between these match arms
             CopyReason::NotOnDest => (), // Nothing to confirm
             CopyReason::DestNewer => {
                 let msg = format!(

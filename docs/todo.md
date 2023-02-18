@@ -89,7 +89,6 @@ Misc
 -----
 
 * Would be nice to automatically detect cases where the version number hasn't been updated, e.g. if we could see that the Command/Response struct layout has changed.
-* Distribute binaries
- - Update README.md installation steps to point to the release downloads, or to cargo binstall?
 * Add Josh as crates.io package owner (needs to make an account first)
 * Link to perf figures from the README, to "prove" our perf advantages!
+* There's a lot of duplication between the match arms in confirm_actions()
