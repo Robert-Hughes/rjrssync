@@ -5,8 +5,7 @@
 # to find the new version. Note that uploading to crates.io cannot be undone and does not have a
 # 'draft' concept like GitHub releases do.
 # This also means that crates.io uploads need to have a new version number (cannot update existing one)
-# which is different to GitHub releases, where we can update an existing release if we don't update
-# the version number.
+# which is different to GitHub releases, where we can update existing releases if we want to.
 
 name: Release
 
@@ -107,14 +106,20 @@ jobs:
           mv linux/rjrssync release-files/rjrssync-${{ steps.version.outputs.VERSION }}-x86_64-unknown-linux-musl
           mv windows/rjrssync.exe release-files/rjrssync-${{ steps.version.outputs.VERSION }}-x86_64-pc-windows-msvc.exe
 
+      - name: Check for existing release tag
+        # If there is an existing tag with the name of this new release, then that means we've already made a
+        # release with this same name, and so we raise an error to avoid problems.
+        # The "softprops/action-gh-release" action we use to make release will happily proceed even if
+        # a release with the same name already exists - it will simply update it with the new artifacts,
+        # but the tag won't be edited to point at the latest main, so the the artifacts and code in the release
+        # would be out-of-sync. This is confusing and so we avoid this by requiring that the tag doesn't already exist.
+        # If we want to re-do an existing release, we'd need to delete that release from GitHub first.
+        run: !git show-ref refs/tags/${{ steps.version.outputs.VERSION }}
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           draft: true
-          # Explicitly specify what hash to make the release tag for. Although this is the default,
-          # it has different behaviour when a release with this name/tag already exists, as it will update
-          # the tag to the new commit
-          target_commitish: HEAD
           name: ${{ steps.version.outputs.VERSION }}
           tag_name: ${{ steps.version.outputs.VERSION }}
           files: release-files/*
