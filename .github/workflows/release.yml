@@ -1,12 +1,21 @@
 # This workflow creates a draft 'release' on GitHub, ready to be published by using
 # the GitHub web UI. It attches pre-built binaries to the release for easy downloading.
 # It needs to be triggered manually using the GitHub web interface.
+# It can also optionally upload the source code to crates.io, which is needed for "cargo binstall rjrssync"
+# to find the new version. Note that uploading to crates.io cannot be undone and does not have a
+# 'draft' concept like GitHub releases do.
 
 name: Release
 
 on:
   # This workflow is triggered manually
-  workflow_dispatch
+  workflow_dispatch:
+    upload_to_crates_io:
+      description: |
+        Upload the source code to crates.io after creating the GitHub release?
+        (THIS CANNOT BE UNDONE!)
+      required: true
+      type: boolean
 
 env:
   CARGO_TERM_COLOR: always
