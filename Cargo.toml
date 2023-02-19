@@ -20,14 +20,16 @@ flate2 = "1.0.25"
 [dependencies]
 clap = { version = "4.1.1", features = ["derive"] }
 clap_complete = "4.1.0"
-env_logger = "0.10.0"
+# Disable the `regex` feature, so that we can disable some features of the `regex` crate (otherwise feature unification will re-enable the regex features we disable)
+env_logger = { version = "0.10.0", default-features=false, features=["auto-color", "humantime"] }
 log= "0.4.17"
 tempdir= "0.3.7"
 serde = { version = "1.0.152", features = ["derive"] }
 serde_bytes = "0.11.8"
 bincode = "1.3.3"
 filetime = "0.2.19"
-regex = "1.7.1"
+# Disable the `unicode` feature as this increases code size and we shouldn't need it.
+regex = { version = "1.7.1", default-features=false, features=["std", "perf"] }
 aes-gcm = "0.10.1"
 aead = {version = "0.5.1"}
 yaml-rust = "0.4.5"

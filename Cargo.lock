@@ -291,7 +291,6 @@ dependencies = [
  "humantime",
  "is-terminal",
  "log",
- "regex",
  "termcolor",
 ]
 

@@ -428,6 +428,8 @@ Optimize for speed (z): 5.6MB -> 4.3MB, but this significantly regressed perform
 
 codegen-units = 1 makes no difference (I'm guessing because we already have LTO on)
 
+Disabling unicode feature in regex (and removing regex feature from env_logger): 5.6 -> 5.0
+
 Documentation (README.md, --help, etc.)
 =======================================
 
