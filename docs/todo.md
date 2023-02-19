@@ -85,6 +85,10 @@ Testing
    * automatic no-progress when unattended terminal
    * --quiet mode
 * Should we be doing testing and benchmarking with musl version of Linux build, as this is what we upload as release artifacts?
+* Occasionally we see a test fail due to
+thread 'remote_tests::needs_deploy_error' panicked at 'Error reading from stderr: stream did not contain valid UTF-8', tests\usage_tests\..\test_utils.rs:117:17
+e.g. https://github.com/Robert-Hughes/rjrssync/actions/runs/4217674150/jobs/7321626218
+Maybe we can use equivalent of to_string_lossy in case of invalid UTF-8?
 
 Misc
 -----
