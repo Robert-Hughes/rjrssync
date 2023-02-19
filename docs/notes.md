@@ -424,6 +424,10 @@ We can avoid including a lite binary for the platform that is the outer binary, 
 
 Setting panic = abort reduces big binary from 7MB -> 5.6MB
 
+Optimize for speed (z): 5.6MB -> 4.3MB, but this significantly regressed performance for large file transfers.
+
+codegen-units = 1 makes no difference (I'm guessing because we already have LTO on)
+
 Documentation (README.md, --help, etc.)
 =======================================
 
