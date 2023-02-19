@@ -291,6 +291,7 @@ dependencies = [
  "humantime",
  "is-terminal",
  "log",
+ "regex",
  "termcolor",
 ]
 
@@ -747,7 +748,7 @@ dependencies = [
 
 [[package]]
 name = "rjrssync"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "aead",
  "aes-gcm",
