@@ -422,6 +422,8 @@ Compression of embedded binaries also helps quite a bit (~50% reduction in embed
 
 We can avoid including a lite binary for the platform that is the outer binary, as we can extract this instead
 
+Setting panic = abort reduces big binary from 7MB -> 5.6MB
+
 Documentation (README.md, --help, etc.)
 =======================================
 
