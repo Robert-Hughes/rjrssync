@@ -71,11 +71,8 @@ embed-aarch64-linux=["progenitor"]
 # Convenience feature for all the embedded binaries.
 embed-all=["embed-x64-windows", "embed-x64-linux", "embed-aarch64-linux"]
 
-# Automatically strip symbols from the binary in release builds.
-# Also use LTO, to reduce the size further, and also hopefully produce faster code.
-# Simplifying panic handling code also reduces code size
-# This decreases the binary size
-# which is especially relevant to keep the big binary size down (as it contains many binaries).
+# Settings for release profile to reduce code size.
+# This is especially relevant to keep the big binary size down (as it contains many binaries).
 [profile.release]
 strip = true
 lto = true
