@@ -668,9 +668,9 @@ fn handle_get_file_contents(comms: &mut Comms, full_path: &Path) -> Result<(), S
     // (We could find the size out beforehand but we'd have to either check the metadata (an extra filesystem call
     // that might slow things down) or use the metadata that we already retrieved, but we don't have a nice way of getting
     // that here).
-    // Start with a small chunk size to minimize initialization overhead for small files,
-    // but we'll increase this if the file is big
-    let mut chunk_size = 4 * 1024;
+    // Start with a 64KB chunk size for better performance with typical files,
+    // and we'll increase this if the file is big
+    let mut chunk_size = 64 * 1024;
     let mut prev_buf = vec![0; 0];
     let mut prev_buf_valid = 0;
     let mut next_buf = vec![0; chunk_size];

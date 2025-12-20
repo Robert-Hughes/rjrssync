@@ -36,10 +36,8 @@ pub fn parallel_walk_dir<
     let (result_sender, result_receiver) = crossbeam::channel::bounded::<Result<Entry<T>, String>>(1000);  // Bounded arbitrarily to prevent too high memory usage
 
     // The "best" number of threads to use depends on many things. This is a bit of a heuristic!
-    #[cfg(windows)]
+    // Use multiple threads on all platforms for better performance
     let num_threads = std::cmp::max(1, num_cpus::get() / 2);
-    #[cfg(unix)]
-    let num_threads = 1;
 
     // Spawn worker threads
     for i in 0..num_threads {
