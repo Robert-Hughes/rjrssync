@@ -30,7 +30,7 @@ pub const REMOTE_TEMP_WINDOWS: &str = r"%TEMP%";
 /// buffer unlimited amounts of data in the case that one side of the transfer is faster than the
 /// other and this would take up too much memory. If set too small, then we won't buffer enough
 /// and this could lead to reduced performance.
-pub const BOSS_DOER_CHANNEL_MEMORY_CAPACITY : usize = 100*1024*1024;
+pub const BOSS_DOER_CHANNEL_MEMORY_CAPACITY : usize = 200*1024*1024;
 
 /// Abstraction of two-way communication channel between this boss and a doer, which might be
 /// remote (communicating over an encrypted TCP connection) or local (communicating via a channel to a background thread).
