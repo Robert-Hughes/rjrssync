@@ -1,14 +1,14 @@
 About
 =====
 
-Fast rsync-like tool for incrementally copying files. Runs natively on both Windows and Linux and uses network for communication, to maximise speed when syncing between Windows and WSL filesystems.
+Fast rsync-like tool for incrementally copying files. Runs natively on Windows, Linux and macOS and uses network for communication, to maximise speed when syncing between Windows and WSL filesystems.
 
 Features
 ========
 
 * Local or remote targets (including remote to remote)
 * Fast, especially when nothing has changed
-* Runs natively on Windows and Linux. Much faster than using WSL with `/mnt/` or `\\wsl$\`
+* Runs natively on Windows, Linux and macOS. Much faster than using WSL with `/mnt/` or `\\wsl$\`
 * No setup needed on remote targets
 * Preserves symlinks
 * Filters

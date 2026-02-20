@@ -276,6 +276,24 @@ where S : std::io::Read {
     }
 }
 
+fn get_compatible_target_triples(os_test_output: &str) -> Result<Vec<&'static str>, String> {
+    // The embedded binaries might have different target triples depending on how it was built,
+    // e.g. -gnu vs -msvc suffixes, so we need to be somewhat flexible here.
+    if os_test_output.contains("Windows") && os_test_output.contains("AMD64") {
+        Ok(vec!["x86_64-pc-windows-msvc", "x86_64-pc-windows-gnu"])
+    } else if os_test_output.contains("Linux") && os_test_output.contains("x86_64") {
+        Ok(vec!["x86_64-unknown-linux-musl", "x86_64-unknown-linux-gnu"])
+    } else if os_test_output.contains("Linux") && os_test_output.contains("aarch64") {
+        Ok(vec!["aarch64-unknown-linux-musl", "aarch64-unknown-linux-gnu"])
+    } else if os_test_output.contains("Darwin") && os_test_output.contains("x86_64") {
+        Ok(vec!["x86_64-apple-darwin"])
+    } else if os_test_output.contains("Darwin") && (os_test_output.contains("arm64") || os_test_output.contains("aarch64")) {
+        Ok(vec!["aarch64-apple-darwin"])
+    } else {
+        Err(format!("Unknown target platform: {os_test_output}"))
+    }
+}
+
 /// Attempts to create an rjrssync binary that can be deployed to a target platform.
 ///
 /// This is quite confusing because of the recursive resource embedding.
@@ -299,17 +317,7 @@ where S : std::io::Read {
 /// copy ourselves directly - no need to recreate what we already have. This means that even
 /// a lite binary can be deployed to remote targets as long as they are the same platform.
 fn create_binary_for_target(os_test_output: &str, output_binary_filename: &Path) -> Result<u64, String> {
-    // The embedded binaries might have different target triples depending on how it was build,
-    // e.g. -gnu vs -msvc suffixes, so we need to be somewhat flexible here.
-    let compatible_target_triples = if os_test_output.contains("Windows") && os_test_output.contains("AMD64") {
-        vec!["x86_64-pc-windows-msvc", "x86_64-pc-windows-gnu"]
-    } else if os_test_output.contains("Linux") && os_test_output.contains("x86_64") {
-        vec!["x86_64-unknown-linux-musl", "x86_64-unknown-linux-gnu"]
-    } else if os_test_output.contains("Linux") && os_test_output.contains("aarch64") {
-        vec!["aarch64-unknown-linux-musl", "aarch64-unknown-linux-gnu"]
-    } else {
-        return Err(format!("Unknown target platform: {os_test_output}"));
-    };
+    let compatible_target_triples = get_compatible_target_triples(os_test_output)?;
 
     // If the target is simply the same as what we are already running on, we can use our current
     // binary - no need to recreate what we already have.
@@ -351,6 +359,23 @@ fn create_binary_for_target(os_test_output: &str, output_binary_filename: &Path)
     let size = create_big_binary(&output_binary_filename, &target_platform_binary.target_triple, target_platform_binary_data, embedded_binaries_data)?;
     debug!("Created big binary at {} ({})", output_binary_filename.display(), HumanBytes(size));
     Ok(size)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::get_compatible_target_triples;
+
+    #[test]
+    fn test_get_compatible_target_triples_mac_x64() {
+        let output = "Remote system is Darwin MyHost 23.4.0 Darwin Kernel Version x86_64";
+        assert_eq!(get_compatible_target_triples(output).unwrap(), vec!["x86_64-apple-darwin"]);
+    }
+
+    #[test]
+    fn test_get_compatible_target_triples_mac_arm64() {
+        let output = "Remote system is Darwin MyHost 23.4.0 Darwin Kernel Version RELEASE_ARM64_T8103 arm64";
+        assert_eq!(get_compatible_target_triples(output).unwrap(), vec!["aarch64-apple-darwin"]);
+    }
 }
 
 pub fn get_embedded_binaries() -> Result<(EmbeddedBinaries, Vec<u8>), String> {
@@ -412,4 +437,3 @@ fn create_big_binary(output_binary_filename: &Path, target_triple: &str,
     std::fs::write(output_binary_filename, new_binary).map_err(|e| format!("Error saving big binary: {e}"))?;
     Ok(size)
 }
-
