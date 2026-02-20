@@ -277,7 +277,7 @@ where S : std::io::Read {
 }
 
 fn get_compatible_target_triples(os_test_output: &str) -> Result<Vec<&'static str>, String> {
-    // The embedded binaries might have different target triples depending on how it was build,
+    // The embedded binaries might have different target triples depending on how it was built,
     // e.g. -gnu vs -msvc suffixes, so we need to be somewhat flexible here.
     if os_test_output.contains("Windows") && os_test_output.contains("AMD64") {
         Ok(vec!["x86_64-pc-windows-msvc", "x86_64-pc-windows-gnu"])
